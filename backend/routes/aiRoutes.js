@@ -14,7 +14,7 @@ function aiErrorMessage(err) {
   const msg = err.message || '';
   if (err.status === 429 || msg.includes('429')) {
     if (msg.includes('quota') || msg.includes('exceeded your current quota')) {
-      return 'AI API quota exceeded. Check your billing/plan or wait for the daily free-tier reset.';
+      return 'AI API quota exceeded. The free LLM fallback was also rate-limited. Please wait a moment and try again.';
     }
     return 'AI service is rate-limiting requests. Please wait a moment and try again.';
   }
@@ -22,9 +22,12 @@ function aiErrorMessage(err) {
     return 'AI API key is invalid or not activated. Check your key in the provider console.';
   }
   if (msg.includes('credit balance is too low') || msg.includes('purchase credits')) {
-    return 'Anthropic API has no credits. Go to https://console.anthropic.com/billing to add a payment method or buy credits.';
+    return 'Paid AI provider has no credits. The app tried the free LLM fallback but it also failed. Check FREE_AI_PROVIDER and its API key in your environment.';
   }
-  return 'Failed to generate report. Please try again later.';
+  if (msg.includes('FREE_AI_PROVIDER') || msg.includes('API_KEY is missing')) {
+    return 'Free AI provider is not configured correctly. Check FREE_AI_PROVIDER and its API key in your environment.';
+  }
+  return 'Failed to generate report. All AI providers (including free fallback and local engine) were unavailable. Please try again later.';
 }
 
 // AI summarization endpoint — all authenticated users (staff need to summarise notes)

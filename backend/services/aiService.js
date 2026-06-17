@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { noteSummarizationPrompt, reportGenerationPrompt } = require('../utils/promptTemplates');
 const localAi = require('./localAiService');
+const freeAi = require('./freeAiService');
 require('dotenv').config();
 
 // ---------------------------------------------------------------------------
@@ -82,8 +83,13 @@ async function summarizeNote(rawNote) {
     const structured = JSON.parse(cleanedText);
     return structured;
   } catch (error) {
-    console.warn('[aiService] Anthropic failed, falling back to local AI:', error.message || error);
-    return localAi.summarizeNote(rawNote);
+    console.warn('[aiService] Anthropic failed, trying free AI:', error.message || error);
+    try {
+      return await freeAi.summarizeNote(rawNote);
+    } catch (freeError) {
+      console.warn('[aiService] Free AI failed, falling back to local AI:', freeError.message || freeError);
+      return localAi.summarizeNote(rawNote);
+    }
   }
 }
 
@@ -106,8 +112,13 @@ async function generateReport(summaryData) {
     const reportText = await callWithRetry(reportGenerationPrompt(promptData));
     return reportText;
   } catch (error) {
-    console.warn('[aiService] Anthropic failed, falling back to local AI:', error.message || error);
-    return localAi.generateReport(summaryData);
+    console.warn('[aiService] Anthropic failed, trying free AI:', error.message || error);
+    try {
+      return await freeAi.generateReport(summaryData);
+    } catch (freeError) {
+      console.warn('[aiService] Free AI failed, falling back to local AI:', freeError.message || freeError);
+      return localAi.generateReport(summaryData);
+    }
   }
 }
 

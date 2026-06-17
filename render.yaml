@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: lying-in-clinic-api
+    runtime: node
+    region: singapore
+    plan: standard
+    buildCommand: |
+      cd frontend && npm ci && npm run build
+      cd ../backend && npm ci
+    startCommand: cd backend && node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DB_HOST
+        fromDatabase:
+          name: clinic-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: clinic-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: clinic-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: clinic-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: clinic-db
+          property: database
+      - key: CORS_ORIGIN
+        value: https://lying-in-clinic-api.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: REPORT_CRON
+        value: "0 18 * * *"
+    disk:
+      name: uploads
+      mountPath: /app/uploads
+      sizeGB: 1
+
+databases:
+  - name: clinic-db
+    databaseName: lying_in_clinic
+    user: clinic
+    plan: standard
+    region: singapore

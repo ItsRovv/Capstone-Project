@@ -1,0 +1,19 @@
+{
+  "name": "lying-in-clinic-web-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lying-In Clinic Web App — root workspace for backend + frontend",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "seed": "npm run seed --prefix backend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "cross-env NODE_ENV=production node backend/server.js",
+    "start:dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  }
+}

@@ -1,0 +1,58 @@
+services:
+  db:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_change_me}
+      MYSQL_DATABASE: ${DB_NAME:-lying_in_clinic}
+      MYSQL_USER: ${DB_USER:-clinic}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-clinic_pass_change_me}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "${DB_HOST_PORT:-3306}:3306"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 5000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-clinic}
+      DB_PASSWORD: ${DB_PASSWORD:-clinic_pass_change_me}
+      DB_NAME: ${DB_NAME:-lying_in_clinic}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be set in .env (e.g. https://yourclinic.com)}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      REPORT_CRON: ${REPORT_CRON:-0 18 * * *}
+      REPORT_EMAIL: ${REPORT_EMAIL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Lying-In Clinic <no-reply@clinic.local>}
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    ports:
+      - "${PORT:-5000}:5000"
+
+volumes:
+  db_data:

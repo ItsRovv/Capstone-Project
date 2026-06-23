@@ -27,8 +27,8 @@
     "jsonwebtoken": "^9.0.2",
     "lying-in-clinic-web-app": "file:..",
     "morgan": "^1.10.0",
-    "mysql2": "^3.6.0",
     "node-cron": "^4.2.1",
+    "pg": "^8.13.1",
     "nodemailer": "^9.0.0"
   },
   "devDependencies": {

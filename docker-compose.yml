@@ -1,38 +1,15 @@
+# The database now lives in Supabase (managed Postgres) — there is no local DB
+# container. The API connects to Supabase using DATABASE_URL from your .env.
 services:
-  db:
-    image: mysql:8
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_change_me}
-      MYSQL_DATABASE: ${DB_NAME:-lying_in_clinic}
-      MYSQL_USER: ${DB_USER:-clinic}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-clinic_pass_change_me}
-    volumes:
-      - db_data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    ports:
-      - "${DB_HOST_PORT:-3306}:3306"
-
   api:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       PORT: 5000
-      DB_HOST: db
-      DB_PORT: 3306
-      DB_USER: ${DB_USER:-clinic}
-      DB_PASSWORD: ${DB_PASSWORD:-clinic_pass_change_me}
-      DB_NAME: ${DB_NAME:-lying_in_clinic}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env (Supabase connection string)}
+      DB_SSL: ${DB_SSL:-true}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be set in .env (e.g. https://yourclinic.com)}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -53,6 +30,3 @@ services:
       start_period: 20s
     ports:
       - "${PORT:-5000}:5000"
-
-volumes:
-  db_data:

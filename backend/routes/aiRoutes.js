@@ -5,7 +5,11 @@ const { generateDailyReport, generateWeeklyReport } = require('../services/repor
 const { runDailyReportJob } = require('../utils/scheduler');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
+const { requireStaff } = require('../middleware/role');
 const { aiLimiter, reportGenLimiter } = require('../middleware/rateLimit');
+
+// AI report tooling is clinic-internal — patients are not allowed.
+router.use(auth, requireStaff);
 
 /**
  * Return a friendly error message for common AI provider failures.

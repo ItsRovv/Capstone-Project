@@ -1,5 +1,4 @@
 const Consultation = require('../models/Consultation');
-const Appointment = require('../models/Appointment');
 const Report = require('../models/Report');
 const aiService = require('./aiService');
 const db = require('../config/db');
@@ -64,16 +63,8 @@ function extractFollowUps(consultations) {
 /**
  * Build rich analytics from DB data for a given period.
  */
-async function buildAnalytics(consultations, appointments, dateLabel, dateISO, prevDateISO, prevRange) {
+async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, prevRange) {
   const totalPatients = consultations.length;
-
-  // ── Appointments ──
-  const totalAppointments = appointments.length;
-  const apptBreakdown = {
-    scheduled: appointments.filter((a) => a.status === 'scheduled').length,
-    completed: appointments.filter((a) => a.status === 'completed').length,
-    cancelled: appointments.filter((a) => a.status === 'cancelled').length
-  };
 
   // ── New vs Returning patients ──
   let newPatients = 0;
@@ -81,7 +72,7 @@ async function buildAnalytics(consultations, appointments, dateLabel, dateISO, p
   if (totalPatients > 0) {
     const patientIds = [...new Set(consultations.map((c) => c.patient_id))];
     const [firstVisits] = await db.query(
-      `SELECT patient_id, MIN(DATE(visit_date)) AS first_visit
+      `SELECT patient_id, to_char(MIN(visit_date::date), 'YYYY-MM-DD') AS first_visit
        FROM consultations
        WHERE patient_id IN (${patientIds.map(() => '?').join(',')})
        GROUP BY patient_id`,
@@ -125,8 +116,6 @@ async function buildAnalytics(consultations, appointments, dateLabel, dateISO, p
   return {
     date: dateLabel,
     totalPatients,
-    totalAppointments,
-    appointmentBreakdown: apptBreakdown,
     newPatients,
     returningPatients,
     topComplaints,
@@ -143,13 +132,12 @@ async function buildAnalytics(consultations, appointments, dateLabel, dateISO, p
  */
 async function generateDailyReport(date) {
   const consultations = await Consultation.findByDate(date);
-  const appointments = await Appointment.findByDate(date);
 
   const prev = new Date(date);
   prev.setDate(prev.getDate() - 1);
   const prevDateISO = prev.toISOString().split('T')[0];
 
-  const analytics = await buildAnalytics(consultations, appointments, date, date, prevDateISO);
+  const analytics = await buildAnalytics(consultations, date, date, prevDateISO);
   const reportText = await aiService.generateReport(analytics);
 
   const id = await Report.save({
@@ -175,7 +163,6 @@ async function generateWeeklyReport(endDate) {
   const startISO = start.toISOString().split('T')[0];
 
   const consultations = await Consultation.findByDateRange(startISO, endDate);
-  const appointments = await Appointment.findByDateRange(startISO, endDate);
 
   // Previous week for trend
   const prevEnd = new Date(endDate);
@@ -186,7 +173,7 @@ async function generateWeeklyReport(endDate) {
   const prevStartISO = prevStart.toISOString().split('T')[0];
 
   const analytics = await buildAnalytics(
-    consultations, appointments, `${startISO} to ${endDate}`, endDate, null, { start: prevStartISO, end: prevEndISO }
+    consultations, `${startISO} to ${endDate}`, endDate, null, { start: prevStartISO, end: prevEndISO }
   );
   analytics.weekly = true;
   const reportText = await aiService.generateReport(analytics);

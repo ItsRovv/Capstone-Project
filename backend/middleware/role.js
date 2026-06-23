@@ -17,4 +17,15 @@ function requireRole(...allowed) {
   };
 }
 
+// Clinic staff roles.
+const STAFF_ROLES = ['admin', 'doctor', 'nurse', 'staff'];
+
+/**
+ * Allow any clinic staff member (admin/doctor/nurse/staff).
+ * Use on routes that expose patient data or clinic-wide management.
+ */
+const requireStaff = requireRole(...STAFF_ROLES);
+
 module.exports = requireRole;
+module.exports.requireStaff = requireStaff;
+module.exports.STAFF_ROLES = STAFF_ROLES;

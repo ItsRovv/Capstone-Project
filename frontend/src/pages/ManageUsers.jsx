@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { useToast } from '../components/UI/Toast';
 import { Button } from '../components/UI/Button';
 import { Input, Select } from '../components/UI/Input';
@@ -31,7 +30,7 @@ export function ManageUsers() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const fetchUsers = useCallback(async () => {
+  async function fetchUsers() {
     setLoading(true);
     try {
       const { data } = await api.get('/api/auth/users');
@@ -41,9 +40,9 @@ export function ManageUsers() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  useEffect(() => { fetchUsers(); }, []);
 
   // ── Create ──────────────────────────────────────────────────────────────────
   const updateCreate = (k) => (e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }));
@@ -52,8 +51,14 @@ export function ManageUsers() {
     e.preventDefault();
     setCreating(true);
     try {
-      await api.post('/api/auth/register', createForm);
-      toast.success(`User "${createForm.name}" created`);
+      const { data } = await api.post('/api/auth/register', createForm);
+      if (data?.requiresVerification) {
+        toast.success(
+          `User "${createForm.name}" created. A verification code was emailed to ${createForm.email}.`
+        );
+      } else {
+        toast.success(`User "${createForm.name}" created.`);
+      }
       setCreateOpen(false);
       setCreateForm(EMPTY_FORM);
       fetchUsers();
@@ -183,6 +188,7 @@ export function ManageUsers() {
           />
           <Select label="Role" value={createForm.role} onChange={updateCreate('role')}>
             <option value="staff">Staff</option>
+            <option value="nurse">Nurse</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
@@ -214,6 +220,7 @@ export function ManageUsers() {
           />
           <Select label="Role" value={editForm.role} onChange={updateEdit('role')}>
             <option value="staff">Staff</option>
+            <option value="nurse">Nurse</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>

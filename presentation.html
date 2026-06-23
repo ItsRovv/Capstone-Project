@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capstone Presentation — AI-Powered Patient Records</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #0a1628; --blue: #1a56db; --blue-light: #e8f0fe;
+    --border: #e2e8f0; --bg: #f8fafc; --white: #ffffff;
+    --text: #0f172a; --muted: #64748b; --accent: #38bdf8;
+    --green: #15803d; --green-light: #f0fdf4;
+    --red: #991b1b; --red-light: #fff5f5;
+  }
+  html, body { height: 100%; }
+  body { font-family: 'Inter', sans-serif; background: var(--navy); color: var(--text); font-size: 18px; line-height: 1.6; overflow-y: auto; }
+
+  .slide { display: none; width: 100%; min-height: 100vh; flex-direction: column; justify-content: center; align-items: center; padding: 60px 80px; position: relative; }
+  .slide.active { display: flex; }
+  .slide-content { max-width: 1200px; width: 100%; }
+
+  /* COVER */
+  .slide.cover { background: var(--navy); color: white; text-align: center; }
+  .slide.cover .slide-content { text-align: center; }
+  .cover-eyebrow { font-size: 14px; font-weight: 600; letter-spacing: .15em; color: var(--accent); text-transform: uppercase; margin-bottom: 24px; }
+  .cover-title { font-family: 'Sora', sans-serif; font-size: 52px; font-weight: 800; line-height: 1.15; max-width: 900px; margin: 0 auto 16px; }
+  .cover-title span { color: var(--accent); }
+  .cover-subtitle { font-size: 20px; color: #94a3b8; max-width: 700px; margin: 0 auto 48px; }
+  .cover-meta { display: flex; justify-content: center; gap: 48px; flex-wrap: wrap; margin-top: 20px; }
+  .cover-meta-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .1em; }
+  .cover-meta-value { font-size: 15px; color: #e2e8f0; font-weight: 500; margin-top: 4px; }
+
+  /* STANDARD */
+  .slide.standard { background: var(--bg); }
+  .slide.standard .slide-content { background: var(--white); border: 1px solid var(--border); border-radius: 20px; padding: 48px 60px; box-shadow: 0 10px 40px rgba(0,0,0,.06); }
+  .slide-num { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--blue); text-transform: uppercase; margin-bottom: 8px; }
+  .slide-title { font-family: 'Sora', sans-serif; font-size: 32px; font-weight: 700; line-height: 1.25; margin-bottom: 8px; }
+  .slide-desc { font-size: 16px; color: var(--muted); margin-bottom: 32px; }
+
+  /* GRIDS */
+  .problem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .problem-card { background: var(--red-light); border: 1px solid #fecaca; border-radius: 12px; padding: 24px; }
+  .problem-card .p-icon { font-size: 28px; margin-bottom: 12px; }
+  .problem-card .p-title { font-weight: 700; font-size: 16px; color: var(--red); margin-bottom: 6px; }
+  .problem-card .p-desc { font-size: 14px; color: #7f1d1d; line-height: 1.6; }
+
+  .features-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .feat-card { border: 1px solid var(--border); border-radius: 12px; padding: 20px; background: var(--white); }
+  .feat-card.ai-feat { background: linear-gradient(135deg, #eff6ff, #f5f3ff); border-color: #c7d2fe; }
+  .feat-icon { font-size: 26px; margin-bottom: 10px; }
+  .feat-name { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .feat-card.ai-feat .feat-name { color: #1e40af; }
+  .feat-desc { font-size: 13px; color: var(--muted); line-height: 1.55; }
+  .ai-tag { display: inline-block; margin-top: 10px; background: #1e40af; color: white; font-size: 10px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+
+  .ai-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .ai-box { border-radius: 14px; padding: 24px; border: 1px solid #c7d2fe; background: linear-gradient(160deg, #eff6ff, #f5f3ff); }
+  .ai-box-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .ai-box-icon { width: 42px; height: 42px; border-radius: 10px; background: var(--blue); color: white; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .ai-box-title { font-weight: 700; font-size: 16px; color: #1e3a8a; }
+  .ai-box-sub { font-size: 13px; color: #4338ca; }
+  .ai-how-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #6366f1; margin-bottom: 6px; margin-top: 14px; }
+  .ai-how-text { font-size: 14px; color: #374151; line-height: 1.65; }
+  .ai-example { margin-top: 14px; background: white; border-radius: 8px; padding: 12px 14px; border: 1px solid #e0e7ff; }
+  .ai-example-label { font-size: 10px; color: #6366f1; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+  .ai-example-text { font-size: 13px; color: #374151; line-height: 1.6; font-style: italic; }
+
+  /* TABLE */
+  .data-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  .data-table th { background: var(--blue-light); text-align: left; padding: 12px 14px; font-size: 13px; font-weight: 700; color: #1e3a8a; border-bottom: 2px solid var(--blue); }
+  .data-table td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid var(--border); }
+  .data-table tr:hover td { background: #f8fafc; }
+
+  /* LIST */
+  .deliverable-list { list-style: none; }
+  .deliverable-list li { display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .deliverable-list li:last-child { border-bottom: none; }
+  .d-check { width: 26px; height: 26px; border-radius: 50%; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; margin-top: 2px; font-weight: 700; }
+  .d-title { font-weight: 600; font-size: 15px; }
+  .d-desc { font-size: 14px; color: var(--muted); margin-top: 3px; }
+
+  /* CODE */
+  pre.code { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 10px; font-size: 13px; line-height: 1.7; overflow-x: auto; font-family: 'Fira Code', 'Consolas', monospace; }
+  .code .kw { color: #c084fc; } .code .str { color: #86efac; } .code .num { color: #fbbf24; }
+
+  /* ARCH */
+  .arch-box { background: #f1f5f9; border: 1px solid var(--border); border-radius: 12px; padding: 24px; font-family: monospace; font-size: 13px; line-height: 1.8; white-space: pre; overflow-x: auto; }
+
+  /* TIMELINE */
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: var(--border); }
+  .tl-item { position: relative; padding: 0 0 22px 28px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-dot { position: absolute; left: -5px; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--blue); border: 2px solid white; box-shadow: 0 0 0 2px var(--blue); }
+  .tl-period { font-size: 12px; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .06em; }
+  .tl-title { font-weight: 700; font-size: 15px; margin: 3px 0; }
+  .tl-desc { font-size: 14px; color: var(--muted); }
+
+  /* NAV */
+  .nav { position: fixed; bottom: 24px; right: 24px; display: flex; gap: 10px; z-index: 100; }
+  .nav button { background: var(--blue); color: white; border: none; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .2s; }
+  .nav button:hover { background: #1e40af; }
+  .nav button:disabled { background: #94a3b8; cursor: not-allowed; }
+  .slide-counter { position: fixed; bottom: 28px; left: 28px; font-size: 13px; color: #94a3b8; font-weight: 500; z-index: 100; }
+  .hint { position: fixed; top: 16px; right: 20px; font-size: 12px; color: #64748b; z-index: 100; }
+
+  @media (max-width: 900px) {
+    .slide { padding: 40px 24px; }
+    .features-grid { grid-template-columns: 1fr 1fr; }
+    .problem-grid, .ai-detail-grid { grid-template-columns: 1fr; }
+    .cover-title { font-size: 32px; }
+    .slide-title { font-size: 24px; }
+    .slide-content { padding: 28px 24px !important; }
+    .cover-subtitle { font-size: 16px; }
+  }
+  @media (max-width: 600px) {
+    .slide { padding: 20px 16px; justify-content: flex-start; }
+    .features-grid { grid-template-columns: 1fr; }
+    .cover-title { font-size: 26px; }
+    .slide-title { font-size: 20px; }
+    .cover-meta { gap: 20px; }
+    .cmv { font-size: 13px; }
+    .nav button { padding: 8px 14px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hint">Use Arrow Keys or buttons to navigate</div>
+
+<!-- SLIDE 1: COVER -->
+<div class="slide cover active">
+  <div class="slide-content">
+    <div class="cover-eyebrow">Capstone Project Presentation 2026</div>
+    <div class="cover-title">AI-Powered Patient Records Management System <span>for JLMC Lying-In Clinic</span></div>
+    <div class="cover-subtitle">A full-stack web application that stores consultation records and uses AI to summarize notes and generate clinic reports.</div>
+    <div class="cover-meta">
+      <div><div class="cover-meta-label">Presented by</div><div class="cover-meta-value">Rovin, Charles, Rachel, Sherwin</div></div>
+      <div><div class="cover-meta-label">Program</div><div class="cover-meta-value">BSIS / BSCS 4th Year</div></div>
+      <div><div class="cover-meta-label">School</div><div class="cover-meta-value">Computer Communication Development Institute</div></div>
+      <div><div class="cover-meta-label">Location</div><div class="cover-meta-value">Sorsogon City, Sorsogon</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 2: OBJECTIVES -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Objectives &amp; Purpose</div>
+    <div class="slide-title">What we set out to achieve</div>
+    <div class="slide-desc">Five core objectives drive every design decision in this system.</div>
+    <table class="data-table">
+      <thead><tr><th>Objective</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><b>Digitize patient records</b></td><td>Replace paper records that get lost or are impossible to search</td></tr>
+        <tr><td><b>Structure unstructured doctor notes</b></td><td>Use AI to turn raw, free-form notes into clean medical records instantly</td></tr>
+        <tr><td><b>Automate clinic reporting</b></td><td>Generate daily / weekly plain-language reports with zero manual work</td></tr>
+        <tr><td><b>Role-based access control</b></td><td>Separate staff workflows from patient self-service portal</td></tr>
+        <tr><td><b>Production-ready deployment</b></td><td>Deliver a secure, containerized system the clinic can run immediately</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- SLIDE 4: SOLUTION OVERVIEW -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Our Proposed Solution</div>
+    <div class="slide-title">One web-based system that handles it all</div>
+    <div class="slide-desc">Six core modules built into a single modern application.</div>
+    <div class="features-grid">
+      <div class="feat-card"><div class="feat-icon">👤</div><div class="feat-name">Patient Registration</div><div class="feat-desc">Store demographics, contact info, and full medical history digitally.</div></div>
+      <div class="feat-card"><div class="feat-icon">📁</div><div class="feat-name">Consultation Records</div><div class="feat-desc">Save diagnosis, prescription, and visit notes per patient, per visit.</div></div>
+      <div class="feat-card"><div class="feat-icon">🔍</div><div class="feat-name">Patient History Lookup</div><div class="feat-desc">Search any patient's past visits, diagnoses, and prescriptions in seconds.</div></div>
+      <div class="feat-card"><div class="feat-icon">📅</div><div class="feat-name">Appointment Scheduling</div><div class="feat-desc">Set and view upcoming appointments with status tracking.</div></div>
+      <div class="feat-card ai-feat"><div class="feat-icon">🤖</div><div class="feat-name">AI Note Summarizer</div><div class="feat-desc">Structures raw consultation notes into organized medical records automatically.</div><div class="ai-tag">AI-Powered</div></div>
+      <div class="feat-card ai-feat"><div class="feat-icon">📊</div><div class="feat-name">Auto-Generate Reports</div><div class="feat-desc">AI generates daily/weekly summary reports with patient statistics.</div><div class="ai-tag">AI-Powered</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5: TECH STACK -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Tech Stack</div>
+    <div class="slide-title">What we built vs. what was proposed</div>
+    <div class="slide-desc">We upgraded the original proposal to a modern, production-ready stack.</div>
+    <table class="data-table">
+      <thead><tr><th>Layer</th><th>Original Proposal</th><th><b>Actual Implementation</b></th></tr></thead>
+      <tbody>
+        <tr><td>Frontend</td><td>HTML / CSS / JS</td><td><b>React 18 + Vite + Tailwind CSS</b></td></tr>
+        <tr><td>Backend</td><td>PHP</td><td><b>Node.js + Express</b></td></tr>
+        <tr><td>Database</td><td>MySQL</td><td><b>MySQL</b> (same)</td></tr>
+        <tr><td>AI Engine</td><td>Claude API (Anthropic)</td><td><b>Google Gemini</b> + fallback engines</td></tr>
+        <tr><td>Deployment</td><td>Local server</td><td><b>Docker Compose</b> + bare-metal ready</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:20px; background: var(--green-light); border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 18px;">
+      <div style="font-weight:700; font-size:14px; color: var(--green);">Why the upgrade?</div>
+      <div style="font-size:13px; color:#166534; margin-top:4px;">React + Node.js is more maintainable, faster to develop, and already fully built and tested. All proposed features are implemented.</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 6: SYSTEM ARCHITECTURE -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">System Architecture</div>
+    <div class="slide-title">How the code is organized</div>
+    <div class="slide-desc">Clean separation between frontend, API, database, and AI services.</div>
+    <div class="arch-box">┌─────────────────┐     HTTP / REST      ┌──────────────────────────────┐
+│   React SPA     │ ◄──────────────────► │   Node.js + Express API      │
+│  (Vite + Tailwind)│   (JWT + Cookie)    │  • Auth / Patients / Consults│
+└─────────────────┘                     │  • Appointments / Reports / AI│
+                                         │  • Scheduler / Mailer        │
+                                         └────────────┬─────────────────┘
+                                                      │
+                                         ┌────────────▼─────────────────┐
+                                         │         MySQL Database       │
+                                         │  patients, users, consults   │
+                                         │  appointments, clinic_reports│
+                                         └──────────────────────────────┘</div>
+    <div style="margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div style="background:#f1f5f9; border-radius:10px; padding:14px; font-size:13px;"><b>Key decisions:</b> JWT in httpOnly cookies (secure, no JS access), pluggable AI engine with local fallback</div>
+      <div style="background:#f1f5f9; border-radius:10px; padding:14px; font-size:13px;"><b>Production:</b> Single port serves API + built React app. SPA fallback for all client-side routes.</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7: DATABASE DESIGN -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Database Design</div>
+    <div class="slide-title">How data is stored</div>
+    <div class="slide-desc">Five core tables with indexes for fast search and reporting.</div>
+    <table class="data-table">
+      <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>patients</code></td><td>Demographics, DOB, sex, address, emergency contact</td></tr>
+        <tr><td><code>users</code></td><td>Staff accounts (admin/doctor/nurse/staff) + patient portal accounts with lockout</td></tr>
+        <tr><td><code>consultations</code></td><td>Visit records with <code>raw_notes</code>, <code>structured_notes</code>, diagnosis, prescription</td></tr>
+        <tr><td><code>appointments</code></td><td>Scheduled visits with status: scheduled / completed / cancelled</td></tr>
+        <tr><td><code>clinic_reports</code></td><td>AI-generated daily/weekly reports + JSON <code>metrics</code> for analytics</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px; font-size:13px; color: var(--muted);">Indexed columns: <code>patients.last_name</code>, <code>consultations.visit_date</code>, <code>appointments.appointment_date</code>, <code>clinic_reports.report_date</code></div>
+  </div>
+</div>
+
+<!-- SLIDE 8: SECURITY -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Authentication & Security</div>
+    <div class="slide-title">How the code protects the system</div>
+    <div class="slide-desc">Security is not an afterthought — it is built into every layer.</div>
+    <table class="data-table">
+      <thead><tr><th>Feature</th><th>How it works</th></tr></thead>
+      <tbody>
+        <tr><td><b>JWT Authentication</b></td><td>Token from <code>httpOnly</code> cookie or <code>Authorization: Bearer</code> header</td></tr>
+        <tr><td><b>Role-Based Access</b></td><td>Roles: admin, doctor, nurse, staff, patient — each route is gated</td></tr>
+        <tr><td><b>Rate Limiting</b></td><td>Strict limits on login/register to prevent brute-force</td></tr>
+        <tr><td><b>Account Lockout</b></td><td>Failed attempts increment a counter; account locks after threshold</td></tr>
+        <tr><td><b>Helmet + CSP</b></td><td>Production security headers + Content Security Policy</td></tr>
+        <tr><td><b>HSTS</b></td><td>Forces HTTPS for a full year in production</td></tr>
+        <tr><td><b>Graceful Shutdown</b></td><td>SIGTERM drains requests, closes DB pool, force-exits after 10s timeout</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SLIDE 9: FRONTEND ROUTING -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Frontend: How the Code Works</div>
+    <div class="slide-title">React SPA with role-based routing</div>
+    <div class="slide-desc"><code>App.jsx</code> defines every route and guards them by role.</div>
+    <pre class="code">// Staff routes (protected by role)
+&lt;Route path="/" element={&lt;Layout /&gt;}&gt;
+  &lt;Route index element={&lt;Dashboard /&gt;} /&gt;
+  &lt;Route path="patients" element={&lt;Patients /&gt;} /&gt;
+  &lt;Route path="patients/:id" element={&lt;PatientDetail /&gt;} /&gt;
+  &lt;Route path="consultations" element={&lt;Consultations /&gt;} /&gt;
+  &lt;Route path="appointments" element={&lt;Appointments /&gt;} /&gt;
+  &lt;Route path="reports" element={&lt;Reports /&gt;} /&gt;
+  &lt;Route path="admin/users" element={&lt;ManageUsers /&gt;} /&gt;
+&lt;/Route&gt;
+
+// Patient self-service portal
+&lt;Route path="/portal" element={&lt;PatientLayout /&gt;}&gt;
+  &lt;Route index element={&lt;PatientDashboard /&gt;} /&gt;
+  &lt;Route path="appointments" element={&lt;PatientAppointments /&gt;} /&gt;
+  &lt;Route path="records" element={&lt;PatientRecords /&gt;} /&gt;
+&lt;/Route&gt;</pre>
+    <div style="margin-top:12px; font-size:13px; color: var(--muted);"><b>Reusable components:</b> Layout, Sidebar, Topbar, PatientForm, ConsultationForm, AppointmentForm, ProtectedRoute</div>
+  </div>
+</div>
+
+<!-- SLIDE 10: AI NOTE SUMMARIZER -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">AI Feature 1</div>
+    <div class="slide-title">AI Note Summarizer</div>
+    <div class="slide-desc">How raw doctor notes become structured medical records automatically.</div>
+    <div class="ai-detail-grid">
+      <div class="ai-box">
+        <div class="ai-box-header"><div class="ai-box-icon">📝</div><div><div class="ai-box-title">Doctor's Workflow</div><div class="ai-box-sub">One click to structure notes</div></div></div>
+        <div class="ai-how-label">Step 1</div>
+        <div class="ai-how-text">Doctor types raw notes in plain language during or after the consultation.</div>
+        <div class="ai-example"><div class="ai-example-label">Doctor types</div><div class="ai-example-text">"35f fever 3d, cough, throat inflamed, amoxicillin 500 3x7d paracetamol prn"</div></div>
+        <div class="ai-how-label">Step 2</div>
+        <div class="ai-how-text">Clicks <b>"Summarize with AI"</b> — backend sends note to Google Gemini with a medical prompt template.</div>
+        <div class="ai-how-label">Step 3</div>
+        <div class="ai-how-text">AI returns structured JSON which is saved into the consultation record.</div>
+      </div>
+      <div class="ai-box">
+        <div class="ai-box-header"><div class="ai-box-icon">🛡️</div><div><div class="ai-box-title">Resilient Fallback Chain</div><div class="ai-box-sub">Works even without internet</div></div></div>
+        <div class="ai-how-text">The AI engine is designed to never fail:</div>
+        <div class="ai-example" style="margin-top:10px;"><div class="ai-example-label">Primary</div><div class="ai-example-text"><b>Google Gemini</b> — cloud AI with highest quality</div></div>
+        <div class="ai-example" style="margin-top:8px;"><div class="ai-example-label">Fallback 1</div><div class="ai-example-text"><b>Free AI (Groq)</b> — fast, low-cost cloud alternative</div></div>
+        <div class="ai-example" style="margin-top:8px;"><div class="ai-example-label">Fallback 2</div><div class="ai-example-text"><b>Local AI Parser</b> — regex-based medical parser that works 100% offline</div></div>
+        <div class="ai-example" style="margin-top:8px;"><div class="ai-example-label">Config</div><div class="ai-example-text"><code>USE_LOCAL_AI=true</code> skips cloud entirely for offline clinics</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 11: AI CLINIC REPORTS -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">AI Feature 2</div>
+    <div class="slide-title">Auto-Generated Clinic Reports</div>
+    <div class="slide-desc">Daily and weekly summaries generated automatically.</div>
+    <div class="ai-detail-grid">
+      <div class="ai-box">
+        <div class="ai-box-header"><div class="ai-box-icon">📊</div><div><div class="ai-box-title">Automatic Daily Flow</div><div class="ai-box-sub">Runs at 6 PM every day</div></div></div>
+        <div class="ai-how-label">Step 1 — Scheduler</div><div class="ai-how-text">Cron scheduler triggers generateDailyReport(date).</div>
+        <div class="ai-how-label">Step 2 — Analytics</div><div class="ai-how-text">buildAnalytics() computes totals, complaints, diagnoses, peak hour, trends, follow-ups.</div>
+        <div class="ai-how-label">Step 3 — AI Generation</div><div class="ai-how-text">Metrics sent to Gemini. Plain-language report saved to clinic_reports.</div>
+        <div class="ai-how-label">Step 4 — Delivery (optional)</div><div class="ai-how-text">If SMTP configured, report is emailed automatically to the clinic owner.</div>
+      </div>
+      <div class="ai-box">
+        <div class="ai-box-header"><div class="ai-box-icon">📝</div><div><div class="ai-box-title">Example AI Output</div><div class="ai-box-sub">Plain language, actionable insights</div></div></div>
+        <div class="ai-example"><div class="ai-example-label">Daily Report Example</div><div class="ai-example-text">"Today, June 14: 24 patients served. Peak hours were 9–11 AM. Most common complaints: fever (8), cough (5), hypertension follow-up (4)."</div></div>
+        <div class="ai-example" style="margin-top:8px;"><div class="ai-example-label">Weekly Report Example</div><div class="ai-example-text">"Week of June 8–14: 156 consultations. Monday busiest. New patients: 23. Top diagnosis: URTI (34)."</div></div>
+        <div class="ai-example" style="margin-top:8px;"><div class="ai-example-label">Value to owner</div><div class="ai-example-text">No spreadsheets, no manual counting, no Excel needed.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 12: API ROUTES -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">API & Backend Logic</div>
+    <div class="slide-title">How requests flow through the server</div>
+    <div class="slide-desc">server.js mounts all routes under /api.</div>
+    <table class="data-table">
+      <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>POST /api/auth/login</td><td>JWT login (rate-limited, account lockout)</td></tr>
+        <tr><td>GET /api/patients</td><td>List / search patients with pagination</td></tr>
+        <tr><td>POST /api/consultations/:id/summarize</td><td>Trigger AI note summarization</td></tr>
+        <tr><td>GET /api/reports/daily</td><td>Generate or retrieve daily report</td></tr>
+        <tr><td>GET /api/reports/weekly</td><td>Generate or retrieve weekly report</td></tr>
+        <tr><td>GET /api/ai/...</td><td>Direct AI endpoints for testing</td></tr>
+        <tr><td>GET /health</td><td>Liveness probe for Docker / orchestrators</td></tr>
+        <tr><td>GET /health/ready</td><td>Readiness probe — checks DB connectivity</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div style="background:#f1f5f9; border-radius:10px; padding:14px; font-size:13px;"><b>Production mode:</b> Same port serves API + built React app from frontend/dist</div>
+      <div style="background:#f1f5f9; border-radius:10px; padding:14px; font-size:13px;"><b>SPA fallback:</b> Unknown non-API routes redirect to index.html for React Router</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 13: DEPLOYMENT -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Deployment & DevOps</div>
+    <div class="slide-title">How the code goes live</div>
+    <div class="slide-desc">Built for production from day one.</div>
+    <div class="features-grid">
+      <div class="feat-card"><div class="feat-icon">🐳</div><div class="feat-name">Docker Compose</div><div class="feat-desc">One command: docker-compose up -d. Spins up MySQL + API with auto-migrations.</div></div>
+      <div class="feat-card"><div class="feat-icon">🔐</div><div class="feat-name">Environment Secrets</div><div class="feat-desc">All secrets in .env — never in source code.</div></div>
+      <div class="feat-card"><div class="feat-icon">⚡</div><div class="feat-name">Dev Workflow</div><div class="feat-desc">npm run start:dev launches backend + frontend simultaneously.</div></div>
+      <div class="feat-card"><div class="feat-icon">🔄</div><div class="feat-name">CI / CD Ready</div><div class="feat-desc">GitHub Actions workflow runs linting and tests on every push.</div></div>
+      <div class="feat-card"><div class="feat-icon">🌐</div><div class="feat-name">Single Port</div><div class="feat-desc">Production serves API and React SPA on one port.</div></div>
+      <div class="feat-card"><div class="feat-icon">📧</div><div class="feat-name">Optional Email</div><div class="feat-desc">Reports always generated and stored; emailed only if SMTP configured.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 14: DELIVERABLES & TIMELINE -->
+<div class="slide standard">
+  <div class="slide-content">
+    <div class="slide-num">Deliverables & Timeline</div>
+    <div class="slide-title">What the clinic receives — at zero cost</div>
+    <div class="slide-desc">June to December 2026. Structured 7-month plan.</div>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start;">
+      <div>
+        <ul class="deliverable-list">
+          <li><div class="d-check">✓</div><div><div class="d-title">Fully working web-based system</div><div class="d-desc">Installed and running on your clinic computer. Runs in any browser.</div></div></li>
+          <li><div class="d-check">✓</div><div><div class="d-title">Staff training and walkthrough</div><div class="d-desc">We train reception staff and nurses on every feature personally.</div></div></li>
+          <li><div class="d-check">✓</div><div><div class="d-title">Full technical documentation</div><div class="d-desc">User manual and system docs so anyone can maintain it after we graduate.</div></div></li>
+          <li><div class="d-check">✓</div><div><div class="d-title">Source code ownership</div><div class="d-desc">Your clinic fully owns the system. Modify or expand it anytime.</div></div></li>
+          <li><div class="d-check">✓</div><div><div class="d-title">Ongoing support during project</div><div class="d-desc">We fix bugs and adjust features based on your feedback throughout.</div></div></li>
+        </ul>
+      </div>
+      <div>
+        <div class="timeline">
+          <div class="tl-item"><div class="tl-dot"></div><div class="tl-period">June 2026</div><div class="tl-title">Requirements gathering</div><div class="tl-desc">Visit clinic, observe process, finalize requirements.</div></div>
+          <div class="tl-item"><div class="tl-dot"></div><div class="tl-period">July 2026</div><div class="tl-title">System design & prototype</div><div class="tl-desc">Design interface, show mockup, collect feedback.</div></div>
+          <div class="tl-item"><div class="tl-dot"></div><div class="tl-period">Aug – Sep 2026</div><div class="tl-title">Development & testing</div><div class="tl-desc">Build and test every feature including AI integrations.</div></div>
+          <div class="tl-item"><div class="tl-dot"></div><div class="tl-period">Oct – Nov 2026</div><div class="tl-title">Deployment & training</div><div class="tl-desc">Install on-site, train staff, hand over full ownership.</div></div>
+          <div class="tl-item"><div class="tl-dot"></div><div class="tl-period">December 2026</div><div class="tl-title">Final presentation & turnover</div><div class="tl-desc">Official capstone defense and formal turnover to clinic.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 15: CLOSING -->
+<div class="slide cover">
+  <div class="slide-content">
+    <div class="cover-title" style="font-size: 42px;">Let's build this <span>together</span></div>
+    <div class="cover-subtitle" style="max-width: 600px;">This system is already built, tested, and production-hardened. Your clinic gets a modern digital records platform at zero cost.</div>
+    <div class="cover-meta" style="margin-top: 40px;">
+      <div><div class="cover-meta-label">Group Leader</div><div class="cover-meta-value">Rovin John Mantes</div></div>
+      <div><div class="cover-meta-label">Contact</div><div class="cover-meta-value">09454557279</div></div>
+      <div><div class="cover-meta-label">Email</div><div class="cover-meta-value">rovinjohnmantes097@gmail.com</div></div>
+      <div><div class="cover-meta-label">School</div><div class="cover-meta-value">Computer Communication Development Institute</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- NAVIGATION -->
+<div class="slide-counter">1 / 15</div>
+<div class="nav">
+  <button id="prevBtn">Previous</button>
+  <button id="nextBtn">Next</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const counter = document.querySelector('.slide-counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  let current = 0;
+
+  function showSlide(index) {
+    slides.forEach((s, i) => s.classList.toggle('active', i === index));
+    counter.textContent = (index + 1) + ' / ' + slides.length;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === slides.length - 1;
+  }
+
+  prevBtn.addEventListener('click', () => { if (current > 0) showSlide(--current); });
+  nextBtn.addEventListener('click', () => { if (current < slides.length - 1) showSlide(++current); });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      if (current < slides.length - 1) showSlide(++current);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (current > 0) showSlide(--current);
+    }
+  });
+
+  showSlide(0);
+</script>
+</body>
+</html>

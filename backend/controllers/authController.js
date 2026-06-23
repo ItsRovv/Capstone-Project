@@ -1,6 +1,15 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { extractToken } = require('../middleware/auth');
+const { sendMail, isConfigured: isMailConfigured } = require('../utils/mailer');
+const {
+  generateOtp,
+  hashOtp,
+  compareOtp,
+  otpExpiry,
+  buildOtpEmail,
+  OTP_MAX_ATTEMPTS
+} = require('../utils/otp');
 
 // Token lifetime — 8 hours is a reasonable session for a clinic workday
 const TOKEN_EXPIRY = '8h';
@@ -9,11 +18,19 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, name: user.name },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name
+    },
     process.env.JWT_SECRET,
     { expiresIn: TOKEN_EXPIRY }
   );
 }
+
+// Staff roles that an admin may assign when creating/updating staff accounts.
+const STAFF_ROLES = ['admin', 'doctor', 'nurse', 'staff'];
 
 /**
  * Set the auth token as an httpOnly cookie so it is inaccessible to JavaScript
@@ -66,12 +83,52 @@ function isStrongPassword(password) {
 }
 
 function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    email_verified: Boolean(user.email_verified)
+  };
 }
 
 // Max failed attempts before lockout; lockout duration in minutes
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 30;
+
+/**
+ * Generate an OTP, persist its hash on the user, and email the plaintext code.
+ * Returns true if the email was actually sent.
+ * @param {object} user - user row (must have id, email, name)
+ * @param {'password_reset'|'email_verify'} purpose
+ */
+async function issueOtp(user, purpose) {
+  const code = generateOtp();
+  const hash = await hashOtp(code);
+  await User.setOtp(user.id, { hash, expiresAt: otpExpiry(), purpose });
+
+  const { subject, text, html } = buildOtpEmail(purpose, code, user.name);
+  let sent = false;
+  try {
+    sent = await sendMail({ to: user.email, subject, text, html });
+  } catch (err) {
+    // A mail-transport failure must not break account creation / reset requests.
+    // The OTP is stored; the user can request a new one once email is fixed.
+    console.error('[auth] Failed to send OTP email:', err.message);
+  }
+
+  // Dev fallback: if the email wasn't actually sent (SMTP not set up or failed),
+  // print the code to the server console so the flow is testable locally.
+  // Never do this in production.
+  if (!sent && process.env.NODE_ENV !== 'production') {
+    console.log(
+      `\n[auth][DEV] OTP for ${user.email} (${purpose}): ${code}` +
+        `  — expires in ${require('../utils/otp').OTP_EXPIRY_MINUTES} min\n`
+    );
+  }
+
+  return sent;
+}
 
 /**
  * POST /api/auth/login
@@ -106,6 +163,14 @@ async function login(req, res, next) {
     if (!ok) {
       await User.incrementFailedLogin(user.id, MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES);
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Block login until the account's email has been verified via OTP.
+    if (!user.email_verified) {
+      return res.status(403).json({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Your email is not verified yet. Please verify your account using the code we emailed you.'
+      });
     }
 
     // Successful login — reset lockout counter and issue token via httpOnly cookie
@@ -173,21 +238,166 @@ async function register(req, res, next) {
       return res.status(409).json({ message: 'Email is already registered' });
     }
 
-    // First user is admin; subsequent users default to 'staff' unless role specified
+    // First user is admin; subsequent users default to 'staff' unless role specified.
     const finalRole = userCount === 0 ? 'admin' : (role || 'staff');
-    if (!['admin', 'doctor', 'staff'].includes(finalRole)) {
+    if (!STAFF_ROLES.includes(finalRole)) {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
-    const id = await User.create({ name, email, password, role: finalRole });
+    // The very first account (bootstrap admin) is auto-verified so setup is never
+    // blocked. Likewise, if email/SMTP isn't configured we auto-verify to avoid
+    // locking accounts out. Otherwise the new user must verify via an emailed OTP.
+    const isFirstUser = userCount === 0;
+    const autoVerify = isFirstUser || !isMailConfigured();
+
+    const id = await User.create({ name, email, password, role: finalRole, email_verified: autoVerify });
     const user = await User.findById(id);
-    const responseToken = signToken(user);
-    // If this is the first-user setup (no existing admin session), set the cookie now
-    if (userCount === 0) setAuthCookie(res, responseToken);
-    return res.status(201).json({ token: responseToken, user: publicUser(user) });
+
+    if (isFirstUser) {
+      // Bootstrap admin logs in immediately.
+      const responseToken = signToken(user);
+      setAuthCookie(res, responseToken);
+      return res.status(201).json({ token: responseToken, user: publicUser(user) });
+    }
+
+    // Admin-created account: send a verification OTP to the new user's email.
+    let emailSent = false;
+    if (!autoVerify) {
+      emailSent = await issueOtp(user, 'email_verify');
+    }
+
+    return res.status(201).json({
+      user: publicUser(user),
+      emailVerificationSent: emailSent,
+      // When SMTP is off the account is auto-verified and can log in right away.
+      requiresVerification: !autoVerify
+    });
   } catch (err) {
     return next(err);
   }
+}
+
+/**
+ * POST /api/auth/forgot-password
+ * Body: { email }
+ *
+ * Generates an OTP and emails it. Always returns a generic success response so
+ * the endpoint cannot be used to enumerate which emails have accounts.
+ */
+async function forgotPassword(req, res, next) {
+  try {
+    const { email } = req.body || {};
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ message: 'A valid email is required' });
+    }
+
+    const user = await User.findByEmail(email);
+    if (user) {
+      await issueOtp(user, 'password_reset');
+    }
+
+    // Generic response regardless of whether the account exists.
+    return res.json({
+      message: 'If an account exists for that email, a reset code has been sent.'
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * POST /api/auth/reset-password
+ * Body: { email, otp, newPassword }
+ *
+ * Verifies the OTP (purpose=password_reset) and sets a new password.
+ */
+async function resetPassword(req, res, next) {
+  try {
+    const { email, otp, newPassword } = req.body || {};
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Email, code, and new password are required' });
+    }
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        message:
+          'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.'
+      });
+    }
+
+    const user = await User.findByEmail(email);
+    const valid = await verifyUserOtp(user, otp, 'password_reset');
+    if (!valid.ok) {
+      return res.status(valid.status).json({ message: valid.message });
+    }
+
+    await User.setPassword(user.id, newPassword);
+    return res.json({ message: 'Password updated. You can now sign in with your new password.' });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * POST /api/auth/verify-email
+ * Body: { email, otp }
+ *
+ * Verifies the OTP (purpose=email_verify) and activates the account.
+ */
+async function verifyEmail(req, res, next) {
+  try {
+    const { email, otp } = req.body || {};
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and code are required' });
+    }
+
+    const user = await User.findByEmail(email);
+    if (user && user.email_verified) {
+      return res.json({ message: 'This account is already verified. You can sign in.' });
+    }
+
+    const valid = await verifyUserOtp(user, otp, 'email_verify');
+    if (!valid.ok) {
+      return res.status(valid.status).json({ message: valid.message });
+    }
+
+    await User.markEmailVerified(user.id);
+    return res.json({ message: 'Email verified. You can now sign in.' });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * Shared OTP verification logic. Returns { ok, status?, message? }.
+ * On too many failed attempts the OTP is cleared and must be re-requested.
+ */
+async function verifyUserOtp(user, otp, purpose) {
+  // Use a constant-ish failure message to avoid leaking which step failed.
+  const invalid = { ok: false, status: 400, message: 'Invalid or expired code. Please request a new one.' };
+
+  if (!user || !user.otp_code_hash || user.otp_purpose !== purpose) {
+    return invalid;
+  }
+  if (!user.otp_expires_at || new Date(user.otp_expires_at) < new Date()) {
+    await User.clearOtp(user.id);
+    return invalid;
+  }
+  if (user.otp_attempts >= OTP_MAX_ATTEMPTS) {
+    await User.clearOtp(user.id);
+    return { ok: false, status: 429, message: 'Too many incorrect attempts. Please request a new code.' };
+  }
+
+  const match = await compareOtp(otp, user.otp_code_hash);
+  if (!match) {
+    const attempts = await User.incrementOtpAttempts(user.id);
+    if (attempts >= OTP_MAX_ATTEMPTS) {
+      await User.clearOtp(user.id);
+      return { ok: false, status: 429, message: 'Too many incorrect attempts. Please request a new code.' };
+    }
+    return invalid;
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -235,7 +445,7 @@ async function updateUser(req, res, next) {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Invalid email format' });
     }
-    if (!['admin', 'doctor', 'staff'].includes(role)) {
+    if (!STAFF_ROLES.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' });
     }
     if (password !== undefined && password !== '') {
@@ -277,4 +487,15 @@ function logout(req, res) {
   return res.json({ message: 'Logged out successfully' });
 }
 
-module.exports = { login, register, me, logout, listUsers, updateUser, deleteUser };
+module.exports = {
+  login,
+  register,
+  me,
+  logout,
+  listUsers,
+  updateUser,
+  deleteUser,
+  forgotPassword,
+  resetPassword,
+  verifyEmail
+};

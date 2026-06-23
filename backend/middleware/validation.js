@@ -25,15 +25,6 @@ const consultationSchema = Joi.object({
   ai_summary_used: Joi.boolean()
 });
 
-// Appointment validation schema
-const appointmentSchema = Joi.object({
-  patient_id: Joi.number().integer().positive().required(),
-  appointment_date: Joi.date().required(),
-  reason: Joi.string().allow(null, ''),
-  status: Joi.string().valid('scheduled', 'completed', 'cancelled'),
-  notes: Joi.string().allow(null, '')
-});
-
 function validatePatient(data) {
   return patientSchema.validate(data);
 }
@@ -42,12 +33,7 @@ function validateConsultation(data) {
   return consultationSchema.validate(data);
 }
 
-function validateAppointment(data) {
-  return appointmentSchema.validate(data);
-}
-
 module.exports = {
   validatePatient,
-  validateConsultation,
-  validateAppointment
+  validateConsultation
 };

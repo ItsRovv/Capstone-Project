@@ -8,12 +8,13 @@ const dotenv = require('dotenv');
 
 const patientRoutes = require('./routes/patients');
 const consultationRoutes = require('./routes/consultations');
-const appointmentRoutes = require('./routes/appointments');
 const reportRoutes = require('./routes/reports');
 const aiRoutes = require('./routes/aiRoutes');
 const authRoutes = require('./routes/auth');
+const automationRoutes = require('./routes/automation');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { startScheduler } = require('./utils/scheduler');
+const { runMigrations } = require('./utils/migrate');
 const db = require('./config/db');
 
 dotenv.config();
@@ -97,14 +98,18 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'lying-in-clinic-api' });
 });
 
-// API routes — auth gets a stricter limiter; everything else a general one.
-app.use('/api/auth', authLimiter, authRoutes);
+// API routes — strict auth limiter only for login/register endpoints.
+// Admin user management falls through to the general apiLimiter.
+app.post('/api/auth/login', authLimiter);
+app.post('/api/auth/register', authLimiter);
+app.use('/api/auth', authRoutes);
 app.use('/api', apiLimiter);
 app.use('/api/patients', patientRoutes);
 app.use('/api/consultations', consultationRoutes);
-app.use('/api/appointments', appointmentRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/ai', aiRoutes);
+// n8n / external automation (token-protected via x-automation-token header).
+app.use('/api/automation', automationRoutes);
 
 // Serve frontend in production
 if (NODE_ENV === 'production') {
@@ -133,63 +138,74 @@ app.use((err, req, res, _next) => {
 
 // Only start listening when run directly (so tests can import `app`).
 if (require.main === module) {
-  const server = app.listen(PORT, () => {
-    console.log(`✓ Server running on port ${PORT} (${NODE_ENV})`);
-    // Kick off the automatic end-of-day report scheduler.
-    startScheduler();
-  });
-
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use. Is the server already running?`);
-    } else {
-      console.error('Failed to start server:', err);
-    }
-    process.exit(1);
-  });
-
-  // ── Graceful shutdown ──────────────────────────────────────────────────────
-  // Cloud platforms (Render, k8s, Docker) send SIGTERM before stopping a
-  // container. Stop accepting new connections, drain in-flight requests, then
-  // close the DB pool so a deploy/restart doesn't drop requests or leak conns.
-  let shuttingDown = false;
-  async function shutdown(signal) {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`\n[shutdown] Received ${signal} — closing server gracefully…`);
-
-    // Force-exit if a hung connection prevents a clean close in time.
-    const forceTimer = setTimeout(() => {
-      console.error('[shutdown] Forced exit after 10s timeout.');
+  (async () => {
+    // Apply idempotent schema migrations before accepting traffic.
+    try {
+      await db.ready();
+      await runMigrations();
+    } catch (err) {
+      console.error('[startup] Schema migration failed:', err.message);
       process.exit(1);
-    }, 10000);
-    forceTimer.unref();
+    }
 
-    server.close(async () => {
-      try {
-        await db.close();
-        console.log('[shutdown] Closed HTTP server and DB pool. Bye.');
-        clearTimeout(forceTimer);
-        process.exit(0);
-      } catch (err) {
-        console.error('[shutdown] Error during shutdown:', err);
-        process.exit(1);
-      }
+    const server = app.listen(PORT, async () => {
+      console.log(`✓ Server running on port ${PORT} (${NODE_ENV})`);
+      // Kick off the automatic end-of-day report scheduler.
+      startScheduler();
     });
-  }
 
-  ['SIGTERM', 'SIGINT'].forEach((sig) => process.on(sig, () => shutdown(sig)));
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Is the server already running?`);
+      } else {
+        console.error('Failed to start server:', err);
+      }
+      process.exit(1);
+    });
 
-  // Last-resort safety nets: log and exit so the orchestrator can restart a
-  // process left in an unknown state rather than letting it run corrupted.
-  process.on('unhandledRejection', (reason) => {
-    console.error('[fatal] Unhandled promise rejection:', reason);
-    shutdown('unhandledRejection');
-  });
-  process.on('uncaughtException', (err) => {
-    console.error('[fatal] Uncaught exception:', err);
-    shutdown('uncaughtException');
-  });
+    // ── Graceful shutdown ──────────────────────────────────────────────────────
+    // Cloud platforms (Render, k8s, Docker) send SIGTERM before stopping a
+    // container. Stop accepting new connections, drain in-flight requests, then
+    // close the DB pool so a deploy/restart doesn't drop requests or leak conns.
+    let shuttingDown = false;
+    async function shutdown(signal) {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`\n[shutdown] Received ${signal} — closing server gracefully…`);
+
+      // Force-exit if a hung connection prevents a clean close in time.
+      const forceTimer = setTimeout(() => {
+        console.error('[shutdown] Forced exit after 10s timeout.');
+        process.exit(1);
+      }, 10000);
+      forceTimer.unref();
+
+      server.close(async () => {
+        try {
+          await db.close();
+          console.log('[shutdown] Closed HTTP server and DB pool. Bye.');
+          clearTimeout(forceTimer);
+          process.exit(0);
+        } catch (err) {
+          console.error('[shutdown] Error during shutdown:', err);
+          process.exit(1);
+        }
+      });
+    }
+
+    ['SIGTERM', 'SIGINT'].forEach((sig) => process.on(sig, () => shutdown(sig)));
+
+    // Last-resort safety nets: log and exit so the orchestrator can restart a
+    // process left in an unknown state rather than letting it run corrupted.
+    process.on('unhandledRejection', (reason) => {
+      console.error('[fatal] Unhandled promise rejection:', reason);
+      shutdown('unhandledRejection');
+    });
+    process.on('uncaughtException', (err) => {
+      console.error('[fatal] Uncaught exception:', err);
+      shutdown('uncaughtException');
+    });
+  })();
 }
 
 module.exports = app;

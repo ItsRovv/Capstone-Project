@@ -39,6 +39,8 @@ export function Patients() {
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const LIMIT = 50;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -84,15 +86,18 @@ export function Patients() {
     }
   }
 
-  async function handleDelete(p) {
-    if (!window.confirm(`Delete ${p.first_name} ${p.last_name}? This cannot be undone.`))
-      return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await patientService.remove(p.id);
+      await patientService.remove(deleteTarget.id);
       toast.success('Patient deleted');
+      setDeleteTarget(null);
       load();
     } catch (err) {
       toast.error(apiError(err, 'Delete failed'));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -200,7 +205,7 @@ export function Patients() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(p)}
+                            onClick={() => setDeleteTarget(p)}
                             className="text-ink-500 hover:!text-red-600 hover:!bg-red-50"
                             aria-label="Delete"
                           >
@@ -261,6 +266,31 @@ export function Patients() {
           }}
           onSubmit={handleCreate}
         />
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete patient"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+              No
+            </Button>
+            <Button variant="danger" loading={deleting} onClick={handleDelete}>
+              Yes
+            </Button>
+          </>
+        }
+      >
+        <p className="text-ink-700">
+          Are you sure you want to delete{' '}
+          <strong>
+            {deleteTarget?.first_name} {deleteTarget?.last_name}
+          </strong>
+          ?
+        </p>
       </Modal>
     </div>
   );

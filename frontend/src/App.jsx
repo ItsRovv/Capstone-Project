@@ -3,11 +3,12 @@ import { ProtectedRoute, PublicOnly } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { VerifyEmail } from './pages/VerifyEmail';
 import { Dashboard } from './pages/Dashboard';
 import { Patients } from './pages/Patients';
 import { PatientDetail } from './pages/PatientDetail';
 import { Consultations } from './pages/Consultations';
-import { Appointments } from './pages/Appointments';
 import { Reports } from './pages/Reports';
 import { ManageUsers } from './pages/ManageUsers';
 import { NotFound } from './pages/NotFound';
@@ -15,6 +16,7 @@ import { NotFound } from './pages/NotFound';
 export default function App() {
   return (
     <Routes>
+      {/* ── Auth ── */}
       <Route
         path="/login"
         element={
@@ -31,11 +33,28 @@ export default function App() {
           </PublicOnly>
         }
       />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicOnly>
+            <ForgotPassword />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/verify-email"
+        element={
+          <PublicOnly>
+            <VerifyEmail />
+          </PublicOnly>
+        }
+      />
 
+      {/* ── Clinic staff area (admin/doctor/nurse/staff) ── */}
       <Route
         path="/"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={['admin', 'doctor', 'nurse', 'staff']}>
             <Layout />
           </ProtectedRoute>
         }
@@ -44,7 +63,6 @@ export default function App() {
         <Route path="patients" element={<Patients />} />
         <Route path="patients/:id" element={<PatientDetail />} />
         <Route path="consultations" element={<Consultations />} />
-        <Route path="appointments" element={<Appointments />} />
         <Route path="reports" element={<Reports />} />
         <Route
           path="admin/users"

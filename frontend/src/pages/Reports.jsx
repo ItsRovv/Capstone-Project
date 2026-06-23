@@ -50,8 +50,6 @@ function ReportMetrics({ metrics }) {
   if (!metrics) return null;
   const {
     totalPatients,
-    totalAppointments,
-    appointmentBreakdown,
     newPatients,
     returningPatients,
     topComplaints,
@@ -60,11 +58,6 @@ function ReportMetrics({ metrics }) {
     trend,
     followUpAlerts
   } = metrics;
-
-  const apptTotal = totalAppointments || 0;
-  const completed = appointmentBreakdown?.completed || 0;
-  const cancelled = appointmentBreakdown?.cancelled || 0;
-  const scheduled = appointmentBreakdown?.scheduled || 0;
 
   const trendTone = trend
     ? trend.change > 0
@@ -83,13 +76,6 @@ function ReportMetrics({ metrics }) {
           value={totalPatients || 0}
           sub={trend ? `${trend.change > 0 ? '+' : ''}${trend.change}% vs prev` : undefined}
           tone={trendTone}
-        />
-        <MetricCard
-          icon={<Icon.Calendar width={16} height={16} />}
-          label="Appointments"
-          value={apptTotal}
-          sub={`${completed} done · ${scheduled} sched · ${cancelled} canc`}
-          tone="info"
         />
         <MetricCard
           icon={<Icon.User width={16} height={16} />}
@@ -264,8 +250,6 @@ export function Reports() {
                     <p className="text-xs text-ink-500 capitalize">
                       {r.report_type} · {r.total_patients || 0} patient
                       {r.total_patients === 1 ? '' : 's'}
-                      {r.metrics?.totalAppointments !== undefined &&
-                        ` · ${r.metrics.totalAppointments} appt${r.metrics.totalAppointments === 1 ? '' : 's'}`}
                       {' · generated '}{formatDate(r.created_at)}
                     </p>
                   </div>

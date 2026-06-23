@@ -4,7 +4,11 @@ const Patient = require('../models/Patient');
 const { validatePatient } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
+const { requireStaff } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
+
+// Clinic staff only.
+router.use(auth, requireStaff);
 
 // Get all patients (with optional search + pagination)
 // Returns { data, total, page, limit }. Pass ?page= & ?limit= to paginate.

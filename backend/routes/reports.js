@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const Report = require('../models/Report');
 const auth = require('../middleware/auth');
+const { requireStaff } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
+
+// Reports are clinic-internal — patients are not allowed.
+router.use(auth, requireStaff);
 
 // Get all reports
 router.get('/', auth, async (req, res) => {

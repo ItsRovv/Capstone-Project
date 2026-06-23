@@ -1,12 +1,10 @@
 // Mock the models, DB, and AI service so no real connections or API keys are needed.
 jest.mock('../config/db');
-jest.mock('../models/Appointment');
 jest.mock('../models/Consultation');
 jest.mock('../models/Report');
 jest.mock('../services/aiService');
 
 const db = require('../config/db');
-const Appointment = require('../models/Appointment');
 const Consultation = require('../models/Consultation');
 const Report = require('../models/Report');
 const aiService = require('../services/aiService');
@@ -16,8 +14,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   aiService.generateReport.mockResolvedValue('Daily summary text');
   Report.save.mockResolvedValue(42);
-  Appointment.findByDate.mockResolvedValue([]);
-  Appointment.findByDateRange.mockResolvedValue([]);
   db.query.mockResolvedValue([[]]);
 });
 

@@ -3,6 +3,10 @@
 // admin creating a user sends the token as a COOKIE, not an Authorization header.
 // These tests lock in that the controller accepts either.
 jest.mock('../models/User');
+jest.mock('../utils/mailer', () => ({
+  sendMail: jest.fn().mockResolvedValue(true),
+  isConfigured: jest.fn().mockReturnValue(true)
+}));
 
 process.env.JWT_SECRET = 'test-secret';
 

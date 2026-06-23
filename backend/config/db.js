@@ -1,56 +1,90 @@
-const mysql = require('mysql2/promise');
+const { Pool, types } = require('pg');
 require('dotenv').config();
 
+// ── Supabase / Postgres connection ──────────────────────────────────────────
+// Preferred: a single DATABASE_URL connection string (Supabase → Project
+// Settings → Database → Connection string → "URI"). Use the connection pooler
+// URI (port 6543) for serverless/long-lived apps. Falls back to discrete
+// DB_* vars for local Postgres development.
+const DATABASE_URL = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '';
 const DB_HOST = process.env.DB_HOST || 'localhost';
-const DB_PORT = process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306;
-const DB_USER = process.env.DB_USER || 'root';
+const DB_PORT = process.env.DB_PORT ? Number(process.env.DB_PORT) : 5432;
+const DB_USER = process.env.DB_USER || 'postgres';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
-const DB_NAME = process.env.DB_NAME || 'lying_in_clinic';
+const DB_NAME = process.env.DB_NAME || 'postgres';
 
-// Warn operators if the app is connecting as the DB superuser in production.
-// Use a dedicated least-privilege DB account instead (SELECT, INSERT, UPDATE, DELETE only).
-if (process.env.NODE_ENV === 'production' && DB_USER === 'root') {
-  console.warn(
-    '[SECURITY WARNING] The database is configured to connect as "root". ' +
-    'Create a dedicated MySQL user with only the required privileges (SELECT, INSERT, UPDATE, DELETE) ' +
-    'and set DB_USER/DB_PASSWORD in your .env accordingly.'
-  );
-}
+// Supabase (and most managed Postgres) require TLS. Enable SSL whenever a
+// connection string is provided or DB_SSL is explicitly turned on.
+const USE_SSL =
+  process.env.DB_SSL === 'true' ||
+  (!!DATABASE_URL && process.env.DB_SSL !== 'false');
 
-/**
- * Ensure the database exists, then return a connection pool bound to it.
- * Auto-creates the database if missing so the README's "just run npm start"
- * experience actually works.
- */
-async function ensureDatabase() {
-  const bootstrap = await mysql.createConnection({
-    host: DB_HOST,
-    port: DB_PORT,
-    user: DB_USER,
-    password: DB_PASSWORD
-  });
-  try {
-    await bootstrap.query(
-      `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-    console.log(`✓ Database "${DB_NAME}" ready`);
-  } finally {
-    await bootstrap.end();
-  }
-}
+// Return DATE / TIMESTAMP / TIMESTAMPTZ columns as raw strings (mimics the old
+// mysql2 `dateStrings: true` behaviour) so the API and frontend keep receiving
+// 'YYYY-MM-DD …' strings instead of JS Date objects.
+types.setTypeParser(1082, (v) => v); // date
+types.setTypeParser(1114, (v) => v); // timestamp (without tz)
+types.setTypeParser(1184, (v) => v); // timestamptz
+// Parse BIGINT (int8) and NUMERIC as JS numbers so COUNT(*)/totals stay numeric.
+types.setTypeParser(20, (v) => (v === null ? null : Number(v))); // int8
+types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // numeric
 
 function buildPool() {
-  return mysql.createPool({
+  if (DATABASE_URL) {
+    return new Pool({
+      connectionString: DATABASE_URL,
+      ssl: USE_SSL ? { rejectUnauthorized: false } : false,
+      max: 10
+    });
+  }
+  return new Pool({
     host: DB_HOST,
     port: DB_PORT,
     user: DB_USER,
     password: DB_PASSWORD,
     database: DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    dateStrings: true
+    ssl: USE_SSL ? { rejectUnauthorized: false } : false,
+    max: 10
   });
+}
+
+/**
+ * Translate mysql2-style positional `?` placeholders into Postgres `$1, $2 …`.
+ * Lets the existing models keep using `?` while we run on Postgres.
+ */
+function toPgPlaceholders(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+/**
+ * Run a query and return a mysql2-compatible `[rowsOrResult, fields]` tuple.
+ *  - SELECT          → first element is the array of rows.
+ *  - INSERT          → `{ insertId, affectedRows }` (auto-appends RETURNING id).
+ *  - UPDATE / DELETE → `{ affectedRows }`.
+ */
+async function runQuery(pool, sql, params = []) {
+  let text = toPgPlaceholders(sql);
+  const verb = text.trim().split(/\s+/, 1)[0].toUpperCase();
+
+  if (verb === 'INSERT' && !/returning/i.test(text)) {
+    text += ' RETURNING id';
+  }
+
+  // When params are supplied, pg uses the extended protocol (single statement).
+  // With no params, fall back to the simple protocol so multi-statement DDL
+  // (e.g. the whole schema.sql) can be executed in one call.
+  const result = params && params.length
+    ? await pool.query(text, params)
+    : await pool.query(text);
+
+  if (verb === 'INSERT') {
+    return [{ insertId: result.rows[0]?.id, affectedRows: result.rowCount }, result.fields];
+  }
+  if (verb === 'UPDATE' || verb === 'DELETE') {
+    return [{ affectedRows: result.rowCount }, result.fields];
+  }
+  return [result.rows, result.fields];
 }
 
 const MAX_RETRIES = Number(process.env.DB_CONNECT_RETRIES) || 10;
@@ -59,18 +93,18 @@ const RETRY_DELAY_MS = Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Connect with retry/backoff so the API survives MySQL not being ready yet
- * (common in Docker where the DB container starts in parallel).
+ * Connect with retry/backoff so the API survives Postgres/Supabase not being
+ * reachable yet (transient network blips, container start order, etc.).
  */
 async function connectWithRetry() {
   let lastErr;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await ensureDatabase();
       const pool = buildPool();
-      const conn = await pool.getConnection();
-      console.log('✓ Connected to MySQL database');
-      conn.release();
+      const client = await pool.connect();
+      await client.query('SELECT 1');
+      console.log('✓ Connected to Supabase/Postgres database');
+      client.release();
       return pool;
     } catch (err) {
       lastErr = err;
@@ -83,7 +117,7 @@ async function connectWithRetry() {
     }
   }
   console.error('Database connection failed after all retries.');
-  console.error('  Check your DB_HOST / DB_USER / DB_PASSWORD in backend/.env');
+  console.error('  Check your DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD) in backend/.env');
   throw lastErr;
 }
 
@@ -97,14 +131,37 @@ if (process.env.NODE_ENV === 'test') {
 }
 
 /**
- * `db` exposes a promise-based query/execute API identical to the
- * `mysql2/promise` pool. Awaiting it gives the live pool; calls like
- * `db.execute(...)` are queued until the pool is ready.
+ * `db` exposes a promise-based query API that mirrors the `mysql2/promise`
+ * pool surface used across the models. Awaiting any method queues the call
+ * until the Postgres pool is ready. `?` placeholders and `result.insertId /
+ * affectedRows` keep working via `runQuery`.
  */
 const db = {
-  execute: (...args) => poolPromise.then((p) => p.execute(...args)),
-  query: (...args) => poolPromise.then((p) => p.query(...args)),
-  getConnection: () => poolPromise.then((p) => p.getConnection()),
+  execute: (sql, params) => poolPromise.then((p) => runQuery(p, sql, params)),
+  query: (sql, params) => poolPromise.then((p) => runQuery(p, sql, params)),
+  /**
+   * Run a set of statements inside a single transaction. The callback receives
+   * a `tx` object with the same `execute/query` interface bound to one client.
+   */
+  async transaction(fn) {
+    const pool = await poolPromise;
+    const client = await pool.connect();
+    const tx = {
+      execute: (sql, params) => runQuery(client, sql, params),
+      query: (sql, params) => runQuery(client, sql, params)
+    };
+    try {
+      await client.query('BEGIN');
+      const out = await fn(tx);
+      await client.query('COMMIT');
+      return out;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
   /** Resolves once the pool is ready. Call before running migrations/seeds. */
   ready: () => poolPromise,
   /**

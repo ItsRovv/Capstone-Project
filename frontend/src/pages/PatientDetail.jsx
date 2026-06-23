@@ -1,20 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Link, useOutletContext, useParams } from 'react-router-dom';
+import { useOutletContext, useParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card, CardHeader } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { Modal } from '../components/UI/Modal';
-import { Spinner, PageLoader } from '../components/UI/Spinner';
-import { StatusBadge, Badge } from '../components/UI/Badge';
+import { PageLoader } from '../components/UI/Spinner';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/UI/Toast';
 import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
-import { appointmentService } from '../services/appointmentService';
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 import { ConsultationForm } from '../components/ConsultationForm';
-import { AppointmentForm } from '../components/AppointmentForm';
 
 function formatDate(d) {
   if (!d) return '—';
@@ -48,14 +45,12 @@ export function PatientDetail() {
 
   const [patient, setPatient] = useState(null);
   const [consultations, setConsultations] = useState([]);
-  const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('overview');
 
   const [editOpen, setEditOpen] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [newConsultOpen, setNewConsultOpen] = useState(false);
-  const [newApptOpen, setNewApptOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function load() {
@@ -67,10 +62,6 @@ export function PatientDetail() {
       ]);
       setPatient(p);
       setConsultations(c);
-      // Appointments for this patient are not exposed by a dedicated
-      // endpoint; we filter from the full list as a best-effort.
-      const allAppts = await appointmentService.list().catch(() => []);
-      setAppointments(allAppts.filter((a) => String(a.patient_id) === String(id)));
     } catch (err) {
       toast.error(apiError(err, 'Failed to load patient'));
     } finally {
@@ -107,47 +98,6 @@ export function PatientDetail() {
       toast.error(apiError(err, 'Could not save consultation'));
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleNewAppt(payload) {
-    setSubmitting(true);
-    try {
-      await appointmentService.create({ ...payload, patient_id: Number(id) });
-      toast.success('Appointment scheduled');
-      setNewApptOpen(false);
-      load();
-    } catch (err) {
-      toast.error(apiError(err, 'Could not schedule'));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function setApptStatus(a, status) {
-    try {
-      await appointmentService.update(a.id, {
-        patient_id: a.patient_id,
-        appointment_date: a.appointment_date,
-        reason: a.reason,
-        notes: a.notes,
-        status
-      });
-      toast.success('Status updated');
-      load();
-    } catch (err) {
-      toast.error(apiError(err, 'Update failed'));
-    }
-  }
-
-  async function deleteAppt(a) {
-    if (!window.confirm('Cancel this appointment?')) return;
-    try {
-      await appointmentService.remove(a.id);
-      toast.success('Appointment removed');
-      load();
-    } catch (err) {
-      toast.error(apiError(err, 'Delete failed'));
     }
   }
 
@@ -205,7 +155,7 @@ export function PatientDetail() {
         </Card>
 
         <div className="flex gap-2 border-b border-ink-100">
-          {['overview', 'consultations', 'appointments'].map((t) => (
+          {['overview', 'consultations'].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -242,22 +192,21 @@ export function PatientDetail() {
               )}
             </Card>
             <Card>
-              <CardHeader title="Upcoming appointments" />
-              {appointments.filter((a) => a.status === 'scheduled').length === 0 ? (
-                <p className="text-sm text-ink-500">No upcoming appointments.</p>
+              <CardHeader title="All consultations" />
+              {consultations.length === 0 ? (
+                <p className="text-sm text-ink-500">No consultations recorded.</p>
               ) : (
                 <ul className="space-y-2">
-                  {appointments
-                    .filter((a) => a.status === 'scheduled')
-                    .slice(0, 3)
-                    .map((a) => (
-                      <li key={a.id} className="text-sm">
-                        <p className="font-medium text-ink-800">{a.reason || 'Appointment'}</p>
-                        <p className="text-xs text-ink-500">
-                          {formatDateTime(a.appointment_date)}
-                        </p>
-                      </li>
-                    ))}
+                  {consultations.map((c) => (
+                    <li key={c.id} className="text-sm">
+                      <p className="font-medium text-ink-800">
+                        {c.chief_complaint || 'Consultation'}
+                      </p>
+                      <p className="text-xs text-ink-500">
+                        {formatDateTime(c.visit_date)}
+                      </p>
+                    </li>
+                  ))}
                 </ul>
               )}
             </Card>
@@ -266,110 +215,42 @@ export function PatientDetail() {
 
         {tab === 'consultations' && (
           <Card padding="p-0" className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-ink-100 flex items-center justify-between">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
               <p className="font-semibold text-ink-900">
-                {consultations.length} consultation
-                {consultations.length === 1 ? '' : 's'}
+                {consultations.length} consultation{consultations.length === 1 ? '' : 's'}
               </p>
               <Button onClick={() => setNewConsultOpen(true)}>
                 <Icon.Plus width={16} height={16} /> New consultation
               </Button>
             </div>
             {consultations.length === 0 ? (
-              <p className="text-sm text-ink-500 p-6 text-center">No consultations yet.</p>
+              <p className="text-sm text-ink-500 p-6 text-center">No consultations.</p>
             ) : (
               <ul className="divide-y divide-ink-100">
                 {consultations.map((c) => (
-                  <li key={c.id} className="p-6">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
+                  <li
+                    key={c.id}
+                    className="px-6 py-4 hover:bg-ink-50/60 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium text-ink-900">
                           {c.chief_complaint || 'Consultation'}
                         </p>
-                        <p className="text-xs text-ink-500">
+                        <p className="text-xs text-ink-500 mt-0.5">
                           {formatDateTime(c.visit_date)}
                         </p>
+                        {c.diagnosis && (
+                          <p className="text-sm text-ink-600 mt-1">
+                            Diagnosis: {c.diagnosis}
+                          </p>
+                        )}
+                        {c.prescription && (
+                          <p className="text-sm text-ink-600 mt-1">
+                            Rx: {c.prescription}
+                          </p>
+                        )}
                       </div>
-                      {c.ai_summary_used && (
-                        <Badge tone="primary">
-                          <Icon.Sparkle width={12} height={12} /> AI summarized
-                        </Badge>
-                      )}
-                    </div>
-                    {c.diagnosis && (
-                      <p className="text-sm text-ink-700 mt-2">
-                        <span className="font-medium">Diagnosis:</span> {c.diagnosis}
-                      </p>
-                    )}
-                    {c.prescription && (
-                      <p className="text-sm text-ink-700 mt-1">
-                        <span className="font-medium">Rx:</span> {c.prescription}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        )}
-
-        {tab === 'appointments' && (
-          <Card padding="p-0" className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-ink-100 flex items-center justify-between">
-              <p className="font-semibold text-ink-900">
-                {appointments.length} appointment{appointments.length === 1 ? '' : 's'}
-              </p>
-              <Button onClick={() => setNewApptOpen(true)}>
-                <Icon.Plus width={16} height={16} /> New appointment
-              </Button>
-            </div>
-            {appointments.length === 0 ? (
-              <p className="text-sm text-ink-500 p-6 text-center">No appointments.</p>
-            ) : (
-              <ul className="divide-y divide-ink-100">
-                {appointments.map((a) => (
-                  <li
-                    key={a.id}
-                    className="p-6 flex flex-col sm:flex-row sm:items-center gap-3"
-                  >
-                    <div className="flex-1">
-                      <p className="font-medium text-ink-900">
-                        {a.reason || 'Appointment'}
-                      </p>
-                      <p className="text-xs text-ink-500">
-                        {formatDateTime(a.appointment_date)}
-                      </p>
-                    </div>
-                    <StatusBadge status={a.status} />
-                    <div className="flex gap-1">
-                      {a.status === 'scheduled' && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setApptStatus(a, 'completed')}
-                          >
-                            <Icon.Check width={14} height={14} /> Complete
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setApptStatus(a, 'cancelled')}
-                            className="text-ink-500 hover:!text-red-600 hover:!bg-red-50"
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteAppt(a)}
-                        className="text-ink-500 hover:!text-red-600 hover:!bg-red-50"
-                        aria-label="Delete"
-                      >
-                        <Icon.Trash width={14} height={14} />
-                      </Button>
                     </div>
                   </li>
                 ))}
@@ -377,25 +258,13 @@ export function PatientDetail() {
             )}
           </Card>
         )}
-
-        <div className="text-sm">
-          <Link to="/patients" className="text-primary-600 hover:underline">
-            ← Back to all patients
-          </Link>
-        </div>
       </div>
 
-      <Modal
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        title="Edit patient"
-        size="lg"
-      >
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit patient" size="lg">
         <PatientForm
           initial={patient}
-          submitting={editSubmitting}
-          onCancel={() => setEditOpen(false)}
           onSubmit={handleEdit}
+          submitting={editSubmitting}
         />
       </Modal>
 
@@ -403,27 +272,12 @@ export function PatientDetail() {
         open={newConsultOpen}
         onClose={() => setNewConsultOpen(false)}
         title="New consultation"
-        size="xl"
+        size="lg"
       >
         <ConsultationForm
           patientId={Number(id)}
-          submitting={submitting}
-          onCancel={() => setNewConsultOpen(false)}
           onSubmit={handleNewConsult}
-        />
-      </Modal>
-
-      <Modal
-        open={newApptOpen}
-        onClose={() => setNewApptOpen(false)}
-        title="New appointment"
-        size="md"
-      >
-        <AppointmentForm
-          patientId={Number(id)}
           submitting={submitting}
-          onCancel={() => setNewApptOpen(false)}
-          onSubmit={handleNewAppt}
         />
       </Modal>
     </div>
@@ -433,8 +287,8 @@ export function PatientDetail() {
 function Field({ label, value }) {
   return (
     <div>
-      <p className="text-xs text-ink-500 uppercase tracking-wider">{label}</p>
-      <p className="text-sm text-ink-800 mt-0.5">{value || '—'}</p>
+      <p className="text-xs font-medium text-ink-400 uppercase tracking-wider">{label}</p>
+      <p className="text-sm text-ink-700 mt-0.5">{value || '—'}</p>
     </div>
   );
 }

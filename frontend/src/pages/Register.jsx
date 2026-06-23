@@ -20,7 +20,7 @@ export function Register() {
   async function onSubmit(e) {
     e.preventDefault();
     try {
-      await register(form);
+      const user = await register(form);
       toast.success('Account created');
       navigate('/', { replace: true });
     } catch (err) {
@@ -89,6 +89,7 @@ export function Register() {
             />
             <Select label="Role" value={form.role} onChange={update('role')}>
               <option value="staff">Staff</option>
+              <option value="nurse">Nurse</option>
               <option value="doctor">Doctor</option>
               <option value="admin">Administrator</option>
             </Select>

@@ -87,8 +87,8 @@ async function summarizeNote(rawNote) {
     try {
       return await freeAi.summarizeNote(rawNote);
     } catch (freeError) {
-      console.warn('[aiService] Free AI failed, falling back to local AI:', freeError.message || freeError);
-      return localAi.summarizeNote(rawNote);
+      console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
+      return localAi.summarizeNoteEnhanced(rawNote);
     }
   }
 }
@@ -116,8 +116,8 @@ async function generateReport(summaryData) {
     try {
       return await freeAi.generateReport(summaryData);
     } catch (freeError) {
-      console.warn('[aiService] Free AI failed, falling back to local AI:', freeError.message || freeError);
-      return localAi.generateReport(summaryData);
+      console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
+      return localAi.generateReportEnhanced(summaryData);
     }
   }
 }

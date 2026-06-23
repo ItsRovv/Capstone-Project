@@ -25,7 +25,7 @@ class Patient {
     let query = 'SELECT * FROM patients';
     const values = [];
     if (searchTerm) {
-      query += ' WHERE first_name LIKE ? OR last_name LIKE ? OR contact_number LIKE ?';
+      query += ' WHERE first_name ILIKE ? OR last_name ILIKE ? OR contact_number ILIKE ?';
       const searchPattern = `%${searchTerm}%`;
       values.push(searchPattern, searchPattern, searchPattern);
     }
@@ -43,7 +43,7 @@ class Patient {
     let query = 'SELECT COUNT(*) AS total FROM patients';
     const values = [];
     if (searchTerm) {
-      query += ' WHERE first_name LIKE ? OR last_name LIKE ? OR contact_number LIKE ?';
+      query += ' WHERE first_name ILIKE ? OR last_name ILIKE ? OR contact_number ILIKE ?';
       const searchPattern = `%${searchTerm}%`;
       values.push(searchPattern, searchPattern, searchPattern);
     }
@@ -64,10 +64,10 @@ class Patient {
     return result.affectedRows > 0;
   }
 
-  // Delete patient by ID
+  // Delete patient by ID. Related consultations are removed automatically via
+  // the `ON DELETE CASCADE` foreign key on consultations.patient_id.
   static async delete(id) {
-    const query = 'DELETE FROM patients WHERE id = ?';
-    const [result] = await db.execute(query, [id]);
+    const [result] = await db.execute('DELETE FROM patients WHERE id = ?', [id]);
     return result.affectedRows > 0;
   }
 }

@@ -9,6 +9,13 @@
  * 100 % free, and works without an internet connection.
  */
 
+const { LRUCache } = require('../utils/lruCache');
+const { parseMedicalNote } = require('../utils/medicalParser');
+const { generateEnhancedReport } = require('../utils/reportEnhancer');
+
+// Shared LRU cache for local AI calls (notes + reports)
+const localAiCache = new LRUCache(200);
+
 function extractSection(text, patterns) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -131,22 +138,6 @@ function bulletList(items) {
   return items.map(([label, count], i) => `  ${i + 1}. ${label} (${plural(count, 'case')})`).join('\n');
 }
 
-function apptBreakdownSentence(breakdown) {
-  const { scheduled, completed, cancelled } = breakdown;
-  const total = scheduled + completed + cancelled;
-  if (total === 0) return 'No appointments were scheduled for this period.';
-  const parts = [];
-  if (completed > 0) parts.push(`${plural(completed, 'completed')}`);
-  if (scheduled > 0) parts.push(`${plural(scheduled, 'scheduled')} remaining`);
-  if (cancelled > 0) parts.push(`${plural(cancelled, 'cancelled')}`);
-  const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-  let s = `${plural(total, 'appointment')} on the books: ${parts.join(', ')}.`;
-  s += ` Completion rate: ${rate}%.`;
-  if (rate >= 90) s += ' Excellent schedule utilization.';
-  else if (rate < 60) s += ' Review no-show reasons and consider confirmation calls.';
-  return s;
-}
-
 function newReturningSentence(newP, retP) {
   const total = newP + retP;
   if (total === 0) return '';
@@ -178,8 +169,6 @@ function generateReport(analytics) {
     date,
     weekly,
     totalPatients,
-    totalAppointments,
-    appointmentBreakdown,
     newPatients,
     returningPatients,
     topComplaints,
@@ -210,11 +199,6 @@ function generateReport(analytics) {
     if (nr) report += `${nr}\n`;
   }
   report += `\n`;
-
-  // ── Appointments ──
-  report += `📅 APPOINTMENTS\n`;
-  report += `────────────────────────────────────────\n`;
-  report += `${apptBreakdownSentence(appointmentBreakdown)}\n\n`;
 
   // ── Trend ──
   if (trend) {
@@ -248,7 +232,7 @@ function generateReport(analytics) {
   if (totalPatients === 0) {
     report += `Clinic operations proceeded smoothly with no recorded consultations.\n`;
   } else {
-    report += `Ensure follow-up appointments are tracked and chronic cases are monitored regularly.\n`;
+    report += `Ensure follow-ups are tracked and chronic cases are monitored regularly.\n`;
   }
   report += `\n`;
 
@@ -266,7 +250,62 @@ function generateReport(analytics) {
   return report;
 }
 
+/* ─────────────────── Enhanced companion layer ─────────────────────────── */
+
+/**
+ * Enhanced note summarization using the medical parser.
+ * Adds: fuzzy header matching, abbreviation expansion, vitals extraction,
+ * pregnancy data parsing, medication structuring, Filipino symptom detection,
+ * and per-field confidence scoring. Cached for speed.
+ */
+function summarizeNoteEnhanced(rawNote) {
+  const cacheKey = `note:${String(rawNote || '').slice(0, 240)}`;
+  const cached = localAiCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const parsed = parseMedicalNote(rawNote);
+
+  // Flatten to the same shape as the original summarizeNote, but enriched
+  const result = {
+    chiefComplaint: parsed.chiefComplaint || '',
+    findings: parsed.findings || '',
+    diagnosis: parsed.diagnosis || '',
+    prescription: parsed.prescription || '',
+    followUp: parsed.followUp || '',
+    // Enrichment fields (ignored by callers that only read the 5 standard keys)
+    vitalSigns: parsed.vitalSigns,
+    pregnancyData: parsed.pregnancyData,
+    medications: parsed.medications,
+    filipinoSymptoms: parsed.filipinoSymptoms,
+    confidence: parsed.confidence
+  };
+
+  localAiCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Enhanced report generation using the report enhancer.
+ * Adds: template variety, clinical risk flagging, pregnancy trimester breakdown,
+ * and actionable recommendations. Cached for speed.
+ */
+function generateReportEnhanced(analytics, consultations = []) {
+  const cacheKey = `report:${analytics.date}:${analytics.weekly ? 'w' : 'd'}:${analytics.totalPatients}`;
+  const cached = localAiCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const report = generateEnhancedReport(analytics, consultations, 'narrative');
+  localAiCache.set(cacheKey, report);
+  return report;
+}
+
 module.exports = {
   summarizeNote,
-  generateReport
+  generateReport,
+  summarizeNoteEnhanced,
+  generateReportEnhanced
 };

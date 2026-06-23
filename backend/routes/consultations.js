@@ -6,7 +6,11 @@ const aiService = require('../services/aiService');
 const { validateConsultation } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
+const { requireStaff } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
+
+// Clinic staff only.
+router.use(auth, requireStaff);
 
 // Get all consultations for a patient
 router.get('/patient/:patientId', auth, async (req, res) => {

@@ -57,4 +57,16 @@ const reportGenLimiter = rateLimit({
   }
 });
 
-module.exports = { authLimiter, apiLimiter, aiLimiter, reportGenLimiter };
+/**
+ * OTP limiter — protects the forgot-password / verify-email / reset-password
+ * endpoints from being used to spam emails or brute-force codes.
+ */
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 15,                  // 15 OTP-related requests per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests. Please wait a few minutes and try again.' }
+});
+
+module.exports = { authLimiter, apiLimiter, aiLimiter, reportGenLimiter, otpLimiter };

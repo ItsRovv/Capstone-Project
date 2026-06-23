@@ -1,10 +1,14 @@
-name: CI
+name: CI + Deploy
 
 on:
   push:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+
+# --- GitHub permissions needed for the Vercel deploy action ---
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -39,3 +43,32 @@ jobs:
       - run: npm run build
       - run: npm run test
       - run: npm run lint --if-present || echo "lint script not defined"
+
+  # ── Deploy backend to DigitalOcean App Platform (GitHub → DO) ───────────
+  deploy-backend:
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Deploy to DigitalOcean App Platform
+        run: doctl apps update --spec .do/app.yaml ${{ secrets.DIGITALOCEAN_APP_ID }}
+
+  # ── Deploy frontend to Vercel ───────────────────────────────────────────
+  deploy-frontend:
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Vercel
+        uses: vercel/action-deploy@v1
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: frontend

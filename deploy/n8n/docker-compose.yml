@@ -1,0 +1,49 @@
+# n8n automation stack — run this on a DigitalOcean Droplet.
+#
+# Quick start on a fresh Ubuntu Droplet:
+#   1. Install Docker + Compose plugin.
+#   2. Copy this folder to the Droplet and create a .env next to this file
+#      (see .env.example below).
+#   3. `docker compose up -d`
+#   4. Point a domain (e.g. n8n.yourclinic.com) at the Droplet and put it behind
+#      a reverse proxy (Caddy/Nginx) for HTTPS, or use Caddy as shown below.
+#
+# n8n then calls the clinic API (hosted on DigitalOcean App Platform) using the
+# x-automation-token header, and can read/write Supabase directly via Postgres.
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # --- Core ---
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
+      WEBHOOK_URL: ${WEBHOOK_URL:-https://n8n.yourclinic.com/}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Manila}
+      TZ: ${GENERIC_TIMEZONE:-Asia/Manila}
+      # --- Basic auth for the n8n editor UI ---
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:?set in .env}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:?set in .env}
+      # --- Encryption key (keep stable so saved credentials remain decryptable) ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set a long random string in .env}
+      # --- Persist n8n's own data in Supabase/Postgres (optional but recommended).
+      #     Leave these unset to use the bundled SQLite (stored in the volume). ---
+      DB_TYPE: ${N8N_DB_TYPE:-sqlite}
+      DB_POSTGRESDB_HOST: ${N8N_DB_HOST:-}
+      DB_POSTGRESDB_PORT: ${N8N_DB_PORT:-5432}
+      DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME:-postgres}
+      DB_POSTGRESDB_USER: ${N8N_DB_USER:-postgres}
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:-}
+      DB_POSTGRESDB_SSL_ENABLED: ${N8N_DB_SSL:-true}
+      # --- Values your workflows reference (set as n8n env or credentials) ---
+      CLINIC_API_URL: ${CLINIC_API_URL:-https://lying-in-clinic-api.ondigitalocean.app}
+      CLINIC_AUTOMATION_TOKEN: ${CLINIC_AUTOMATION_TOKEN:?set in .env}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

@@ -53,7 +53,8 @@ describe('login', () => {
       email: 'a@b.com',
       role: 'admin',
       password_hash: 'hash',
-      locked_until: null
+      locked_until: null,
+      email_verified: 1
     });
     User.comparePassword.mockResolvedValue(true);
     User.resetFailedLogin = jest.fn().mockResolvedValue();
@@ -62,6 +63,23 @@ describe('login', () => {
     expect(res.body).toHaveProperty('token');
     expect(res.body.user).toMatchObject({ email: 'a@b.com', role: 'admin' });
     expect(res.body.user).not.toHaveProperty('password_hash');
+  });
+
+  test('403 EMAIL_NOT_VERIFIED when the account is unverified', async () => {
+    User.findByEmail.mockResolvedValue({
+      id: 2,
+      name: 'New',
+      email: 'new@b.com',
+      role: 'staff',
+      password_hash: 'hash',
+      locked_until: null,
+      email_verified: 0
+    });
+    User.comparePassword.mockResolvedValue(true);
+    const res = mockRes();
+    await login({ body: { email: 'new@b.com', password: 'secret' } }, res, jest.fn());
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
   });
 });
 

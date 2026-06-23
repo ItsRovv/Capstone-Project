@@ -27,7 +27,7 @@ export function StatusBadge({ status }) {
   return <Badge tone={appointmentTones[status] || 'default'}>{status}</Badge>;
 }
 
-const roleTones = { admin: 'primary', doctor: 'info', staff: 'default' };
+const roleTones = { admin: 'primary', doctor: 'info', nurse: 'warning', staff: 'default' };
 export function RoleBadge({ role }) {
   return <Badge tone={roleTones[role] || 'default'}>{role}</Badge>;
 }

@@ -10,15 +10,15 @@ const DUMMY_HASH = bcrypt.hashSync('__dummy_password_never_matches__', BCRYPT_RO
 class User {
   // Create a new user (for registration)
   static async create(userData) {
-    const { name, email, password, role = 'staff' } = userData;
+    const { name, email, password, role = 'staff', email_verified = false } = userData;
     // Hash password with a strong cost factor (12 rounds ≈ 200–400 ms)
     const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const query = `
-      INSERT INTO users (name, email, password_hash, role)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO users (name, email, password_hash, role, email_verified)
+      VALUES (?, ?, ?, ?, ?)
     `;
-    const values = [name, email, password_hash, role];
+    const values = [name, email, password_hash, role, !!email_verified];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -74,7 +74,7 @@ class User {
       UPDATE users
       SET failed_login_attempts = failed_login_attempts + 1,
           locked_until = CASE
-            WHEN failed_login_attempts + 1 >= ? THEN DATE_ADD(NOW(), INTERVAL ? MINUTE)
+            WHEN failed_login_attempts + 1 >= ? THEN NOW() + make_interval(mins => ?)
             ELSE locked_until
           END
       WHERE id = ?
@@ -113,6 +113,62 @@ class User {
   static async delete(id) {
     const query = 'DELETE FROM users WHERE id = ?';
     const [result] = await db.execute(query, [id]);
+    return result.affectedRows > 0;
+  }
+
+  // ── OTP / email verification ────────────────────────────────────────────────
+
+  /**
+   * Store a hashed OTP for a user with its expiry and purpose.
+   * Resets the attempt counter.
+   */
+  static async setOtp(id, { hash, expiresAt, purpose }) {
+    const query = `
+      UPDATE users
+      SET otp_code_hash = ?, otp_expires_at = ?, otp_purpose = ?, otp_attempts = 0
+      WHERE id = ?
+    `;
+    await db.execute(query, [hash, expiresAt, purpose, id]);
+  }
+
+  /** Clear any pending OTP for a user (after success or invalidation). */
+  static async clearOtp(id) {
+    const query = `
+      UPDATE users
+      SET otp_code_hash = NULL, otp_expires_at = NULL, otp_purpose = NULL, otp_attempts = 0
+      WHERE id = ?
+    `;
+    await db.execute(query, [id]);
+  }
+
+  /** Increment the OTP guess counter; returns the new count. */
+  static async incrementOtpAttempts(id) {
+    await db.execute('UPDATE users SET otp_attempts = otp_attempts + 1 WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT otp_attempts FROM users WHERE id = ?', [id]);
+    return rows[0]?.otp_attempts ?? 0;
+  }
+
+  /** Mark a user's email as verified and clear any pending OTP. */
+  static async markEmailVerified(id) {
+    const query = `
+      UPDATE users
+      SET email_verified = TRUE,
+          otp_code_hash = NULL, otp_expires_at = NULL, otp_purpose = NULL, otp_attempts = 0
+      WHERE id = ?
+    `;
+    await db.execute(query, [id]);
+  }
+
+  /** Set a new password by user id (used by the reset-password flow). */
+  static async setPassword(id, password) {
+    const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const query = `
+      UPDATE users
+      SET password_hash = ?, failed_login_attempts = 0, locked_until = NULL,
+          otp_code_hash = NULL, otp_expires_at = NULL, otp_purpose = NULL, otp_attempts = 0
+      WHERE id = ?
+    `;
+    const [result] = await db.execute(query, [password_hash, id]);
     return result.affectedRows > 0;
   }
 }

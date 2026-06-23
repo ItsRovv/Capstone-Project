@@ -30,7 +30,7 @@ class Consultation {
   // Find consultations by date (for reports)
   static async findByDate(date) {
     // date is a string in 'YYYY-MM-DD' format
-    const query = 'SELECT * FROM consultations WHERE DATE(visit_date) = ? ORDER BY visit_date DESC';
+    const query = 'SELECT * FROM consultations WHERE visit_date::date = ? ORDER BY visit_date DESC';
     const [rows] = await db.execute(query, [date]);
     return rows;
   }
@@ -38,7 +38,7 @@ class Consultation {
   // Find consultations within an inclusive date range (for weekly reports)
   static async findByDateRange(startDate, endDate) {
     const query =
-      'SELECT * FROM consultations WHERE DATE(visit_date) BETWEEN ? AND ? ORDER BY visit_date DESC';
+      'SELECT * FROM consultations WHERE visit_date::date BETWEEN ? AND ? ORDER BY visit_date DESC';
     const [rows] = await db.execute(query, [startDate, endDate]);
     return rows;
   }

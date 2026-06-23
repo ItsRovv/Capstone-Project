@@ -4,11 +4,10 @@ import { Icon } from './Icon';
 import { RoleBadge } from './UI/Badge';
 import { JLMCLogo } from './JLMCLogo';
 
-const BASE_NAV = [
+const STAFF_NAV = [
   { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
   { to: '/patients', label: 'Patients', icon: Icon.Users },
   { to: '/consultations', label: 'Consultations', icon: Icon.Stethoscope },
-  { to: '/appointments', label: 'Appointments', icon: Icon.Calendar },
   { to: '/reports', label: 'Reports', icon: Icon.Report }
 ];
 
@@ -18,7 +17,7 @@ const ADMIN_NAV = [
 
 export function Sidebar({ onClose }) {
   const { user, logout } = useAuth();
-  const navItems = user?.role === 'admin' ? [...BASE_NAV, ...ADMIN_NAV] : BASE_NAV;
+  const navItems = user?.role === 'admin' ? [...STAFF_NAV, ...ADMIN_NAV] : STAFF_NAV;
 
   return (
     <aside className="h-full w-64 bg-white border-r border-ink-100 flex flex-col">

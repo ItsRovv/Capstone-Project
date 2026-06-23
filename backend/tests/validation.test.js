@@ -1,7 +1,6 @@
 const {
   validatePatient,
-  validateConsultation,
-  validateAppointment
+  validateConsultation
 } = require('../middleware/validation');
 
 describe('validatePatient', () => {
@@ -43,18 +42,4 @@ describe('validateConsultation', () => {
   });
 });
 
-describe('validateAppointment', () => {
-  test('requires patient_id and appointment_date', () => {
-    const { error } = validateAppointment({ reason: 'checkup' });
-    expect(error).toBeDefined();
-  });
 
-  test('accepts a valid appointment', () => {
-    const { error } = validateAppointment({
-      patient_id: 1,
-      appointment_date: '2026-06-20T09:00:00.000Z',
-      status: 'scheduled'
-    });
-    expect(error).toBeUndefined();
-  });
-});

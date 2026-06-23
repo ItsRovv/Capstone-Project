@@ -3,14 +3,13 @@ import { useOutletContext, Link } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card, CardHeader } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
-import { StatusBadge, RoleBadge } from '../components/UI/Badge';
+import { RoleBadge } from '../components/UI/Badge';
 import { Spinner, PageLoader } from '../components/UI/Spinner';
 import { Modal } from '../components/UI/Modal';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/UI/Toast';
 import { Input } from '../components/UI/Input';
 import { patientService } from '../services/patientService';
-import { appointmentService } from '../services/appointmentService';
 import { consultationService } from '../services/consultationService';
 import { reportService } from '../services/reportService';
 import { aiService } from '../services/aiService';
@@ -69,11 +68,11 @@ export function Dashboard() {
 
   const [stats, setStats] = useState({
     patients: 0,
-    todayAppointments: 0,
+    todayConsultations: 0,
     weekConsultations: 0,
     reports: 0
   });
-  const [upcoming, setUpcoming] = useState([]);
+  const [todayConsults, setTodayConsults] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [reportModal, setReportModal] = useState({ open: false, date: todayISO() });
@@ -83,9 +82,8 @@ export function Dashboard() {
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, todayAppts, reports] = await Promise.all([
+      const [patientsRes, reports] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
-        appointmentService.list(todayISO()),
         reportService.list()
       ]);
 
@@ -94,28 +92,35 @@ export function Dashboard() {
 
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
+      const today = todayISO();
 
       let weekCount = 0;
+      let todayCount = 0;
+      let todayList = [];
       try {
-        // Best-effort: count consultations across a sample of patients.
         const sample = patients.slice(0, 50);
         const lists = await Promise.all(
           sample.map((p) => consultationService.listForPatient(p.id).catch(() => []))
         );
-        weekCount = lists
-          .flat()
-          .filter((c) => new Date(c.visit_date) >= weekAgo).length;
+        const allConsults = lists.flat();
+        weekCount = allConsults.filter((c) => new Date(c.visit_date) >= weekAgo).length;
+        todayList = allConsults.filter((c) => {
+          const vd = new Date(c.visit_date).toISOString().split('T')[0];
+          return vd === today;
+        });
+        todayCount = todayList.length;
       } catch {
         weekCount = 0;
+        todayCount = 0;
       }
 
       setStats({
         patients: patientTotal,
-        todayAppointments: todayAppts.length,
+        todayConsultations: todayCount,
         weekConsultations: weekCount,
         reports: reports.length
       });
-      setUpcoming(todayAppts.filter((a) => a.status === 'scheduled').slice(0, 5));
+      setTodayConsults(todayList.slice(0, 5));
     } catch (err) {
       toast.error(apiError(err, 'Failed to load dashboard'));
     } finally {
@@ -163,13 +168,13 @@ export function Dashboard() {
                 tone="primary"
               />
               <StatCard
-                icon={<Icon.Calendar />}
-                label="Today's appointments"
-                value={stats.todayAppointments}
+                icon={<Icon.Stethoscope />}
+                label="Today's consultations"
+                value={stats.todayConsultations}
                 tone="info"
               />
               <StatCard
-                icon={<Icon.Stethoscope />}
+                icon={<Icon.Calendar />}
                 label="Consultations (7 days)"
                 value={stats.weekConsultations}
                 tone="success"
@@ -188,7 +193,7 @@ export function Dashboard() {
                   title="Quick actions"
                   subtitle="Common workflows to get you started."
                 />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Link to="/patients" className="block">
                     <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
                       <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center mb-3">
@@ -205,15 +210,6 @@ export function Dashboard() {
                       </div>
                       <p className="font-medium text-ink-900">New consultation</p>
                       <p className="text-xs text-ink-500 mt-0.5">Record a visit</p>
-                    </div>
-                  </Link>
-                  <Link to="/appointments" className="block">
-                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
-                      <div className="w-9 h-9 rounded-lg bg-sky-100 text-sky-600 inline-flex items-center justify-center mb-3">
-                        <Icon.Calendar />
-                      </div>
-                      <p className="font-medium text-ink-900">Schedule</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Book an appointment</p>
                     </div>
                   </Link>
                 </div>
@@ -244,10 +240,10 @@ export function Dashboard() {
 
             <Card>
               <CardHeader
-                title="Upcoming today"
-                subtitle={`${upcoming.length} appointment${upcoming.length === 1 ? '' : 's'} remaining`}
+                title="Consultations today"
+                subtitle={`${todayConsults.length} consultation${todayConsults.length === 1 ? '' : 's'} recorded`}
                 action={
-                  <Link to="/appointments">
+                  <Link to="/consultations">
                     <Button variant="ghost" size="sm">
                       View all
                       <Icon.Chevron width={14} height={14} />
@@ -255,30 +251,29 @@ export function Dashboard() {
                   </Link>
                 }
               />
-              {upcoming.length === 0 ? (
+              {todayConsults.length === 0 ? (
                 <div className="text-sm text-ink-500 py-8 text-center">
-                  No appointments scheduled for today.
+                  No consultations recorded for today.
                 </div>
               ) : (
                 <ul className="divide-y divide-ink-100">
-                  {upcoming.map((a) => (
-                    <li key={a.id} className="py-3 flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-sky-50 text-sky-600 inline-flex items-center justify-center">
-                        <Icon.Clock />
+                  {todayConsults.map((c) => (
+                    <li key={c.id} className="py-3 flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
+                        <Icon.Stethoscope />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-ink-900 truncate">
-                          Patient #{a.patient_id}
+                          {c.chief_complaint || 'Consultation'}
                         </p>
                         <p className="text-xs text-ink-500 truncate">
-                          {a.reason || 'No reason specified'}
+                          Patient #{c.patient_id}
                         </p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium text-ink-800">
-                          {formatTime(a.appointment_date)}
+                          {formatTime(c.visit_date)}
                         </p>
-                        <StatusBadge status={a.status} />
                       </div>
                     </li>
                   ))}

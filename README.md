@@ -4,10 +4,12 @@ A full-stack patient records management system for a lying-in clinic in Sorsogon
 
 ## Tech Stack
 
-- **Frontend**: React 18 + Vite + Tailwind CSS + React Router
-- **Backend**: Node.js + Express + MySQL2 + JWT + Helmet + Morgan
+- **Frontend**: React 18 + Vite + Tailwind CSS + React Router → **Vercel**
+- **Backend**: Node.js + Express + pg (Supabase Postgres) + JWT + Helmet + Morgan → **DigitalOcean App Platform**
+- **Database**: **Supabase** (managed Postgres)
 - **AI**: Google Gemini for note summarization and daily report generation
-- **Deployment**: Docker Compose (MySQL + API), or bare-metal Node + MySQL
+- **Automation**: **n8n** on DigitalOcean Droplet
+- **Version Control**: **GitHub** (CI/CD + deploy triggers)
 
 ## Features
 
@@ -29,7 +31,10 @@ npm install --prefix frontend
 
 # 2. Configure environment
 cp backend/.env.example backend/.env
-# Edit backend/.env with your MySQL password, Anthropic API key, and a JWT_SECRET
+# Edit backend/.env:
+#   DATABASE_URL = Supabase connection string (Project Settings → Database → URI)
+#   JWT_SECRET   = long random string
+#   GEMINI_API_KEY = your Google AI key
 
 # 3. (Optional) seed a default admin user
 npm run seed
@@ -65,12 +70,10 @@ docker-compose up -d
 | Variable          | Description                                  | Default                 |
 | ----------------- | -------------------------------------------- | ----------------------- |
 | `PORT`            | API port                                     | `5000`                  |
-| `DB_HOST`         | MySQL host                                   | `localhost`             |
-| `DB_PORT`         | MySQL port                                   | `3306`                  |
-| `DB_USER`         | MySQL user                                   | `root`                  |
-| `DB_PASSWORD`     | MySQL password                               | (empty)                 |
-| `DB_NAME`         | Database name (auto-created on first run)    | `lying_in_clinic`       |
+| `DATABASE_URL`    | Supabase Postgres connection string          | (required)              |
+| `DB_SSL`          | Force TLS on Postgres                        | `true`                  |
 | `JWT_SECRET`      | Random secret for signing JWTs               | (required)              |
+| `AUTOMATION_TOKEN`| Shared secret for n8n / external automation  | (required for n8n)      |
 | `CORS_ORIGIN`     | Allowed origin(s), comma-separated. **Never `*`** with credentials. | `http://localhost:5173` |
 | `GEMINI_API_KEY`  | Google Gemini API key                        | (required for AI)        |
 | `GEMINI_MODEL`    | Gemini model id                              | `gemini-2.0-flash`       |
@@ -85,7 +88,7 @@ docker-compose up -d
 | --------------- | ---------------------------------------- | ----------------------- |
 | `VITE_API_URL`  | Base URL of the backend API              | `http://localhost:5000` |
 
-In production, `NODE_ENV=production` causes the API server to serve the built React app from `frontend/dist` on the same port — only one port to expose. Email and the report scheduler are **optional**: if SMTP isn't configured, the daily report is still generated and stored, just not emailed.
+In production, `NODE_ENV=production` causes the API server to serve the built React app from `frontend/dist` on the same port. For the split Vercel + DO architecture, set `CORS_ORIGIN` to your Vercel URL and build the frontend separately. Email and the report scheduler are **optional**: if SMTP isn't configured, the daily report is still generated and stored, just not emailed.
 
 ## Project structure
 
@@ -112,9 +115,14 @@ lying-in-clinic-web-app/
 │   │   ├── App.jsx
 │   │   └── main.jsx
 │   └── package.json
-├── database/schema.sql       # Reference schema (also auto-created via db.js)
-├── docker-compose.yml
+├── database/schema.sql       # Postgres DDL (Supabase / local)
+├── docker-compose.yml        # API container only (DB is Supabase)
 ├── Dockerfile
+├── deploy/
+│   └── n8n/                  # Docker Compose + workflows for n8n automation
+├── .do/app.yaml              # DigitalOcean App Platform spec
+├── frontend/vercel.json      # Vercel SPA routing
+├── .github/workflows/ci.yml  # CI + auto-deploy (DO + Vercel)
 ├── package.json              # Workspace scripts
 └── DEPLOYMENT.md             # Detailed deployment guide
 ```
@@ -134,7 +142,7 @@ The original proposal lists the stack as **PHP + HTML/CSS/JS**. This implementat
 uses **Node.js + Express + React** instead (a more modern stack that's already built
 and tested). Update the proposal's "Tech Stack" slide to match:
 
-> Frontend: React (Vite) · Backend: Node.js + Express · Database: MySQL · AI: Google Gemini
+> Frontend: React (Vite) · Backend: Node.js + Express · Database: Supabase (Postgres) · AI: Google Gemini · Deploy: Vercel + DigitalOcean · Automation: n8n
 
 All proposed features are implemented: patient registration, consultation records,
 patient history lookup, appointment scheduling, the AI note summarizer, and AI

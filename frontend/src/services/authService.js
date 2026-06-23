@@ -17,5 +17,20 @@ export const authService = {
   async logout() {
     // Ask the server to clear the httpOnly cookie.
     await api.post('/api/auth/logout').catch(() => {});
+  },
+  // Request a password-reset OTP to be emailed.
+  async forgotPassword(email) {
+    const { data } = await api.post('/api/auth/forgot-password', { email });
+    return data;
+  },
+  // Reset the password using the emailed OTP.
+  async resetPassword({ email, otp, newPassword }) {
+    const { data } = await api.post('/api/auth/reset-password', { email, otp, newPassword });
+    return data;
+  },
+  // Verify a newly created account using the emailed OTP.
+  async verifyEmail({ email, otp }) {
+    const { data } = await api.post('/api/auth/verify-email', { email, otp });
+    return data;
   }
 };

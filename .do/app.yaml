@@ -1,0 +1,74 @@
+# DigitalOcean App Platform spec for the Lying-In Clinic API.
+#
+# Deploy with the doctl CLI:
+#   doctl apps create --spec .do/app.yaml
+# or update an existing app:
+#   doctl apps update <APP_ID> --spec .do/app.yaml
+#
+# The database is Supabase (managed Postgres) — DigitalOcean only runs the API.
+# The frontend is hosted separately on Vercel.
+name: lying-in-clinic-api
+region: sgp
+services:
+  - name: api
+    # Point this at your GitHub repository (Version Control: GitHub).
+    github:
+      repo: ItsRovv/Capstone-Project
+      branch: main
+      deploy_on_push: true
+    source_dir: backend
+    environment_slug: node-js
+    build_command: npm ci
+    run_command: node server.js
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 5000
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 30
+      timeout_seconds: 5
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+      - key: PORT
+        scope: RUN_TIME
+        value: "5000"
+      # --- Supabase (set as encrypted secrets in the DO dashboard / doctl) ---
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "${DATABASE_URL}"
+      - key: DB_SSL
+        scope: RUN_TIME
+        value: "true"
+      # --- Auth ---
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: "${JWT_SECRET}"
+      # --- CORS: the Vercel frontend origin(s), comma-separated, no trailing slash ---
+      - key: CORS_ORIGIN
+        scope: RUN_TIME
+        value: "https://your-frontend.vercel.app"
+      - key: AUTOMATION_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: "${AUTOMATION_TOKEN}"
+      # --- AI providers (optional; falls back to local rule-based AI) ---
+      - key: GEMINI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: "${GEMINI_API_KEY}"
+      - key: GEMINI_MODEL
+        scope: RUN_TIME
+        value: gemini-2.0-flash
+      # --- Automatic daily report scheduler ---
+      - key: REPORT_CRON
+        scope: RUN_TIME
+        value: "0 18 * * *"
+      - key: REPORT_EMAIL
+        scope: RUN_TIME
+        value: ""

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/UI/Toast';
 import { Button } from '../components/UI/Button';
@@ -23,8 +23,14 @@ export function Login() {
     try {
       await login(email, password);
       toast.success('Welcome back');
-      navigate(from, { replace: true });
+      navigate(from || '/', { replace: true });
     } catch (err) {
+      // Account exists but email isn't verified yet — guide them to verification.
+      if (err?.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
+        toast.info('Please verify your email to continue.');
+        navigate('/verify-email', { state: { email } });
+        return;
+      }
       toast.error(apiError(err, 'Login failed'));
     }
   }
@@ -57,7 +63,7 @@ export function Login() {
             <br /> powered by intelligence.
           </h2>
           <p className="mt-4 text-primary-50/90 leading-relaxed">
-            Manage patient records, consultations, and appointments — with AI-assisted
+            Manage patient records and consultations — with AI-assisted
             documentation that gives you more time for what matters.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -115,11 +121,22 @@ export function Login() {
             <Button type="submit" loading={loading} className="w-full" size="lg">
               Sign in
             </Button>
-          </form>
 
-          <p className="text-sm text-ink-500 mt-6 text-center">
-            First time? Ask your administrator to create an account for you.
-          </p>
+            <div className="flex items-center justify-between text-sm">
+              <Link
+                to="/forgot-password"
+                className="text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Forgot password?
+              </Link>
+              <Link
+                to="/register"
+                className="text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Create account
+              </Link>
+            </div>
+          </form>
         </div>
       </div>
     </div>

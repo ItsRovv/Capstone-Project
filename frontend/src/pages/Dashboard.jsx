@@ -15,6 +15,7 @@ import { reportService } from '../services/reportService';
 import { aiService } from '../services/aiService';
 import { apiError } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { ReportDocument } from '../components/ReportDocument';
 
 function StatCard({ icon, label, value, hint, tone = 'primary' }) {
   const tones = {
@@ -312,9 +313,12 @@ export function Dashboard() {
             onChange={(e) => setReportModal((m) => ({ ...m, date: e.target.value }))}
           />
           {generated && (
-            <div className="rounded-xl bg-primary-50 border border-primary-100 p-4 text-ink-800 text-sm leading-relaxed whitespace-pre-wrap">
-              {generated.report}
-            </div>
+            <ReportDocument
+              report={generated.report}
+              metrics={generated.metrics}
+              date={reportModal.date}
+              type="daily"
+            />
           )}
           {generating && (
             <div className="flex items-center gap-2 text-sm text-ink-500">

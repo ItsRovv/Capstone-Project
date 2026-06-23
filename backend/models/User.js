@@ -171,6 +171,50 @@ class User {
     const [result] = await db.execute(query, [password_hash, id]);
     return result.affectedRows > 0;
   }
+
+  // ── OAuth (Social Login) ───────────────────────────────────────────────────
+
+  /** Find user by Google ID */
+  static async findByGoogleId(googleId) {
+    const query = 'SELECT * FROM users WHERE google_id = ?';
+    const [rows] = await db.execute(query, [googleId]);
+    return rows[0];
+  }
+
+  /** Find user by Apple ID */
+  static async findByAppleId(appleId) {
+    const query = 'SELECT * FROM users WHERE apple_id = ?';
+    const [rows] = await db.execute(query, [appleId]);
+    return rows[0];
+  }
+
+  /**
+   * Create a user from OAuth profile. No password is set.
+   * email_verified is set to TRUE because the OAuth provider already verified it.
+   */
+  static async createFromOAuth({ name, email, googleId, appleId, role = 'staff' }) {
+    const query = `
+      INSERT INTO users (name, email, role, email_verified, google_id, apple_id)
+      VALUES (?, ?, ?, TRUE, ?, ?)
+    `;
+    const values = [name, email, role, googleId || null, appleId || null];
+    const [result] = await db.execute(query, values);
+    return result.insertId;
+  }
+
+  /** Link an existing user account to a Google ID */
+  static async linkGoogleId(userId, googleId) {
+    const query = 'UPDATE users SET google_id = ?, email_verified = TRUE WHERE id = ?';
+    const [result] = await db.execute(query, [googleId, userId]);
+    return result.affectedRows > 0;
+  }
+
+  /** Link an existing user account to an Apple ID */
+  static async linkAppleId(userId, appleId) {
+    const query = 'UPDATE users SET apple_id = ?, email_verified = TRUE WHERE id = ?';
+    const [result] = await db.execute(query, [appleId, userId]);
+    return result.affectedRows > 0;
+  }
 }
 
 module.exports = User;

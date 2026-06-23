@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
 const dotenv = require('dotenv');
+const session = require('express-session');
 
 const patientRoutes = require('./routes/patients');
 const consultationRoutes = require('./routes/consultations');
@@ -16,6 +17,7 @@ const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { startScheduler } = require('./utils/scheduler');
 const { runMigrations } = require('./utils/migrate');
 const db = require('./config/db');
+const { passport } = require('./config/passport');
 
 dotenv.config();
 
@@ -69,6 +71,27 @@ app.use(
   })
 );
 app.use(cookieParser());
+
+// Express session for Passport OAuth state handling.
+// The session store is the default in-memory one (fine for dev & single-instance prod).
+// For multi-instance production, switch to connect-pg-simple or Redis.
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || process.env.JWT_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 1000 // 1 hour
+    }
+  })
+);
+
+// Initialize Passport for OAuth strategies
+app.use(passport.initialize());
+app.use(passport.session());
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 // Request logging: concise colourised output in dev, Apache "combined" format in
@@ -111,6 +134,9 @@ app.use('/api/ai', aiRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
 app.use('/api/automation', automationRoutes);
 
+// Serve local assets (e.g. clinic logo for email templates)
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
 // Serve frontend in production
 if (NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '..', 'frontend', 'dist');
@@ -152,6 +178,11 @@ if (require.main === module) {
       console.log(`✓ Server running on port ${PORT} (${NODE_ENV})`);
       // Kick off the automatic end-of-day report scheduler.
       startScheduler();
+
+      if (!process.env.CLINIC_LOGO_URL) {
+        console.log('[warn] CLINIC_LOGO_URL is not set — OTP emails will show a fallback "J" logo.');
+        console.log('       To use your clinic logo in emails, upload it to Imgur/Cloudinary and set CLINIC_LOGO_URL in .env');
+      }
     });
 
     server.on('error', (err) => {

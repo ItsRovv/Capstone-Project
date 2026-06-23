@@ -32,7 +32,8 @@ async function run() {
   }
 
   const admin = buildDefaultAdmin();
-  const id = await User.create(admin);
+  // Auto-verify the seeded admin so first login works without SMTP in dev.
+  const id = await User.create({ ...admin, email_verified: true });
 
   console.log('✓ Default admin created.');
   console.log(`   id:    ${id}`);

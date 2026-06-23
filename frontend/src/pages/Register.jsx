@@ -20,8 +20,7 @@ export function Register() {
   async function onSubmit(e) {
     e.preventDefault();
     try {
-      const user = await register(form);
-      toast.success('Account created');
+      await register(form);
       navigate('/', { replace: true });
     } catch (err) {
       toast.error(apiError(err, 'Registration failed'));

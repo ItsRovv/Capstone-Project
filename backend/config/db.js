@@ -30,21 +30,21 @@ types.setTypeParser(20, (v) => (v === null ? null : Number(v))); // int8
 types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // numeric
 
 function buildPool() {
+  const baseOpts = {
+    ssl: USE_SSL ? { rejectUnauthorized: false } : false,
+    max: 10,
+    application_name: 'lying-in-clinic-api'
+  };
   if (DATABASE_URL) {
-    return new Pool({
-      connectionString: DATABASE_URL,
-      ssl: USE_SSL ? { rejectUnauthorized: false } : false,
-      max: 10
-    });
+    return new Pool({ ...baseOpts, connectionString: DATABASE_URL });
   }
   return new Pool({
+    ...baseOpts,
     host: DB_HOST,
     port: DB_PORT,
     user: DB_USER,
     password: DB_PASSWORD,
-    database: DB_NAME,
-    ssl: USE_SSL ? { rejectUnauthorized: false } : false,
-    max: 10
+    database: DB_NAME
   });
 }
 
@@ -93,21 +93,50 @@ const RETRY_DELAY_MS = Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 3000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Validate the DATABASE_URL looks like a real connection string, not the
+ * placeholder copied from .env.example.
+ */
+function looksLikePlaceholder(url) {
+  return /[<>]/.test(url);
+}
+
+/**
  * Connect with retry/backoff so the API survives Postgres/Supabase not being
  * reachable yet (transient network blips, container start order, etc.).
  */
 async function connectWithRetry() {
+  if (DATABASE_URL && looksLikePlaceholder(DATABASE_URL)) {
+    console.error(
+      '[db] DATABASE_URL still contains placeholder characters (< >).\n' +
+      '     Please replace it with your real Supabase connection string in backend/.env'
+    );
+  }
+
+  // Log what we're connecting to (without the password).
+  if (DATABASE_URL) {
+    try {
+      const u = new URL(DATABASE_URL);
+      console.log(`[db] Connecting via connection string → ${u.hostname}:${u.port}/${u.pathname.slice(1)}`);
+    } catch { /* ignore parse errors, connection will fail with a clearer message */ }
+  } else {
+    console.log(`[db] Connecting via discrete vars → ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
+  }
+
   let lastErr;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let pool;
     try {
-      const pool = buildPool();
-      const client = await pool.connect();
-      await client.query('SELECT 1');
+      pool = buildPool();
+      // Use pool.query so pg handles client acquisition/release internally.
+      // This avoids protocol-level issues with the Supabase connection pooler.
+      await pool.query('SELECT 1 AS one');
       console.log('✓ Connected to Supabase/Postgres database');
-      client.release();
       return pool;
     } catch (err) {
       lastErr = err;
+      if (pool) {
+        try { await pool.end(); } catch { /* ignore */ }
+      }
       console.error(
         `Database connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`
       );

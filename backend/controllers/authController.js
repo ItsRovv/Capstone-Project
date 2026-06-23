@@ -151,6 +151,13 @@ async function login(req, res, next) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // OAuth-only accounts can't log in with password
+    if (!user.password_hash) {
+      return res.status(401).json({
+        message: 'This account uses social login. Please sign in with Google or Apple.'
+      });
+    }
+
     // Check account lockout
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
       const unlockAt = new Date(user.locked_until).toISOString();
@@ -487,6 +494,26 @@ function logout(req, res) {
   return res.json({ message: 'Logged out successfully' });
 }
 
+/**
+ * OAuth callback — called by Passport after successful Google/Apple authentication.
+ * Issues an httpOnly JWT cookie and redirects to the frontend dashboard.
+ */
+function oauthCallback(req, res) {
+  const user = req.user;
+  if (!user) {
+    const redirect = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=oauth_failed`;
+    return res.redirect(redirect);
+  }
+
+  const token = signToken(user);
+  setAuthCookie(res, token);
+
+  // Preserve any intended destination in query param (e.g. ?from=/reports)
+  const from = req.query.state || '/';
+  const redirect = `${process.env.FRONTEND_URL || 'http://localhost:5173'}${from}`;
+  res.redirect(redirect);
+}
+
 module.exports = {
   login,
   register,
@@ -497,5 +524,6 @@ module.exports = {
   deleteUser,
   forgotPassword,
   resetPassword,
-  verifyEmail
+  verifyEmail,
+  oauthCallback
 };

@@ -19,6 +19,26 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
 
+  // On mount: validate the httpOnly cookie by calling /me.
+  // This handles both regular login and OAuth redirect flows.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const u = await authService.me();
+        if (!cancelled) {
+          localStorage.setItem(STORAGE_USER, JSON.stringify(u));
+          setUser(u);
+        }
+      } catch {
+        // Cookie expired or invalid — clear stale local state.
+        localStorage.removeItem(STORAGE_USER);
+        if (!cancelled) setUser(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Listen for forced logout triggered by the axios 401 interceptor
   useEffect(() => {
     const onLogout = () => setUser(null);

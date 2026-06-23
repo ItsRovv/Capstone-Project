@@ -13,6 +13,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ── Schema migrations for existing tables (safe to re-run) ──────────────────
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_id VARCHAR(255) UNIQUE;
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
 -- ── patients ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS patients (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -33,13 +38,17 @@ CREATE TABLE IF NOT EXISTS users (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255),
   role VARCHAR(20) NOT NULL DEFAULT 'staff'
     CHECK (role IN ('admin', 'doctor', 'nurse', 'staff')),
+  -- Social login identifiers (OAuth)
+  google_id VARCHAR(255) UNIQUE,
+  apple_id VARCHAR(255) UNIQUE,
   -- Account lockout: incremented on every failed login; cleared on success.
   failed_login_attempts INT NOT NULL DEFAULT 0,
   locked_until TIMESTAMPTZ NULL,
   -- Email verification: new accounts must verify via an emailed OTP before login.
+  -- OAuth accounts are auto-verified since the provider verified the email.
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   -- One-time password (OTP) for email verification and password reset.
   -- The code itself is stored hashed; never in plaintext.
@@ -99,3 +108,5 @@ CREATE INDEX IF NOT EXISTS idx_patients_name ON patients (last_name, first_name)
 CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations (patient_id);
 CREATE INDEX IF NOT EXISTS idx_consultations_visit_date ON consultations (visit_date);
 CREATE INDEX IF NOT EXISTS idx_reports_date ON clinic_reports (report_date, report_type);
+CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_apple_id ON users (apple_id) WHERE apple_id IS NOT NULL;

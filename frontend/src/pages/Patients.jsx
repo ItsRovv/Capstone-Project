@@ -171,10 +171,6 @@ export function Patients() {
                           to={`/patients/${p.id}`}
                           className="flex items-center gap-3 group"
                         >
-                          <div className="w-9 h-9 rounded-full bg-primary-100 text-primary-700 inline-flex items-center justify-center font-semibold text-sm">
-                            {p.first_name?.charAt(0)}
-                            {p.last_name?.charAt(0)}
-                          </div>
                           <div>
                             <p className="font-medium text-ink-900 group-hover:text-primary-700">
                               {p.first_name} {p.last_name}

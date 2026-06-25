@@ -12,7 +12,7 @@ router.use(auth, requireStaff);
 
 // Get all patients (with optional search + pagination)
 // Returns { data, total, page, limit }. Pass ?page= & ?limit= to paginate.
-router.get('/', auth, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const searchTerm = req.query.search || '';
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -30,8 +30,18 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// Get active patients (patients with ongoing pregnancies)
+router.get('/active', async (req, res) => {
+  try {
+    const active = await Patient.findActive();
+    res.json(active);
+  } catch (err) {
+    routeError(res, err);
+  }
+});
+
 // Get patient by ID
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.id);
     if (!patient) {
@@ -44,7 +54,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create new patient
-router.post('/', auth, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     // Validate input
     const { error } = validatePatient(req.body);
@@ -60,7 +70,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Update patient by ID
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     // Validate input
     const { error } = validatePatient(req.body);
@@ -79,7 +89,7 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // Delete patient by ID (restricted — deleting medical records is sensitive)
-router.delete('/:id', auth, requireRole('admin', 'doctor'), async (req, res) => {
+router.delete('/:id', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     const deleted = await Patient.delete(req.params.id);
     if (!deleted) {

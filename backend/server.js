@@ -13,6 +13,7 @@ const reportRoutes = require('./routes/reports');
 const aiRoutes = require('./routes/aiRoutes');
 const authRoutes = require('./routes/auth');
 const automationRoutes = require('./routes/automation');
+const pregnancyRoutes = require('./routes/pregnancies');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { startScheduler } = require('./utils/scheduler');
 const { runMigrations } = require('./utils/migrate');
@@ -110,7 +111,25 @@ app.get('/health', (req, res) => {
 app.get('/health/ready', async (req, res) => {
   try {
     await db.ping();
-    res.json({ status: 'ready', db: 'up' });
+    const poolStats = await db.poolStats().catch(() => null);
+    const payload = {
+      status: 'ready',
+      db: 'up',
+      ...(poolStats && {
+        pool: {
+          total: poolStats.totalCount,
+          idle: poolStats.idleCount,
+          waiting: poolStats.waitingCount,
+          max: poolStats.max
+        }
+      })
+    };
+    // If the pool is fully saturated, still return 200 so the orchestrator
+    // doesn't kill us, but flag a warning the operator can watch.
+    if (poolStats && poolStats.waitingCount > 0) {
+      payload.warning = 'pool_saturated';
+    }
+    res.json(payload);
   } catch (err) {
     res.status(503).json({ status: 'not_ready', db: 'down', error: err.message });
   }
@@ -128,6 +147,7 @@ app.post('/api/auth/register', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api', apiLimiter);
 app.use('/api/patients', patientRoutes);
+app.use('/api/patients/:patientId/pregnancies', pregnancyRoutes);
 app.use('/api/consultations', consultationRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/ai', aiRoutes);

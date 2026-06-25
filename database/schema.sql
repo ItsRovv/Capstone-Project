@@ -11,7 +11,8 @@ BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SET search_path = '';
 
 -- ── Schema migrations for existing tables (safe to re-run) ──────────────────
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS patients (
   address TEXT,
   contact_number VARCHAR(20),
   emergency_contact VARCHAR(100),
+  allergies TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -102,6 +104,35 @@ DROP TRIGGER IF EXISTS trg_consultations_updated_at ON consultations;
 CREATE TRIGGER trg_consultations_updated_at BEFORE UPDATE ON consultations
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ── pregnancies ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS pregnancies (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  lmp DATE,
+  edd DATE,
+  gp VARCHAR(20),
+  trimester VARCHAR(20),
+  weeks VARCHAR(20),
+  status VARCHAR(30),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ── updated_at trigger for pregnancies ────────────────────────────────────────
+DROP TRIGGER IF EXISTS trg_pregnancies_updated_at ON pregnancies;
+CREATE TRIGGER trg_pregnancies_updated_at BEFORE UPDATE ON pregnancies
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ── Disable Row Level Security ────────────────────────────────────────────────
+-- Auth and access control are handled by the Express backend middleware.
+-- RLS is not needed since the frontend never connects directly to the DB.
+ALTER TABLE patients DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE consultations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE clinic_reports DISABLE ROW LEVEL SECURITY;
+ALTER TABLE pregnancies DISABLE ROW LEVEL SECURITY;
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 -- `users.email` is already UNIQUE so it is indexed automatically.
 CREATE INDEX IF NOT EXISTS idx_patients_name ON patients (last_name, first_name);
@@ -110,3 +141,6 @@ CREATE INDEX IF NOT EXISTS idx_consultations_visit_date ON consultations (visit_
 CREATE INDEX IF NOT EXISTS idx_reports_date ON clinic_reports (report_date, report_type);
 CREATE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_apple_id ON users (apple_id) WHERE apple_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pregnancies_patient ON pregnancies (patient_id);
+CREATE INDEX IF NOT EXISTS idx_pregnancies_status_created ON pregnancies (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pregnancies_patient_status ON pregnancies (patient_id, status);

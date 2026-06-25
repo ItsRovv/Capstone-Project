@@ -11,6 +11,7 @@ import { useToast } from '../components/UI/Toast';
 import { Input } from '../components/UI/Input';
 import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
+import { pregnancyService } from '../services/pregnancyService';
 import { reportService } from '../services/reportService';
 import { aiService } from '../services/aiService';
 import { apiError } from '../services/api';
@@ -70,22 +71,26 @@ export function Dashboard() {
   const [stats, setStats] = useState({
     patients: 0,
     todayConsultations: 0,
-    weekConsultations: 0,
+    activePatients: 0,
     reports: 0
   });
   const [todayConsults, setTodayConsults] = useState([]);
+  const [activePatients, setActivePatients] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [reportModal, setReportModal] = useState({ open: false, date: todayISO() });
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(null);
+  const [quickDischargeOpen, setQuickDischargeOpen] = useState(false);
+  const [quickSaving, setQuickSaving] = useState(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, reports] = await Promise.all([
+      const [patientsRes, reports, active] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
-        reportService.list()
+        reportService.list(),
+        patientService.active().catch(() => [])
       ]);
 
       const patients = patientsRes.data || [];
@@ -118,9 +123,10 @@ export function Dashboard() {
       setStats({
         patients: patientTotal,
         todayConsultations: todayCount,
-        weekConsultations: weekCount,
+        activePatients: active.length,
         reports: reports.length
       });
+      setActivePatients(active);
       setTodayConsults(todayList.slice(0, 5));
     } catch (err) {
       toast.error(apiError(err, 'Failed to load dashboard'));
@@ -145,6 +151,19 @@ export function Dashboard() {
       toast.error(apiError(err, 'Report generation failed'));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleQuickDischarge(patientId, pregnancyId, status) {
+    setQuickSaving(pregnancyId);
+    try {
+      await pregnancyService.update(patientId, pregnancyId, { status });
+      toast.success(`Status updated to ${status}`);
+      load();
+    } catch (err) {
+      toast.error(apiError(err, 'Could not update status'));
+    } finally {
+      setQuickSaving(null);
     }
   }
 
@@ -175,9 +194,9 @@ export function Dashboard() {
                 tone="info"
               />
               <StatCard
-                icon={<Icon.Calendar />}
-                label="Consultations (7 days)"
-                value={stats.weekConsultations}
+                icon={<Icon.Heart />}
+                label="Active patients"
+                value={stats.activePatients}
                 tone="success"
               />
               <StatCard
@@ -194,7 +213,7 @@ export function Dashboard() {
                   title="Quick actions"
                   subtitle="Common workflows to get you started."
                 />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Link to="/patients" className="block">
                     <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
                       <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center mb-3">
@@ -213,6 +232,19 @@ export function Dashboard() {
                       <p className="text-xs text-ink-500 mt-0.5">Record a visit</p>
                     </div>
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDischargeOpen(true)}
+                    className="block w-full text-left"
+                  >
+                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
+                      <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 inline-flex items-center justify-center mb-3">
+                        <Icon.Clipboard />
+                      </div>
+                      <p className="font-medium text-ink-900">Quick discharge</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Update pregnancy status</p>
+                    </div>
+                  </button>
                 </div>
               </Card>
 
@@ -239,51 +271,130 @@ export function Dashboard() {
               </Card>
             </div>
 
-            <Card>
-              <CardHeader
-                title="Consultations today"
-                subtitle={`${todayConsults.length} consultation${todayConsults.length === 1 ? '' : 's'} recorded`}
-                action={
-                  <Link to="/consultations">
-                    <Button variant="ghost" size="sm">
-                      View all
-                      <Icon.Chevron width={14} height={14} />
-                    </Button>
-                  </Link>
-                }
-              />
-              {todayConsults.length === 0 ? (
-                <div className="text-sm text-ink-500 py-8 text-center">
-                  No consultations recorded for today.
-                </div>
-              ) : (
-                <ul className="divide-y divide-ink-100">
-                  {todayConsults.map((c) => (
-                    <li key={c.id} className="py-3 flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
-                        <Icon.Stethoscope />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-ink-900 truncate">
-                          {c.chief_complaint || 'Consultation'}
-                        </p>
-                        <p className="text-xs text-ink-500 truncate">
-                          Patient #{c.patient_id}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-ink-800">
-                          {formatTime(c.visit_date)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader
+                  title="Active patients"
+                  subtitle={`${activePatients.length} patient${activePatients.length === 1 ? '' : 's'} currently under care`}
+                  action={
+                    <Link to="/patients">
+                      <Button variant="ghost" size="sm">
+                        View all
+                        <Icon.Chevron width={14} height={14} />
+                      </Button>
+                    </Link>
+                  }
+                />
+                {activePatients.length === 0 ? (
+                  <div className="text-sm text-ink-500 py-8 text-center">
+                    No active patients currently in the clinic.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {activePatients.map((p) => (
+                      <li key={p.id} className="py-3 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-ink-900 truncate">
+                            {p.first_name} {p.last_name}
+                          </p>
+                          <p className="text-xs text-ink-500 truncate">
+                            {p.trimester || '—'} · {p.weeks || '—'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                            Ongoing
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="Consultations today"
+                  subtitle={`${todayConsults.length} consultation${todayConsults.length === 1 ? '' : 's'} recorded`}
+                  action={
+                    <Link to="/consultations">
+                      <Button variant="ghost" size="sm">
+                        View all
+                        <Icon.Chevron width={14} height={14} />
+                      </Button>
+                    </Link>
+                  }
+                />
+                {todayConsults.length === 0 ? (
+                  <div className="text-sm text-ink-500 py-8 text-center">
+                    No consultations recorded for today.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {todayConsults.map((c) => (
+                      <li key={c.id} className="py-3 flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
+                          <Icon.Stethoscope />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-ink-900 truncate">
+                            {c.chief_complaint || 'Consultation'}
+                          </p>
+                          <p className="text-xs text-ink-500 truncate">
+                            Patient #{c.patient_id}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-ink-800">
+                            {formatTime(c.visit_date)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            </div>
           </>
         )}
       </div>
+
+      <Modal
+        open={quickDischargeOpen}
+        onClose={() => setQuickDischargeOpen(false)}
+        title="Quick discharge"
+        size="md"
+      >
+        {activePatients.length === 0 ? (
+          <div className="text-sm text-ink-500 py-8 text-center">
+            No active patients to discharge.
+          </div>
+        ) : (
+          <ul className="divide-y divide-ink-100">
+            {activePatients.map((p) => (
+              <li key={p.id} className="py-3 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-ink-900 truncate">
+                    {p.first_name} {p.last_name}
+                  </p>
+                  <p className="text-xs text-ink-500 truncate">
+                    {p.trimester || '—'} · {p.weeks || '—'}
+                  </p>
+                </div>
+                <select
+                  value={p.pregnancy_status || p.status || 'Ongoing'}
+                  onChange={(e) => handleQuickDischarge(p.id, p.pregnancy_id || p.id, e.target.value)}
+                  disabled={quickSaving === (p.pregnancy_id || p.id)}
+                  className="text-sm font-medium rounded-lg px-2 py-1 border outline-none focus:ring-2 focus:ring-primary-300 cursor-pointer appearance-none text-emerald-700 bg-emerald-50 border-emerald-200"
+                >
+                  <option value="Ongoing">Ongoing</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
 
       <Modal
         open={reportModal.open}

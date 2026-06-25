@@ -9,7 +9,8 @@ const patientSchema = Joi.object({
   sex: Joi.string().valid('Male', 'Female', 'Other').allow(null, ''),
   address: Joi.string().allow(null, ''),
   contact_number: Joi.string().min(8).max(20).allow(null, ''),
-  emergency_contact: Joi.string().allow(null, '')
+  emergency_contact: Joi.string().allow(null, ''),
+  allergies: Joi.string().allow(null, '')
 });
 
 // Consultation validation schema

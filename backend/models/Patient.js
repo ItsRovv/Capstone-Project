@@ -3,12 +3,12 @@ const db = require('../config/db');
 class Patient {
   // Create a new patient
   static async create(patientData) {
-    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact } = patientData;
+    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies } = patientData;
     const query = `
-      INSERT INTO patients (first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO patients (first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null];
+    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -53,15 +53,29 @@ class Patient {
 
   // Update patient by ID
   static async update(id, patientData) {
-    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact } = patientData;
+    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies } = patientData;
     const query = `
       UPDATE patients
-      SET first_name = ?, last_name = ?, date_of_birth = ?, age = ?, sex = ?, address = ?, contact_number = ?, emergency_contact = ?
+      SET first_name = ?, last_name = ?, date_of_birth = ?, age = ?, sex = ?, address = ?, contact_number = ?, emergency_contact = ?, allergies = ?
       WHERE id = ?
     `;
-    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, id];
+    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null, id];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
+  }
+
+  // Find patients with ongoing pregnancies (active patients in the clinic)
+  static async findActive() {
+    const query = `
+      SELECT DISTINCT ON (p.id)
+        p.*, pr.id as pregnancy_id, pr.lmp, pr.edd, pr.gp, pr.trimester, pr.weeks, pr.status as pregnancy_status
+      FROM patients p
+      INNER JOIN pregnancies pr ON pr.patient_id = p.id
+      WHERE pr.status = 'Ongoing'
+      ORDER BY p.id, pr.created_at DESC
+    `;
+    const [rows] = await db.execute(query);
+    return rows;
   }
 
   // Delete patient by ID. Related consultations are removed automatically via

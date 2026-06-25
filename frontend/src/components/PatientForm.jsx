@@ -10,7 +10,8 @@ const blank = {
   sex: 'Female',
   address: '',
   contact_number: '',
-  emergency_contact: ''
+  emergency_contact: '',
+  allergies: ''
 };
 
 export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
@@ -89,6 +90,13 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
           placeholder="Name & number"
         />
       </div>
+
+      <Input
+        label="Allergies (comma-separated)"
+        value={form.allergies || ''}
+        onChange={update('allergies')}
+        placeholder="e.g. Penicillin, Shellfish, Latex"
+      />
 
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (

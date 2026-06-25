@@ -8,7 +8,8 @@ const STAFF_NAV = [
   { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
   { to: '/patients', label: 'Patients', icon: Icon.Users },
   { to: '/consultations', label: 'Consultations', icon: Icon.Stethoscope },
-  { to: '/reports', label: 'Reports', icon: Icon.Report }
+  { to: '/reports', label: 'Reports', icon: Icon.Report },
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
 ];
 
 const ADMIN_NAV = [

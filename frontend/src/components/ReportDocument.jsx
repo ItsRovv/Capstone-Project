@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { Icon } from './Icon';
 
 function formatDate(d) {
@@ -85,10 +86,66 @@ function TrendIndicator({ trend }) {
   );
 }
 
-export function ReportDocument({ report, metrics, date, type, onDownload }) {
+/* ── Insight helpers ─────────────────────────────────────────────────────── */
+
+function parseInsights(report) {
+  if (!report) return null;
+
+  // Already an object (new structured format)
+  if (typeof report === 'object') {
+    if (report.executiveSummary || report.clinicalInsights || report.operationalInsights || report.recommendations) {
+      return report;
+    }
+    return null;
+  }
+
+  // String — try JSON first, fallback to plain text
+  if (typeof report === 'string') {
+    try {
+      const parsed = JSON.parse(report);
+      if (parsed && (parsed.executiveSummary || parsed.clinicalInsights || parsed.operationalInsights || parsed.recommendations)) {
+        return parsed;
+      }
+    } catch {
+      // Not JSON — return as plain text fallback
+    }
+    return { _plainText: report };
+  }
+
+  return null;
+}
+
+function InsightCard({ icon, title, children, tone = 'primary', accent = false }) {
+  const tones = {
+    primary: 'border-l-primary-500 bg-white',
+    success: 'border-l-emerald-500 bg-white',
+    info: 'border-l-sky-500 bg-white',
+    warning: 'border-l-amber-500 bg-white'
+  };
+  const iconBg = {
+    primary: 'bg-primary-50 text-primary-600',
+    success: 'bg-emerald-50 text-emerald-600',
+    info: 'bg-sky-50 text-sky-600',
+    warning: 'bg-amber-50 text-amber-600'
+  };
+
+  return (
+    <div className={`rounded-xl border border-ink-200 ${accent ? 'border-l-4' : ''} ${tones[tone]} p-5 shadow-sm`}>
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className={`w-8 h-8 rounded-lg ${iconBg[tone]} inline-flex items-center justify-center`}>
+          {icon}
+        </div>
+        <h3 className="text-sm font-bold text-ink-800 uppercase tracking-wider">{title}</h3>
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export function ReportDocument({ report, metrics, date, type }) {
   const docRef = useRef(null);
 
-  const handleDownload = useCallback(async () => {
+  const handleDownloadImage = useCallback(async () => {
     if (!docRef.current) return;
     try {
       const canvas = await html2canvas(docRef.current, {
@@ -102,7 +159,42 @@ export function ReportDocument({ report, metrics, date, type, onDownload }) {
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error('Download failed:', err);
+      console.error('Image download failed:', err);
+    }
+  }, [date, type]);
+
+  const handleDownloadPDF = useCallback(async () => {
+    if (!docRef.current) return;
+    try {
+      const canvas = await html2canvas(docRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`Clinic-Report-${date}-${type}.pdf`);
+    } catch (err) {
+      console.error('PDF download failed:', err);
     }
   }, [date, type]);
 
@@ -117,19 +209,26 @@ export function ReportDocument({ report, metrics, date, type, onDownload }) {
     followUpAlerts = []
   } = metrics || {};
 
-  const reportText = report || '';
-  const lines = reportText.split('\n');
+  const insights = parseInsights(report);
+  const isPlainText = insights?._plainText !== undefined;
 
   return (
     <div className="space-y-4">
       {/* Action bar */}
       <div className="flex items-center justify-end gap-2">
         <button
-          onClick={handleDownload}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors"
+          onClick={handleDownloadImage}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-ink-200 text-ink-700 text-sm font-medium hover:bg-ink-50 transition-colors"
         >
           <Icon.Download width={16} height={16} />
-          Download as Image
+          Download Image
+        </button>
+        <button
+          onClick={handleDownloadPDF}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors"
+        >
+          <Icon.Report width={16} height={16} />
+          Download PDF
         </button>
       </div>
 
@@ -286,18 +385,64 @@ export function ReportDocument({ report, metrics, date, type, onDownload }) {
             </>
           )}
 
-          {/* Raw narrative (if present) */}
-          {reportText && (
-            <>
-              <SectionHeader
-                icon={<Icon.FileText width={16} height={16} />}
-                title="Narrative Summary"
-              />
-              <div className="bg-sand rounded-lg p-4 text-sm text-ink-700 leading-relaxed whitespace-pre-line">
-                {lines.filter(l => l.trim() && !l.startsWith('━') && !l.startsWith('📊') && !l.startsWith('📈') && !l.startsWith('🏥') && !l.startsWith('⚙️') && !l.startsWith('🔔')).join('\n')}
-              </div>
-            </>
-          )}
+          {/* AI Insights — structured cards */}
+          {isPlainText ? (
+            <InsightCard
+              icon={<Icon.FileText width={16} height={16} />}
+              title="AI Summary"
+              tone="primary"
+              accent
+            >
+              <p className="text-sm text-ink-700 leading-relaxed whitespace-pre-line">{insights._plainText}</p>
+            </InsightCard>
+          ) : insights ? (
+            <div className="space-y-4">
+              {insights.executiveSummary && (
+                <InsightCard
+                  icon={<Icon.FileText width={16} height={16} />}
+                  title="Executive Summary"
+                  tone="primary"
+                  accent
+                >
+                  <p className="text-sm text-ink-700 leading-relaxed">{insights.executiveSummary}</p>
+                </InsightCard>
+              )}
+              {insights.clinicalInsights && (
+                <InsightCard
+                  icon={<Icon.Stethoscope width={16} height={16} />}
+                  title="Clinical Insights"
+                  tone="success"
+                >
+                  <p className="text-sm text-ink-700 leading-relaxed">{insights.clinicalInsights}</p>
+                </InsightCard>
+              )}
+              {insights.operationalInsights && (
+                <InsightCard
+                  icon={<Icon.Clock width={16} height={16} />}
+                  title="Operational Insights"
+                  tone="info"
+                >
+                  <p className="text-sm text-ink-700 leading-relaxed">{insights.operationalInsights}</p>
+                </InsightCard>
+              )}
+              {insights.recommendations && insights.recommendations.length > 0 && (
+                <InsightCard
+                  icon={<Icon.Sparkle width={16} height={16} />}
+                  title="Recommendations"
+                  tone="warning"
+                >
+                  <ul className="space-y-2">
+                    {insights.recommendations.map((rec, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-ink-700">
+                        <span className="text-amber-500 mt-0.5">•</span>
+                        <span>{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </InsightCard>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {/* Footer */}

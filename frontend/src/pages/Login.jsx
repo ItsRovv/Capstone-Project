@@ -57,7 +57,7 @@ export function Login() {
   }
 
   function loginWithGoogle() {
-    window.location.href = `${API_BASE}/api/auth/google`;
+    window.location.href = `${API_BASE}/api/v1/auth/google`;
   }
 
   return (

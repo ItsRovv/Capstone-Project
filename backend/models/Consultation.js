@@ -1,9 +1,20 @@
 const db = require('../config/db');
+const { encryptObject, decryptObject } = require('../utils/encryption');
+
+const ENCRYPTED_FIELDS = ['raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription'];
+
+function encryptConsultation(data) {
+  return encryptObject(data, ENCRYPTED_FIELDS);
+}
+
+function decryptConsultation(data) {
+  return decryptObject(data, ENCRYPTED_FIELDS);
+}
 
 class Consultation {
   // Create a new consultation
   static async create(consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used } = consultationData;
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
       INSERT INTO consultations (patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -17,14 +28,14 @@ class Consultation {
   static async findById(id) {
     const query = 'SELECT * FROM consultations WHERE id = ?';
     const [rows] = await db.execute(query, [id]);
-    return rows[0];
+    return rows[0] ? decryptConsultation(rows[0]) : null;
   }
 
   // Find consultations by patient ID
   static async findByPatientId(patientId) {
     const query = 'SELECT * FROM consultations WHERE patient_id = ? ORDER BY visit_date DESC';
     const [rows] = await db.execute(query, [patientId]);
-    return rows;
+    return rows.map(decryptConsultation);
   }
 
   // Find consultations by date (for reports)
@@ -32,7 +43,7 @@ class Consultation {
     // date is a string in 'YYYY-MM-DD' format
     const query = 'SELECT * FROM consultations WHERE visit_date::date = ? ORDER BY visit_date DESC';
     const [rows] = await db.execute(query, [date]);
-    return rows;
+    return rows.map(decryptConsultation);
   }
 
   // Find consultations within an inclusive date range (for weekly reports)
@@ -40,12 +51,12 @@ class Consultation {
     const query =
       'SELECT * FROM consultations WHERE visit_date::date BETWEEN ? AND ? ORDER BY visit_date DESC';
     const [rows] = await db.execute(query, [startDate, endDate]);
-    return rows;
+    return rows.map(decryptConsultation);
   }
 
   // Update consultation by ID
   static async update(id, consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used } = consultationData;
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
       UPDATE consultations
       SET patient_id = ?, doctor_id = ?, visit_date = ?, raw_notes = ?, structured_notes = ?, chief_complaint = ?, diagnosis = ?, prescription = ?, ai_summary_used = ?

@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { extractToken } = require('../middleware/auth');
+const { generateToken, setCsrfCookie, clearCsrfCookie } = require('../middleware/csrf');
 const { sendMail, isConfigured: isMailConfigured } = require('../utils/mailer');
 const {
   generateOtp,
@@ -184,6 +186,15 @@ async function login(req, res, next) {
     await User.resetFailedLogin(user.id);
     const token = signToken(user);
     setAuthCookie(res, token);
+    setCsrfCookie(res, generateToken());
+    await AuditLog.create({
+      userId: user.id,
+      action: 'LOGIN',
+      tableName: 'users',
+      recordId: user.id,
+      newData: { email: user.email, method: 'password' },
+      ipAddress: req.ip
+    });
     // Also return the token in the body so non-browser API clients can use it
     return res.json({ token, user: publicUser(user) });
   } catch (err) {
@@ -264,6 +275,7 @@ async function register(req, res, next) {
       // Bootstrap admin logs in immediately.
       const responseToken = signToken(user);
       setAuthCookie(res, responseToken);
+      setCsrfCookie(res, generateToken());
       return res.status(201).json({ token: responseToken, user: publicUser(user) });
     }
 
@@ -489,8 +501,19 @@ async function me(req, res, next) {
  * POST /api/auth/logout
  * Clears the httpOnly auth cookie (server-side logout).
  */
-function logout(req, res) {
+async function logout(req, res) {
+  const userId = req.user?.id;
   clearAuthCookie(res);
+  clearCsrfCookie(res);
+  if (userId) {
+    await AuditLog.create({
+      userId,
+      action: 'LOGOUT',
+      tableName: 'users',
+      recordId: userId,
+      ipAddress: req.ip
+    }).catch(() => {});
+  }
   return res.json({ message: 'Logged out successfully' });
 }
 
@@ -507,6 +530,7 @@ function oauthCallback(req, res) {
 
   const token = signToken(user);
   setAuthCookie(res, token);
+  setCsrfCookie(res, generateToken());
 
   // Preserve any intended destination in query param (e.g. ?from=/reports)
   const from = req.query.state || '/';

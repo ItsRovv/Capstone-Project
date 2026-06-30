@@ -16,7 +16,7 @@ export function ManageUsers() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Create-user modal (reuses /api/auth/register with admin token sent automatically)
+  // Create-user modal (reuses /auth/register with admin token sent automatically)
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
@@ -33,7 +33,7 @@ export function ManageUsers() {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const { data } = await api.get('/api/auth/users');
+      const { data } = await api.get('/auth/users');
       setUsers(data);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load users'));
@@ -51,7 +51,7 @@ export function ManageUsers() {
     e.preventDefault();
     setCreating(true);
     try {
-      const { data } = await api.post('/api/auth/register', createForm);
+      const { data } = await api.post('/auth/register', createForm);
       if (data?.requiresVerification) {
         toast.success(
           `User "${createForm.name}" created. A verification code was emailed to ${createForm.email}.`
@@ -83,7 +83,7 @@ export function ManageUsers() {
     try {
       const payload = { name: editForm.name, email: editForm.email, role: editForm.role };
       if (editForm.password) payload.password = editForm.password;
-      const { data } = await api.put(`/api/auth/users/${editTarget.id}`, payload);
+      const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
       setEditTarget(null);
       fetchUsers();
@@ -98,7 +98,7 @@ export function ManageUsers() {
   async function handleDelete() {
     setDeleting(true);
     try {
-      await api.delete(`/api/auth/users/${deleteTarget.id}`);
+      await api.delete(`/auth/users/${deleteTarget.id}`);
       toast.success(`User "${deleteTarget.name}" deleted`);
       setDeleteTarget(null);
       fetchUsers();

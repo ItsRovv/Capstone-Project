@@ -14,6 +14,7 @@ const {
   verifyEmail,
   oauthCallback
 } = require('../controllers/authController');
+const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
 const { otpLimiter } = require('../middleware/rateLimit');

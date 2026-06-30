@@ -11,7 +11,9 @@ class Report {
     const values = [
       date,
       report_type,
-      ai_generated_text ?? null,
+      typeof ai_generated_text === 'object'
+        ? JSON.stringify(ai_generated_text)
+        : (ai_generated_text ?? null),
       total_patients ?? null,
       metrics ? JSON.stringify(metrics) : null
     ];

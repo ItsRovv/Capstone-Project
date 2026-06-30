@@ -109,10 +109,14 @@ async function generateReport(summaryData) {
   };
 
   try {
-    const reportText = await callWithRetry(reportGenerationPrompt(promptData));
-    return reportText;
+    const rawText = await callWithRetry(reportGenerationPrompt(promptData));
+    // Strip any accidental markdown fences
+    const cleanedText = rawText.replace(/```json\s*|\s*```/g, '').trim();
+    // Try to parse as structured JSON
+    const parsed = JSON.parse(cleanedText);
+    return parsed;
   } catch (error) {
-    console.warn('[aiService] Anthropic failed, trying free AI:', error.message || error);
+    console.warn('[aiService] Anthropic structured JSON failed, trying free AI:', error.message || error);
     try {
       return await freeAi.generateReport(summaryData);
     } catch (freeError) {

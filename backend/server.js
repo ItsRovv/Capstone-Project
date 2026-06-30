@@ -15,6 +15,9 @@ const authRoutes = require('./routes/auth');
 const automationRoutes = require('./routes/automation');
 const pregnancyRoutes = require('./routes/pregnancies');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
+const { csrfProtection } = require('./middleware/csrf');
+const { mapErrorToClientMessage } = require('./utils/dbErrorMapper');
+const { requestId } = require('./middleware/requestId');
 const { startScheduler } = require('./utils/scheduler');
 const { runMigrations } = require('./utils/migrate');
 const db = require('./config/db');
@@ -72,6 +75,7 @@ app.use(
   })
 );
 app.use(cookieParser());
+app.use(requestId);
 
 // Express session for Passport OAuth state handling.
 // The session store is the default in-memory one (fine for dev & single-instance prod).
@@ -142,17 +146,35 @@ app.get('/', (req, res) => {
 
 // API routes — strict auth limiter only for login/register endpoints.
 // Admin user management falls through to the general apiLimiter.
-app.post('/api/auth/login', authLimiter);
-app.post('/api/auth/register', authLimiter);
-app.use('/api/auth', authRoutes);
-app.use('/api', apiLimiter);
-app.use('/api/patients', patientRoutes);
-app.use('/api/patients/:patientId/pregnancies', pregnancyRoutes);
-app.use('/api/consultations', consultationRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/ai', aiRoutes);
+// v1 prefix + backward-compatible /api/ alias.
+const v1Prefix = '/api/v1';
+const legacyPrefix = '/api';
+
+function mountV1(path, ...handlers) {
+  app.use(`${v1Prefix}${path}`, ...handlers);
+  app.use(`${legacyPrefix}${path}`, ...handlers);
+}
+
+app.post(`${v1Prefix}/auth/login`, authLimiter);
+app.post(`${v1Prefix}/auth/register`, authLimiter);
+app.use(`${v1Prefix}/auth`, authRoutes);
+// Legacy aliases for auth (no rate limiter duplication needed; the v1 routes handle it)
+app.use(`${legacyPrefix}/auth`, authRoutes);
+
+// CSRF protection: applied after auth routes (login/register/OAuth don't have a token yet).
+// Bearer-token clients bypass CSRF automatically.
+app.use(v1Prefix, csrfProtection);
+app.use(legacyPrefix, csrfProtection);
+app.use(v1Prefix, apiLimiter);
+app.use(legacyPrefix, apiLimiter);
+
+mountV1('/patients', patientRoutes);
+mountV1('/patients/:patientId/pregnancies', pregnancyRoutes);
+mountV1('/consultations', consultationRoutes);
+mountV1('/reports', reportRoutes);
+mountV1('/ai', aiRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
-app.use('/api/automation', automationRoutes);
+mountV1('/automation', automationRoutes);
 
 // Serve local assets (e.g. clinic logo for email templates)
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
@@ -172,12 +194,18 @@ app.use('/api', (req, res) => {
   res.status(404).json({ message: 'Endpoint not found' });
 });
 
-// Error handling middleware
+// Error handling middleware — never leak internal details to the client.
 app.use((err, req, res, _next) => {
   console.error('[Error]', err.stack || err);
   const status = err.status || 500;
+
+  // Map known errors to safe, generic messages.
+  const safeMessage = mapErrorToClientMessage(err);
+  const clientMessage = safeMessage || (status < 500 ? err.message : 'Something went wrong!');
+
   res.status(status).json({
-    message: err.message || 'Something went wrong!',
+    message: clientMessage,
+    // Only expose the stack in development; never in production.
     ...(NODE_ENV !== 'production' && { stack: err.stack })
   });
 });

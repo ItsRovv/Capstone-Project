@@ -133,6 +133,24 @@ ALTER TABLE consultations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clinic_reports DISABLE ROW LEVEL SECURITY;
 ALTER TABLE pregnancies DISABLE ROW LEVEL SECURITY;
 
+-- ── audit_logs ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(20) NOT NULL
+    CHECK (action IN ('CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT')),
+  table_name VARCHAR(50),
+  record_id BIGINT,
+  old_data JSONB,
+  new_data JSONB,
+  ip_address INET,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_table_record ON audit_logs (table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC);
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 -- `users.email` is already UNIQUE so it is indexed automatically.
 CREATE INDEX IF NOT EXISTS idx_patients_name ON patients (last_name, first_name);

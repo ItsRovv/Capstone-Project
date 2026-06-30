@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
+const AuditLog = require('../models/AuditLog');
 const aiService = require('../services/aiService');
 const { validateConsultation } = require('../middleware/validation');
 const auth = require('../middleware/auth');
@@ -51,6 +52,14 @@ router.post('/', auth, async (req, res) => {
     }
 
     const consultationId = await Consultation.create(req.body);
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'CREATE',
+      tableName: 'consultations',
+      recordId: consultationId,
+      newData: req.body,
+      ipAddress: req.ip
+    });
     res.status(201).json({ id: consultationId, message: 'Consultation created successfully' });
   } catch (err) {
     routeError(res, err);
@@ -66,10 +75,20 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(400).json({ message: error.details[0].message });
     }
 
+    const oldConsultation = await Consultation.findById(req.params.id);
     const updated = await Consultation.update(req.params.id, req.body);
     if (!updated) {
       return res.status(404).json({ message: 'Consultation not found' });
     }
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'UPDATE',
+      tableName: 'consultations',
+      recordId: req.params.id,
+      oldData: oldConsultation || undefined,
+      newData: req.body,
+      ipAddress: req.ip
+    });
     res.json({ message: 'Consultation updated successfully' });
   } catch (err) {
     routeError(res, err);
@@ -105,10 +124,19 @@ router.post('/:id/summarize', auth, async (req, res) => {
 // Delete consultation by ID (restricted — medical records)
 router.delete('/:id', auth, requireRole('admin', 'doctor'), async (req, res) => {
   try {
+    const oldConsultation = await Consultation.findById(req.params.id);
     const deleted = await Consultation.delete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ message: 'Consultation not found' });
     }
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'DELETE',
+      tableName: 'consultations',
+      recordId: req.params.id,
+      oldData: oldConsultation || undefined,
+      ipAddress: req.ip
+    });
     res.json({ message: 'Consultation deleted successfully' });
   } catch (err) {
     routeError(res, err);

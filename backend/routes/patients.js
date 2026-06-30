@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Patient = require('../models/Patient');
+const AuditLog = require('../models/AuditLog');
 const { validatePatient } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
@@ -63,6 +64,14 @@ router.post('/', async (req, res) => {
     }
 
     const patientId = await Patient.create(req.body);
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'CREATE',
+      tableName: 'patients',
+      recordId: patientId,
+      newData: req.body,
+      ipAddress: req.ip
+    });
     res.status(201).json({ id: patientId, message: 'Patient created successfully' });
   } catch (err) {
     routeError(res, err);
@@ -78,10 +87,20 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: error.details[0].message });
     }
 
+    const oldPatient = await Patient.findById(req.params.id);
     const updated = await Patient.update(req.params.id, req.body);
     if (!updated) {
       return res.status(404).json({ message: 'Patient not found' });
     }
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'UPDATE',
+      tableName: 'patients',
+      recordId: req.params.id,
+      oldData: oldPatient || undefined,
+      newData: req.body,
+      ipAddress: req.ip
+    });
     res.json({ message: 'Patient updated successfully' });
   } catch (err) {
     routeError(res, err);
@@ -91,10 +110,19 @@ router.put('/:id', async (req, res) => {
 // Delete patient by ID (restricted — deleting medical records is sensitive)
 router.delete('/:id', requireRole('admin', 'doctor'), async (req, res) => {
   try {
+    const oldPatient = await Patient.findById(req.params.id);
     const deleted = await Patient.delete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ message: 'Patient not found' });
     }
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'DELETE',
+      tableName: 'patients',
+      recordId: req.params.id,
+      oldData: oldPatient || undefined,
+      ipAddress: req.ip
+    });
     res.json({ message: 'Patient deleted successfully' });
   } catch (err) {
     routeError(res, err);

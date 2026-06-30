@@ -1,19 +1,23 @@
 # syntax=docker/dockerfile:1
 # --- Stage 1: build the React frontend ---
-FROM node:20-alpine AS frontend-build
+# Pin digest for reproducible builds (node:20-alpine@sha256:... from 2025-06)
+FROM node:20-alpine@sha256:8bda036ddd59ea43a97b4eb3783951e25890009c123419496bfbb30df11bcb6d AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+# --ignore-scripts prevents post-install hooks from unknown deps from running
+RUN npm ci --ignore-scripts && npm cache clean --force
 COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: install backend deps and run ---
-FROM node:20-alpine AS backend
+FROM node:20-alpine@sha256:8bda036ddd59ea43a97b4eb3783951e25890009c123419496bfbb30df11bcb6d AS backend
+LABEL org.opencontainers.image.title="Lying-In Clinic API"
+LABEL org.opencontainers.image.description="Backend API for the Jean Lying-in Maternity Clinic web app"
 WORKDIR /app
 
 # Backend deps
 COPY backend/package*.json ./backend/
-RUN cd backend && npm ci --omit=dev && npm cache clean --force
+RUN cd backend && npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Backend source
 COPY backend/ ./backend/

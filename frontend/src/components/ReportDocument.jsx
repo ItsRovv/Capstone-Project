@@ -86,63 +86,7 @@ function TrendIndicator({ trend }) {
   );
 }
 
-/* ── Insight helpers ─────────────────────────────────────────────────────── */
-
-function parseInsights(report) {
-  if (!report) return null;
-
-  // Already an object (new structured format)
-  if (typeof report === 'object') {
-    if (report.executiveSummary || report.clinicalInsights || report.operationalInsights || report.recommendations) {
-      return report;
-    }
-    return null;
-  }
-
-  // String — try JSON first, fallback to plain text
-  if (typeof report === 'string') {
-    try {
-      const parsed = JSON.parse(report);
-      if (parsed && (parsed.executiveSummary || parsed.clinicalInsights || parsed.operationalInsights || parsed.recommendations)) {
-        return parsed;
-      }
-    } catch {
-      // Not JSON — return as plain text fallback
-    }
-    return { _plainText: report };
-  }
-
-  return null;
-}
-
-function InsightCard({ icon, title, children, tone = 'primary', accent = false }) {
-  const tones = {
-    primary: 'border-l-primary-500 bg-white',
-    success: 'border-l-emerald-500 bg-white',
-    info: 'border-l-sky-500 bg-white',
-    warning: 'border-l-amber-500 bg-white'
-  };
-  const iconBg = {
-    primary: 'bg-primary-50 text-primary-600',
-    success: 'bg-emerald-50 text-emerald-600',
-    info: 'bg-sky-50 text-sky-600',
-    warning: 'bg-amber-50 text-amber-600'
-  };
-
-  return (
-    <div className={`rounded-xl border border-ink-200 ${accent ? 'border-l-4' : ''} ${tones[tone]} p-5 shadow-sm`}>
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className={`w-8 h-8 rounded-lg ${iconBg[tone]} inline-flex items-center justify-center`}>
-          {icon}
-        </div>
-        <h3 className="text-sm font-bold text-ink-800 uppercase tracking-wider">{title}</h3>
-      </div>
-      <div>{children}</div>
-    </div>
-  );
-}
-
-export function ReportDocument({ report, metrics, date, type }) {
+export function ReportDocument({ metrics, date, type }) {
   const docRef = useRef(null);
 
   const handleDownloadImage = useCallback(async () => {
@@ -206,11 +150,9 @@ export function ReportDocument({ report, metrics, date, type }) {
     topDiagnoses = [],
     peakHour,
     trend,
-    followUpAlerts = []
+    followUpAlerts = [],
+    pregnancy = null
   } = metrics || {};
-
-  const insights = parseInsights(report);
-  const isPlainText = insights?._plainText !== undefined;
 
   return (
     <div className="space-y-4">
@@ -365,6 +307,83 @@ export function ReportDocument({ report, metrics, date, type }) {
             <p className="text-sm text-ink-600 italic">No peak-hour data available.</p>
           )}
 
+          {/* Pregnancy Tracking */}
+          {pregnancy && (
+            <>
+              <SectionHeader
+                icon={<Icon.Heart width={16} height={16} />}
+                title="Pregnancy Tracking"
+              />
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <StatBadge
+                  label="New Records"
+                  value={pregnancy.newRecords}
+                  tone="info"
+                />
+                <StatBadge
+                  label="Active Pregnancies"
+                  value={pregnancy.activeTotal}
+                  tone="primary"
+                />
+                <StatBadge
+                  label="Upcoming EDDs (30d)"
+                  value={pregnancy.upcomingEDDs?.length || 0}
+                  tone="warning"
+                />
+              </div>
+              {pregnancy.activeTotal > 0 && (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-2">By Trimester</p>
+                    <div className="flex gap-3 flex-wrap">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 text-sky-700 text-sm font-medium border border-sky-100">
+                        1st Trimester: {pregnancy.byTrimester?.[1] || 0}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium border border-amber-100">
+                        2nd Trimester: {pregnancy.byTrimester?.[2] || 0}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium border border-emerald-100">
+                        3rd Trimester: {pregnancy.byTrimester?.[3] || 0}
+                      </span>
+                    </div>
+                  </div>
+                  {Object.keys(pregnancy.byStatus || {}).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-2">By Status</p>
+                      <div className="flex gap-3 flex-wrap">
+                        {Object.entries(pregnancy.byStatus).map(([status, count]) => (
+                          <span
+                            key={status}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink-50 text-ink-700 text-sm font-medium border border-ink-200 capitalize"
+                          >
+                            {status}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {pregnancy.upcomingEDDs && pregnancy.upcomingEDDs.length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mt-4 mb-2">Upcoming Expected Dates of Delivery</p>
+                  <DataTable
+                    headers={['Patient #', 'EDD', 'Weeks', 'Trimester']}
+                    rows={pregnancy.upcomingEDDs.slice(0, 10).map((e) => [
+                      e.patient_id,
+                      formatDate(e.edd),
+                      e.weeks ? `${e.weeks} wks` : '—',
+                      e.trimester ? `T${e.trimester}` : '—'
+                    ])}
+                  />
+                </>
+              )}
+              {pregnancy.activeTotal === 0 && (
+                <p className="text-sm text-ink-600 italic">No active pregnancy records during this period.</p>
+              )}
+            </>
+          )}
+
           {/* Follow-up Alerts */}
           {followUpAlerts.length > 0 && (
             <>
@@ -385,64 +404,6 @@ export function ReportDocument({ report, metrics, date, type }) {
             </>
           )}
 
-          {/* AI Insights — structured cards */}
-          {isPlainText ? (
-            <InsightCard
-              icon={<Icon.FileText width={16} height={16} />}
-              title="AI Summary"
-              tone="primary"
-              accent
-            >
-              <p className="text-sm text-ink-700 leading-relaxed whitespace-pre-line">{insights._plainText}</p>
-            </InsightCard>
-          ) : insights ? (
-            <div className="space-y-4">
-              {insights.executiveSummary && (
-                <InsightCard
-                  icon={<Icon.FileText width={16} height={16} />}
-                  title="Executive Summary"
-                  tone="primary"
-                  accent
-                >
-                  <p className="text-sm text-ink-700 leading-relaxed">{insights.executiveSummary}</p>
-                </InsightCard>
-              )}
-              {insights.clinicalInsights && (
-                <InsightCard
-                  icon={<Icon.Stethoscope width={16} height={16} />}
-                  title="Clinical Insights"
-                  tone="success"
-                >
-                  <p className="text-sm text-ink-700 leading-relaxed">{insights.clinicalInsights}</p>
-                </InsightCard>
-              )}
-              {insights.operationalInsights && (
-                <InsightCard
-                  icon={<Icon.Clock width={16} height={16} />}
-                  title="Operational Insights"
-                  tone="info"
-                >
-                  <p className="text-sm text-ink-700 leading-relaxed">{insights.operationalInsights}</p>
-                </InsightCard>
-              )}
-              {insights.recommendations && insights.recommendations.length > 0 && (
-                <InsightCard
-                  icon={<Icon.Sparkle width={16} height={16} />}
-                  title="Recommendations"
-                  tone="warning"
-                >
-                  <ul className="space-y-2">
-                    {insights.recommendations.map((rec, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-ink-700">
-                        <span className="text-amber-500 mt-0.5">•</span>
-                        <span>{rec}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </InsightCard>
-              )}
-            </div>
-          ) : null}
         </div>
 
         {/* Footer */}
@@ -451,7 +412,7 @@ export function ReportDocument({ report, metrics, date, type }) {
             Generated by Jean Lying-in Maternity Clinic &middot; {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
           <p className="text-[10px] text-ink-300 mt-1">
-            This report is AI-assisted and should be reviewed by a licensed healthcare professional.
+            This report should be reviewed by a licensed healthcare professional.
           </p>
         </div>
       </div>

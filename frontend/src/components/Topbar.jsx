@@ -3,7 +3,7 @@ import { Input } from './UI/Input';
 
 export function Topbar({ title, subtitle, onMenuClick, search, onSearchChange, right }) {
   return (
-    <header className="bg-white/80 backdrop-blur border-b border-ink-100">
+    <header className="bg-white/80 backdrop-blur border-b border-ink-100 flex-shrink-0">
       <div className="px-4 md:px-8 py-4 flex items-center gap-4">
         <button
           onClick={onMenuClick}

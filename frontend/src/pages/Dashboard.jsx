@@ -13,8 +13,6 @@ import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
 import { pregnancyService } from '../services/pregnancyService';
 import { reportService } from '../services/reportService';
-import { aiService } from '../services/aiService';
-import { analyticsService } from '../services/analyticsService';
 import { apiError } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReportDocument } from '../components/ReportDocument';
@@ -88,15 +86,15 @@ export function Dashboard() {
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, reports, active, analytics] = await Promise.all([
+      const [patientsRes, reports, active, todayRes] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
         reportService.list(),
         patientService.active().catch(() => []),
-        analyticsService.getOverview(7).catch(() => null)
+        consultationService.today().catch(() => ({ count: 0 }))
       ]);
 
       const patientTotal = patientsRes.total ?? patientsRes.data?.length ?? 0;
-      const todayCount = analytics?.summary?.todayConsultations || 0;
+      const todayCount = todayRes?.count || 0;
 
       setStats({
         patients: patientTotal,
@@ -121,7 +119,7 @@ export function Dashboard() {
     setGenerating(true);
     setGenerated(null);
     try {
-      const result = await aiService.generateReport(reportModal.date);
+      const result = await reportService.generate(reportModal.date);
       setGenerated(result);
       toast.success('Report generated');
       load();
@@ -146,19 +144,20 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title={`Good ${greet()}, ${user?.name?.split(' ')[0] || 'there'}`}
         subtitle="Here's what's happening at JLMC today."
         onMenuClick={onOpenMenu}
       />
 
-      <div className="flex-1 p-4 md:p-8 space-y-6 max-w-7xl w-full mx-auto">
-        {loading ? (
-          <PageLoader label="Loading dashboard…" />
-        ) : (
-          <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-6">
+          {loading ? (
+            <PageLoader label="Loading dashboard…" />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 icon={<Icon.Users />}
                 label="Total patients"
@@ -226,24 +225,30 @@ export function Dashboard() {
                 </div>
               </Card>
 
-              <Card className="bg-gradient-to-br from-primary-500 to-primary-700 text-white border-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon.Sparkle className="text-primary-100" />
-                  <p className="text-sm font-medium text-primary-50">AI Insights</p>
+              <Card className="lg:col-span-1 flex flex-col">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary-100 text-primary-600 inline-flex items-center justify-center">
+                    <Icon.FileText />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-ink-500">Daily Report</p>
+                    <p className="font-display text-lg font-bold text-ink-900">
+                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="font-display text-xl font-bold">Generate today's report</h3>
-                <p className="text-primary-50/90 text-sm mt-1.5">
-                  Gemini will summarize today's consultations in plain language.
+                <p className="text-sm text-ink-600 flex-1">
+                  Summarize today's consultations into a structured report.
                 </p>
                 <Button
                   onClick={() => {
                     setReportModal({ open: true, date: todayISO() });
                     setGenerated(null);
                   }}
-                  className="mt-4 !bg-white !text-primary-700 hover:!bg-primary-50"
+                  className="mt-4 w-full"
                   size="md"
                 >
-                  <Icon.Sparkle width={16} height={16} />
+                  <Icon.FileText width={16} height={16} />
                   Generate report
                 </Button>
               </Card>
@@ -334,6 +339,7 @@ export function Dashboard() {
             </div>
           </>
         )}
+        </div>
       </div>
 
       <Modal
@@ -376,7 +382,7 @@ export function Dashboard() {
       <Modal
         open={reportModal.open}
         onClose={() => setReportModal((m) => ({ ...m, open: false }))}
-        title="Generate AI report"
+        title="Generate report"
         size="lg"
         footer={
           <>
@@ -387,13 +393,26 @@ export function Dashboard() {
               Close
             </Button>
             <Button onClick={generateReport} loading={generating}>
-              <Icon.Sparkle width={16} height={16} />
+              <Icon.FileText width={16} height={16} />
               Generate
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {!generated && !generating && (
+            <div className="rounded-xl border border-ink-100 bg-ink-50/50 p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center">
+                  <Icon.FileText width={18} height={18} />
+                </div>
+                <div>
+                  <p className="font-medium text-ink-900 text-sm">Daily consultation report</p>
+                  <p className="text-xs text-ink-500">Select a date to generate the report.</p>
+                </div>
+              </div>
+            </div>
+          )}
           <Input
             type="date"
             label="Report date"
@@ -402,15 +421,15 @@ export function Dashboard() {
           />
           {generated && (
             <ReportDocument
-              report={generated.report}
               metrics={generated.metrics}
               date={reportModal.date}
               type="daily"
             />
           )}
           {generating && (
-            <div className="flex items-center gap-2 text-sm text-ink-500">
-              <Spinner size="sm" /> Generating with Gemini…
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Spinner size="md" />
+              <p className="text-sm text-ink-500">Compiling report…</p>
             </div>
           )}
         </div>

@@ -40,6 +40,27 @@ class Pregnancy {
     const [result] = await db.execute('DELETE FROM pregnancies WHERE id = ?', [id]);
     return result.affectedRows > 0;
   }
+
+  // Find pregnancies created on a specific date (for daily reports)
+  static async findByDate(date) {
+    const query = `SELECT * FROM pregnancies WHERE created_at::date = ? ORDER BY created_at DESC`;
+    const [rows] = await db.execute(query, [date]);
+    return rows;
+  }
+
+  // Find pregnancies created within an inclusive date range (for weekly reports)
+  static async findByDateRange(startDate, endDate) {
+    const query = `SELECT * FROM pregnancies WHERE created_at::date BETWEEN ? AND ? ORDER BY created_at DESC`;
+    const [rows] = await db.execute(query, [startDate, endDate]);
+    return rows;
+  }
+
+  // Find all active pregnancies (status not discharged/delivered)
+  static async findActive() {
+    const query = `SELECT * FROM pregnancies WHERE status NOT IN ('delivered', 'discharged') ORDER BY created_at DESC`;
+    const [rows] = await db.execute(query, []);
+    return rows;
+  }
 }
 
 module.exports = Pregnancy;

@@ -110,21 +110,25 @@ export function ManageUsers() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-ink-900">Manage Users</h1>
-          <p className="text-ink-500 text-sm mt-1">Create and manage staff accounts.</p>
+    <div className="h-full flex flex-col">
+      <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-8 pb-4 md:pb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-display font-bold text-ink-900">Manage Users</h1>
+            <p className="text-ink-500 text-sm mt-1">Create and manage staff accounts.</p>
+          </div>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Icon.Plus className="mr-1.5" /> Add User
+          </Button>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Icon.Plus className="mr-1.5" /> Add User
-        </Button>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-16"><Spinner /></div>
-      ) : (
-        <div className="card overflow-hidden p-0">
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="px-4 md:px-8">
+          {loading ? (
+            <div className="flex justify-center py-16"><Spinner /></div>
+          ) : (
+            <div className="card overflow-hidden p-0">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-ink-50 border-b border-ink-100 text-ink-600 text-left">
@@ -161,6 +165,8 @@ export function ManageUsers() {
           </table>
         </div>
       )}
+        </div>
+      </div>
 
       {/* ── Create User Modal ─────────────────────────────────────────────── */}
       <Modal

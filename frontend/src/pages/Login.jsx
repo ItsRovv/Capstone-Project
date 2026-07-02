@@ -88,11 +88,11 @@ export function Login() {
             <br /> powered by intelligence.
           </h2>
           <p className="mt-4 text-primary-50/90 leading-relaxed">
-            Manage patient records and consultations — with AI-assisted
+            Manage patient records and consultations — with smart
             documentation that gives you more time for what matters.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            {['AI Note Summaries', 'Smart Reports', 'Secure & Private'].map((t) => (
+            {['Smart Summaries', 'Daily Reports', 'Secure & Private'].map((t) => (
               <span
                 key={t}
                 className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-sm font-medium"

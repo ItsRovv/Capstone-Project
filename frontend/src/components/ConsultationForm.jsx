@@ -3,7 +3,7 @@ import { Input, Textarea } from './UI/Input';
 import { Button } from './UI/Button';
 import { Spinner } from './UI/Spinner';
 import { Icon } from './Icon';
-import { aiService } from '../services/aiService';
+import { consultationService } from '../services/consultationService';
 import { apiError } from '../services/api';
 import { useToast } from './UI/Toast';
 
@@ -32,7 +32,7 @@ export function ConsultationForm({
     followUp: initial?.followUp || ''
   });
   const [summarizing, setSummarizing] = useState(false);
-  const [aiUsed, setAiUsed] = useState(false);
+  const [autoStructured, setAutoStructured] = useState(false);
 
   const update = (k) => (e) => setStructured((s) => ({ ...s, [k]: e.target.value }));
 
@@ -43,7 +43,7 @@ export function ConsultationForm({
     }
     setSummarizing(true);
     try {
-      const result = await aiService.summarizeNote(rawNotes);
+      const result = await consultationService.summarizeNote(rawNotes);
       setStructured({
         chiefComplaint: result.chiefComplaint || '',
         findings: result.findings || '',
@@ -51,10 +51,10 @@ export function ConsultationForm({
         prescription: result.prescription || '',
         followUp: result.followUp || ''
       });
-      setAiUsed(true);
-      toast.success('AI summary ready — review before saving');
+      setAutoStructured(true);
+      toast.success('Summary ready — review before saving');
     } catch (err) {
-      toast.error(apiError(err, 'AI summarization failed'));
+      toast.error(apiError(err, 'Summarization failed'));
     } finally {
       setSummarizing(false);
     }
@@ -73,7 +73,7 @@ export function ConsultationForm({
       chief_complaint: structured.chiefComplaint || null,
       diagnosis: structured.diagnosis || null,
       prescription: structured.prescription || null,
-      ai_summary_used: aiUsed
+      ai_summary_used: autoStructured
     };
     onSubmit(payload);
   }
@@ -91,19 +91,19 @@ export function ConsultationForm({
               loading={summarizing}
               disabled={!rawNotes.trim()}
             >
-              <Icon.Sparkle width={14} height={14} /> AI Summarize
+              <Icon.FileText width={14} height={14} /> Summarize
             </Button>
           </div>
           <Textarea
             rows={14}
-            placeholder="Type your consultation notes here… free-form. The AI will structure them for you."
+            placeholder="Type your consultation notes here… free-form. The system will structure them for you."
             value={rawNotes}
             onChange={(e) => setRawNotes(e.target.value)}
             className="font-mono text-sm"
           />
           {summarizing && (
             <p className="text-xs text-ink-500 flex items-center gap-2">
-              <Spinner size="sm" /> Gemini is structuring the notes…
+              <Spinner size="sm" /> Structuring the notes…
             </p>
           )}
         </div>
@@ -113,9 +113,9 @@ export function ConsultationForm({
             <label className="block text-sm font-medium text-ink-700">
               Structured record
             </label>
-            {aiUsed && (
+            {autoStructured && (
               <span className="text-xs text-primary-600 font-medium">
-                ✨ AI-assisted
+                ✨ Auto-structured
               </span>
             )}
           </div>

@@ -9,7 +9,6 @@ const STAFF_NAV = [
   { to: '/patients', label: 'Patients', icon: Icon.Users },
   { to: '/consultations', label: 'Consultations', icon: Icon.Stethoscope },
   { to: '/reports', label: 'Reports', icon: Icon.Report },
-  { to: '/analytics', label: 'Analytics', icon: Icon.Dashboard },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
 ];
 

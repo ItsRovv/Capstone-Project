@@ -10,7 +10,6 @@ import { Icon } from '../components/Icon';
 import { useToast } from '../components/UI/Toast';
 import { Input } from '../components/UI/Input';
 import { reportService } from '../services/reportService';
-import { aiService } from '../services/aiService';
 import { apiError } from '../services/api';
 import { ReportDocument } from '../components/ReportDocument';
 
@@ -58,7 +57,7 @@ export function Reports() {
     setGenerating(true);
     setGenerated(null);
     try {
-      const result = await aiService.generateReport(modal.date, modal.type);
+      const result = await reportService.generate(modal.date, modal.type);
       setGenerated(result);
       toast.success('Report generated');
       load();
@@ -77,7 +76,7 @@ export function Reports() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Reports"
-        subtitle="AI-generated clinic summaries with analytics."
+        subtitle="Daily clinic reports with summaries."
         onMenuClick={onOpenMenu}
         right={
           <Button
@@ -86,20 +85,21 @@ export function Reports() {
               setGenerated(null);
             }}
           >
-            <Icon.Sparkle width={16} height={16} /> Generate report
+            <Icon.FileText width={16} height={16} /> Generate report
           </Button>
         }
       />
 
-      <div className="flex-1 p-4 md:p-8 max-w-5xl w-full mx-auto">
-        <Card padding="p-0" className="overflow-hidden">
-          {loading ? (
-            <PageLoader />
-          ) : reports.length === 0 ? (
-            <EmptyState
-              icon={<Icon.Report width={36} height={36} />}
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="max-w-5xl w-full mx-auto px-4 md:px-8">
+          <Card padding="p-0" className="overflow-hidden">
+            {loading ? (
+              <PageLoader />
+            ) : reports.length === 0 ? (
+              <EmptyState
+              icon={<Icon.FileText width={36} height={36} />}
               title="No reports yet"
-              description="Generate a report to get an analytical summary of clinic activity."
+              description="Generate a report to get a summary of clinic activity."
               action={
                 <Button
                   onClick={() => {
@@ -107,7 +107,7 @@ export function Reports() {
                     setGenerated(null);
                   }}
                 >
-                  <Icon.Sparkle width={16} height={16} /> Generate your first report
+                  <Icon.FileText width={16} height={16} /> Generate your first report
                 </Button>
               }
             />
@@ -137,14 +137,15 @@ export function Reports() {
               ))}
             </ul>
           )}
-        </Card>
+          </Card>
+        </div>
       </div>
 
       {/* Generate modal */}
       <Modal
         open={modal.open}
         onClose={() => setModal((m) => ({ ...m, open: false }))}
-        title="Generate AI report"
+        title="Generate report"
         size="lg"
         footer={
           <>
@@ -155,12 +156,25 @@ export function Reports() {
               Close
             </Button>
             <Button onClick={generate} loading={generating}>
-              <Icon.Sparkle width={16} height={16} /> Generate
+              <Icon.FileText width={16} height={16} /> Generate
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {!generated && !generating && (
+            <div className="rounded-xl border border-ink-100 bg-ink-50/50 p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center">
+                  <Icon.FileText width={18} height={18} />
+                </div>
+                <div>
+                  <p className="font-medium text-ink-900 text-sm">Clinic report</p>
+                  <p className="text-xs text-ink-500">Choose a type and date to generate the report.</p>
+                </div>
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-ink-700 mb-1.5">
               Report type
@@ -182,15 +196,15 @@ export function Reports() {
           />
           {generated && (
             <ReportDocument
-              report={generated.report}
               metrics={generated.metrics}
               date={modal.date}
               type={modal.type}
             />
           )}
           {generating && (
-            <div className="flex items-center gap-2 text-sm text-ink-500">
-              <Spinner size="sm" /> Analyzing clinic data…
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Spinner size="md" />
+              <p className="text-sm text-ink-500">Compiling report…</p>
             </div>
           )}
         </div>
@@ -208,14 +222,13 @@ export function Reports() {
               Close
             </Button>
             <Button onClick={() => window.print()}>
-              <Icon.Report width={16} height={16} /> Print / Save as PDF
+              <Icon.FileText width={16} height={16} /> Print / Save as PDF
             </Button>
           </>
         }
       >
         {viewing && (
           <ReportDocument
-            report={viewing.ai_generated_text}
             metrics={viewing.metrics}
             date={viewing.report_date}
             type={viewing.report_type}

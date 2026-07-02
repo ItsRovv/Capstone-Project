@@ -72,12 +72,13 @@ export function Consultations() {
         }
       />
 
-      <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
-        <Card padding="p-0" className="overflow-hidden">
-          {loading ? (
-            <PageLoader />
-          ) : items.length === 0 ? (
-            <div className="p-10 text-center text-ink-500">
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8">
+          <Card padding="p-0" className="overflow-hidden">
+            {loading ? (
+              <PageLoader />
+            ) : items.length === 0 ? (
+              <div className="p-10 text-center text-ink-500">
               <Icon.Stethoscope
                 width={36}
                 height={36}
@@ -125,7 +126,7 @@ export function Consultations() {
                       <td className="px-6 py-3.5">
                         {c.ai_summary_used ? (
                           <Badge tone="primary">
-                            <Icon.Sparkle width={12} height={12} /> AI
+                            <Icon.Sparkle width={12} height={12} /> Auto
                           </Badge>
                         ) : (
                           <Badge>Manual</Badge>
@@ -137,7 +138,8 @@ export function Consultations() {
               </table>
             </div>
           )}
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   );

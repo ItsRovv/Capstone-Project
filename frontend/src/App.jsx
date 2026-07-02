@@ -10,7 +10,6 @@ import { Patients } from './pages/Patients';
 import { PatientDetail } from './pages/PatientDetail';
 import { Consultations } from './pages/Consultations';
 import { Reports } from './pages/Reports';
-import { Analytics } from './pages/Analytics';
 import { PregnancyTrackingForm } from './pages/PregnancyTrackingForm';
 import { ManageUsers } from './pages/ManageUsers';
 import { NotFound } from './pages/NotFound';
@@ -66,7 +65,6 @@ export default function App() {
         <Route path="patients/:id" element={<PatientDetail />} />
         <Route path="consultations" element={<Consultations />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="analytics" element={<Analytics />} />
         <Route path="pregnancy-tracking" element={<PregnancyTrackingForm />} />
         <Route
           path="admin/users"

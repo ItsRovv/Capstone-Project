@@ -95,11 +95,8 @@ export function Dashboard() {
         analyticsService.getOverview(7).catch(() => null)
       ]);
 
-      const patients = patientsRes.data || [];
-      const patientTotal = patientsRes.total ?? patients.length;
-
+      const patientTotal = patientsRes.total ?? patientsRes.data?.length ?? 0;
       const todayCount = analytics?.summary?.todayConsultations || 0;
-      const weekCount = analytics?.summary?.totalConsultations || 0;
 
       setStats({
         patients: patientTotal,
@@ -322,7 +319,7 @@ export function Dashboard() {
                         {stats.todayConsultations} consultation{stats.todayConsultations === 1 ? '' : 's'} today
                       </p>
                       <p className="text-xs text-ink-500">
-                        {weekCount} in the last 7 days
+                        View detailed consultation records
                       </p>
                     </div>
                     <Link to="/consultations">

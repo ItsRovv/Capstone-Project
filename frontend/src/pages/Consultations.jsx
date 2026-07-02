@@ -58,7 +58,7 @@ export function Consultations() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title="Consultations"
         subtitle="All recorded visits across patients."

@@ -118,7 +118,7 @@ export function Analytics() {
   const trend = data?.trend || {};
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title="Analytics Dashboard"
         subtitle="Clinic trends, patient insights, and AI-powered observations."

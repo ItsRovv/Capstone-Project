@@ -74,7 +74,7 @@ export function Reports() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title="Reports"
         subtitle="AI-generated clinic summaries with analytics."

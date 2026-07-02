@@ -2,6 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { noteSummarizationPrompt, reportGenerationPrompt } = require('../utils/promptTemplates');
 const localAi = require('./localAiService');
 const freeAi = require('./freeAiService');
+const ollama = require('./ollamaService');
 require('dotenv').config();
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,9 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
 
 // When true, skip Anthropic entirely and use the offline local engine.
 const USE_LOCAL_AI = process.env.USE_LOCAL_AI === 'true';
+
+// When true, prefer Ollama (local LLM) over cloud APIs for privacy.
+const USE_OLLAMA = process.env.USE_OLLAMA === 'true';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -76,6 +80,17 @@ async function summarizeNote(rawNote) {
     return localAi.summarizeNote(rawNote);
   }
 
+  // Prefer Ollama (local LLM) when enabled — keeps healthcare data on-premises.
+  if (USE_OLLAMA) {
+    try {
+      console.log('[aiService] Using Ollama local LLM for note summarization.');
+      return await ollama.summarizeNote(rawNote);
+    } catch (ollamaError) {
+      console.warn('[aiService] Ollama failed, falling back to enhanced local AI:', ollamaError.message || ollamaError);
+      return localAi.summarizeNoteEnhanced(rawNote);
+    }
+  }
+
   try {
     const text = await callWithRetry(noteSummarizationPrompt(rawNote));
     // Remove any markdown code block fences if present
@@ -83,12 +98,17 @@ async function summarizeNote(rawNote) {
     const structured = JSON.parse(cleanedText);
     return structured;
   } catch (error) {
-    console.warn('[aiService] Anthropic failed, trying free AI:', error.message || error);
+    console.warn('[aiService] Anthropic failed, trying Ollama:', error.message || error);
     try {
-      return await freeAi.summarizeNote(rawNote);
-    } catch (freeError) {
-      console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
-      return localAi.summarizeNoteEnhanced(rawNote);
+      return await ollama.summarizeNote(rawNote);
+    } catch (ollamaError) {
+      console.warn('[aiService] Ollama failed, trying free AI:', ollamaError.message || ollamaError);
+      try {
+        return await freeAi.summarizeNote(rawNote);
+      } catch (freeError) {
+        console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
+        return localAi.summarizeNoteEnhanced(rawNote);
+      }
     }
   }
 }
@@ -97,6 +117,17 @@ async function generateReport(summaryData) {
   if (USE_LOCAL_AI) {
     console.log('[aiService] Using local AI for report generation.');
     return localAi.generateReport(summaryData);
+  }
+
+  // Prefer Ollama (local LLM) when enabled — keeps healthcare data on-premises.
+  if (USE_OLLAMA) {
+    try {
+      console.log('[aiService] Using Ollama local LLM for report generation.');
+      return await ollama.generateReport(summaryData);
+    } catch (ollamaError) {
+      console.warn('[aiService] Ollama failed, falling back to enhanced local AI:', ollamaError.message || ollamaError);
+      return localAi.generateReportEnhanced(summaryData);
+    }
   }
 
   // Normalize the rich analytics object back to the prompt-template shape
@@ -116,12 +147,17 @@ async function generateReport(summaryData) {
     const parsed = JSON.parse(cleanedText);
     return parsed;
   } catch (error) {
-    console.warn('[aiService] Anthropic structured JSON failed, trying free AI:', error.message || error);
+    console.warn('[aiService] Anthropic failed, trying Ollama:', error.message || error);
     try {
-      return await freeAi.generateReport(summaryData);
-    } catch (freeError) {
-      console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
-      return localAi.generateReportEnhanced(summaryData);
+      return await ollama.generateReport(summaryData);
+    } catch (ollamaError) {
+      console.warn('[aiService] Ollama failed, trying free AI:', ollamaError.message || ollamaError);
+      try {
+        return await freeAi.generateReport(summaryData);
+      } catch (freeError) {
+        console.warn('[aiService] Free AI failed, falling back to enhanced local AI:', freeError.message || freeError);
+        return localAi.generateReportEnhanced(summaryData);
+      }
     }
   }
 }

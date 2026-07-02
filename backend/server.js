@@ -14,6 +14,7 @@ const aiRoutes = require('./routes/aiRoutes');
 const authRoutes = require('./routes/auth');
 const automationRoutes = require('./routes/automation');
 const pregnancyRoutes = require('./routes/pregnancies');
+const analyticsRoutes = require('./routes/analytics');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { csrfProtection } = require('./middleware/csrf');
 const { mapErrorToClientMessage } = require('./utils/dbErrorMapper');
@@ -173,6 +174,7 @@ mountV1('/patients/:patientId/pregnancies', pregnancyRoutes);
 mountV1('/consultations', consultationRoutes);
 mountV1('/reports', reportRoutes);
 mountV1('/ai', aiRoutes);
+mountV1('/analytics', analyticsRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
 mountV1('/automation', automationRoutes);
 

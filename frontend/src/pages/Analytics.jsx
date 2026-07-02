@@ -66,22 +66,22 @@ export function Analytics() {
 
   const [ollamaStatus, setOllamaStatus] = useState(null);
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = useCallback(async (selectedDays = days) => {
     setLoading(true);
     try {
-      const result = await analyticsService.getOverview(days);
+      const result = await analyticsService.getOverview(selectedDays);
       setData(result);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load analytics'));
     } finally {
       setLoading(false);
     }
-  }, [days, toast]);
+  }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadInsight = useCallback(async () => {
+  const loadInsight = useCallback(async (selectedDays = days) => {
     setInsightLoading(true);
     try {
-      const result = await analyticsService.getAiInsight(days);
+      const result = await analyticsService.getAiInsight(selectedDays);
       setAiInsight(result.insight);
       setInsightSource(result.source);
     } catch (err) {
@@ -89,7 +89,7 @@ export function Analytics() {
     } finally {
       setInsightLoading(false);
     }
-  }, [days, toast]);
+  }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadOllamaStatus = useCallback(async () => {
     try {
@@ -100,16 +100,18 @@ export function Analytics() {
     }
   }, []);
 
+  // Load overview + ollama status only when `days` changes
   useEffect(() => {
-    loadOverview();
+    loadOverview(days);
     loadOllamaStatus();
-  }, [loadOverview, loadOllamaStatus]);
+  }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load AI insight only when overview data arrives and no insight yet
   useEffect(() => {
     if (data && !aiInsight) {
-      loadInsight();
+      loadInsight(days);
     }
-  }, [data, aiInsight, loadInsight]);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const summary = data?.summary || {};
   const charts = data?.charts || {};
@@ -140,7 +142,7 @@ export function Analytics() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                loadOverview();
+                loadOverview(days);
                 setAiInsight(null);
               }}
             >

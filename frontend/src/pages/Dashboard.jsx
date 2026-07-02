@@ -14,6 +14,7 @@ import { consultationService } from '../services/consultationService';
 import { pregnancyService } from '../services/pregnancyService';
 import { reportService } from '../services/reportService';
 import { aiService } from '../services/aiService';
+import { analyticsService } from '../services/analyticsService';
 import { apiError } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReportDocument } from '../components/ReportDocument';
@@ -87,38 +88,18 @@ export function Dashboard() {
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, reports, active] = await Promise.all([
+      const [patientsRes, reports, active, analytics] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
         reportService.list(),
-        patientService.active().catch(() => [])
+        patientService.active().catch(() => []),
+        analyticsService.getOverview(7).catch(() => null)
       ]);
 
       const patients = patientsRes.data || [];
       const patientTotal = patientsRes.total ?? patients.length;
 
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const today = todayISO();
-
-      let weekCount = 0;
-      let todayCount = 0;
-      let todayList = [];
-      try {
-        const sample = patients.slice(0, 50);
-        const lists = await Promise.all(
-          sample.map((p) => consultationService.listForPatient(p.id).catch(() => []))
-        );
-        const allConsults = lists.flat();
-        weekCount = allConsults.filter((c) => new Date(c.visit_date) >= weekAgo).length;
-        todayList = allConsults.filter((c) => {
-          const vd = new Date(c.visit_date).toISOString().split('T')[0];
-          return vd === today;
-        });
-        todayCount = todayList.length;
-      } catch {
-        weekCount = 0;
-        todayCount = 0;
-      }
+      const todayCount = analytics?.summary?.todayConsultations || 0;
+      const weekCount = analytics?.summary?.totalConsultations || 0;
 
       setStats({
         patients: patientTotal,
@@ -127,7 +108,7 @@ export function Dashboard() {
         reports: reports.length
       });
       setActivePatients(active);
-      setTodayConsults(todayList.slice(0, 5));
+      setTodayConsults([]);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load dashboard'));
     } finally {
@@ -290,32 +271,34 @@ export function Dashboard() {
                     No active patients currently in the clinic.
                   </div>
                 ) : (
-                  <ul className="divide-y divide-ink-100">
-                    {activePatients.map((p) => (
-                      <li key={p.id} className="py-3 flex items-center gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-ink-900 truncate">
-                            {p.first_name} {p.last_name}
-                          </p>
-                          <p className="text-xs text-ink-500 truncate">
-                            {p.trimester || '—'} · {p.weeks || '—'}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            Ongoing
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="max-h-80 overflow-y-auto">
+                    <ul className="divide-y divide-ink-100">
+                      {activePatients.map((p) => (
+                        <li key={p.id} className="py-3 flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-ink-900 truncate">
+                              {p.first_name} {p.last_name}
+                            </p>
+                            <p className="text-xs text-ink-500 truncate">
+                              {p.trimester || '—'} · {p.weeks || '—'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                              Ongoing
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </Card>
 
               <Card>
                 <CardHeader
                   title="Consultations today"
-                  subtitle={`${todayConsults.length} consultation${todayConsults.length === 1 ? '' : 's'} recorded`}
+                  subtitle={`${stats.todayConsultations} consultation${stats.todayConsultations === 1 ? '' : 's'} recorded`}
                   action={
                     <Link to="/consultations">
                       <Button variant="ghost" size="sm">
@@ -325,33 +308,30 @@ export function Dashboard() {
                     </Link>
                   }
                 />
-                {todayConsults.length === 0 ? (
+                {stats.todayConsultations === 0 ? (
                   <div className="text-sm text-ink-500 py-8 text-center">
                     No consultations recorded for today.
                   </div>
                 ) : (
-                  <ul className="divide-y divide-ink-100">
-                    {todayConsults.map((c) => (
-                      <li key={c.id} className="py-3 flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
-                          <Icon.Stethoscope />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-ink-900 truncate">
-                            {c.chief_complaint || 'Consultation'}
-                          </p>
-                          <p className="text-xs text-ink-500 truncate">
-                            Patient #{c.patient_id}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-ink-800">
-                            {formatTime(c.visit_date)}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="flex items-center gap-3 py-4">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
+                      <Icon.Stethoscope />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-ink-900">
+                        {stats.todayConsultations} consultation{stats.todayConsultations === 1 ? '' : 's'} today
+                      </p>
+                      <p className="text-xs text-ink-500">
+                        {weekCount} in the last 7 days
+                      </p>
+                    </div>
+                    <Link to="/consultations">
+                      <Button variant="ghost" size="sm">
+                        Details
+                        <Icon.Chevron width={14} height={14} />
+                      </Button>
+                    </Link>
+                  </div>
                 )}
               </Card>
             </div>

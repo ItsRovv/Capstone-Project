@@ -1,26 +1,20 @@
 /**
- * Lightweight local "AI" that works offline and requires no API keys.
+ * Rule-based note summarization and report generation service.
  *
- * Uses rule-based text extraction + templates to produce the same output
- * shape as Claude / Gemini. Perfect for demos, development, and clinics
- * without cloud-AI budgets.
- *
- * Accuracy is lower than a real LLM, but it is instant (< 10 ms),
- * 100 % free, and works without an internet connection.
+ * Uses text extraction + templates to produce structured output.
+ * Instant (< 10 ms), 100 % free, and works without an internet connection.
  */
 
 const { LRUCache } = require('../utils/lruCache');
 const { parseMedicalNote } = require('../utils/medicalParser');
 const { generateEnhancedReport } = require('../utils/reportEnhancer');
 
-// Shared LRU cache for local AI calls (notes + reports)
-const localAiCache = new LRUCache(200);
+const summaryCache = new LRUCache(200);
 
 function extractSection(text, patterns) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match) {
-      // Some patterns have capture group 2 (e.g. diagnosis with optional suffix)
       const captured = match[2] !== undefined ? match[2] : match[1];
       return captured?.trim();
     }
@@ -28,10 +22,6 @@ function extractSection(text, patterns) {
   return '';
 }
 
-/**
- * Split text into sentences and return the first one that looks like
- * a complaint (contains symptom keywords).
- */
 function firstSentenceAsComplaint(text) {
   const sentences = text.split(/[.!?]\s+/).filter(Boolean);
   const symptomKeywords = /(pain|ache|fever|headache|nausea|vomit|cough|swell|bleed|cramp|dizzy|fatigue|weak|numb|rash|itch|burn|sore|tender|stiff|spasm|discharge|spotting|contractions)/i;
@@ -41,9 +31,6 @@ function firstSentenceAsComplaint(text) {
   return sentences[0]?.trim() || '';
 }
 
-/**
- * Parse a raw doctor's note into structured fields.
- */
 function summarizeNote(rawNote) {
   const text = String(rawNote || '');
 
@@ -100,7 +87,7 @@ function summarizeNote(rawNote) {
   };
 }
 
-/* ─────────────────── helpers for smart report generation ─────────────────── */
+/* ─────────────────── helpers for report generation ─────────────────── */
 
 function fmtHour(h) {
   const ampm = h >= 12 ? 'PM' : 'AM';
@@ -161,9 +148,6 @@ function peakHourSentence(peak) {
 
 /* ──────────────────────── main report generator ────────────────────────── */
 
-/**
- * Build a smart, analytical clinic report from computed DB metrics.
- */
 function generateReport(analytics) {
   const {
     date,
@@ -188,7 +172,6 @@ function generateReport(analytics) {
   })}\n`;
   report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  // ── Patient Overview ──
   report += `📊 PATIENT OVERVIEW\n`;
   report += `────────────────────────────────────────\n`;
   if (totalPatients === 0) {
@@ -200,14 +183,12 @@ function generateReport(analytics) {
   }
   report += `\n`;
 
-  // ── Trend ──
   if (trend) {
     report += `📈 TREND ANALYSIS\n`;
     report += `────────────────────────────────────────\n`;
     report += `${trendSentence(trend)}\n\n`;
   }
 
-  // ── Clinical Summary ──
   report += `🏥 CLINICAL SUMMARY\n`;
   report += `────────────────────────────────────────\n`;
   if (topComplaints.length > 0) {
@@ -222,7 +203,6 @@ function generateReport(analytics) {
     report += `No diagnoses were documented.\n\n`;
   }
 
-  // ── Operational Notes ──
   report += `⚙️ OPERATIONAL NOTE\n`;
   report += `────────────────────────────────────────\n`;
   const peak = peakHourSentence(busiest);
@@ -236,7 +216,6 @@ function generateReport(analytics) {
   }
   report += `\n`;
 
-  // ── Follow-up Alerts ──
   const fu = followUpSentence(followUpAlerts);
   if (fu) {
     report += `🔔 FOLLOW-UP ALERTS\n`;
@@ -252,29 +231,21 @@ function generateReport(analytics) {
 
 /* ─────────────────── Enhanced companion layer ─────────────────────────── */
 
-/**
- * Enhanced note summarization using the medical parser.
- * Adds: fuzzy header matching, abbreviation expansion, vitals extraction,
- * pregnancy data parsing, medication structuring, Filipino symptom detection,
- * and per-field confidence scoring. Cached for speed.
- */
 function summarizeNoteEnhanced(rawNote) {
   const cacheKey = `note:${String(rawNote || '').slice(0, 240)}`;
-  const cached = localAiCache.get(cacheKey);
+  const cached = summaryCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const parsed = parseMedicalNote(rawNote);
 
-  // Flatten to the same shape as the original summarizeNote, but enriched
   const result = {
     chiefComplaint: parsed.chiefComplaint || '',
     findings: parsed.findings || '',
     diagnosis: parsed.diagnosis || '',
     prescription: parsed.prescription || '',
     followUp: parsed.followUp || '',
-    // Enrichment fields (ignored by callers that only read the 5 standard keys)
     vitalSigns: parsed.vitalSigns,
     pregnancyData: parsed.pregnancyData,
     medications: parsed.medications,
@@ -282,24 +253,19 @@ function summarizeNoteEnhanced(rawNote) {
     confidence: parsed.confidence
   };
 
-  localAiCache.set(cacheKey, result);
+  summaryCache.set(cacheKey, result);
   return result;
 }
 
-/**
- * Enhanced report generation using the report enhancer.
- * Adds: template variety, clinical risk flagging, pregnancy trimester breakdown,
- * and actionable recommendations. Cached for speed.
- */
 function generateReportEnhanced(analytics, consultations = []) {
   const cacheKey = `report:${analytics.date}:${analytics.weekly ? 'w' : 'd'}:${analytics.totalPatients}`;
-  const cached = localAiCache.get(cacheKey);
+  const cached = summaryCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const report = generateEnhancedReport(analytics, consultations, 'narrative');
-  localAiCache.set(cacheKey, report);
+  summaryCache.set(cacheKey, report);
   return report;
 }
 

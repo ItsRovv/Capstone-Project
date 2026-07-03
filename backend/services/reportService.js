@@ -1,6 +1,7 @@
 const Consultation = require('../models/Consultation');
+const Pregnancy = require('../models/Pregnancy');
 const Report = require('../models/Report');
-const aiService = require('./aiService');
+const summaryService = require('./summaryService');
 const db = require('../config/db');
 
 /**
@@ -61,9 +62,60 @@ function extractFollowUps(consultations) {
 }
 
 /**
+ * Build pregnancy tracking analytics for a given period.
+ */
+async function buildPregnancyAnalytics(dateISO, isWeekly, rangeStart, rangeEnd) {
+  const pregnancies = isWeekly
+    ? await Pregnancy.findByDateRange(rangeStart, rangeEnd)
+    : await Pregnancy.findByDate(dateISO);
+
+  const activePregnancies = await Pregnancy.findActive();
+
+  // Group by trimester
+  const trimesterCounts = { 1: 0, 2: 0, 3: 0 };
+  for (const p of activePregnancies) {
+    const t = Number(p.trimester);
+    if (t >= 1 && t <= 3) trimesterCounts[t]++;
+  }
+
+  // Group by status
+  const statusCounts = {};
+  for (const p of activePregnancies) {
+    const s = p.status || 'unknown';
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  }
+
+  // Upcoming EDDs (within next 30 days)
+  const now = new Date();
+  const thirtyDaysLater = new Date();
+  thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+  const upcomingEDDs = activePregnancies
+    .filter((p) => {
+      if (!p.edd) return false;
+      const edd = new Date(p.edd);
+      return edd >= now && edd <= thirtyDaysLater;
+    })
+    .map((p) => ({
+      patient_id: p.patient_id,
+      edd: p.edd,
+      weeks: p.weeks,
+      trimester: p.trimester
+    }))
+    .sort((a, b) => new Date(a.edd) - new Date(b.edd));
+
+  return {
+    newRecords: pregnancies.length,
+    activeTotal: activePregnancies.length,
+    byTrimester: trimesterCounts,
+    byStatus: statusCounts,
+    upcomingEDDs
+  };
+}
+
+/**
  * Build rich analytics from DB data for a given period.
  */
-async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, prevRange) {
+async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, prevRange, reportRange) {
   const totalPatients = consultations.length;
 
   // ── New vs Returning patients ──
@@ -113,6 +165,12 @@ async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, pr
   // ── Follow-up alerts ──
   const followUpAlerts = extractFollowUps(consultations);
 
+  // ── Pregnancy tracking ──
+  const isWeekly = !!reportRange;
+  const pregnancy = await buildPregnancyAnalytics(
+    dateISO, isWeekly, reportRange?.start, reportRange?.end || dateISO
+  );
+
   return {
     date: dateLabel,
     totalPatients,
@@ -122,7 +180,8 @@ async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, pr
     topDiagnoses,
     peakHour: busiestHour,
     trend,
-    followUpAlerts
+    followUpAlerts,
+    pregnancy
   };
 }
 
@@ -138,12 +197,12 @@ async function generateDailyReport(date) {
   const prevDateISO = prev.toISOString().split('T')[0];
 
   const analytics = await buildAnalytics(consultations, date, date, prevDateISO);
-  const reportText = await aiService.generateReport(analytics);
+  const reportText = await summaryService.generateReport(analytics);
 
   const id = await Report.save({
     date,
     report_type: 'daily',
-    ai_generated_text: reportText,
+    summary_text: reportText,
     total_patients: consultations.length,
     metrics: analytics
   });
@@ -173,15 +232,15 @@ async function generateWeeklyReport(endDate) {
   const prevStartISO = prevStart.toISOString().split('T')[0];
 
   const analytics = await buildAnalytics(
-    consultations, `${startISO} to ${endDate}`, endDate, null, { start: prevStartISO, end: prevEndISO }
+    consultations, `${startISO} to ${endDate}`, endDate, null, { start: prevStartISO, end: prevEndISO }, { start: startISO, end: endDate }
   );
   analytics.weekly = true;
-  const reportText = await aiService.generateReport(analytics);
+  const reportText = await summaryService.generateReport(analytics);
 
   const id = await Report.save({
     date: endDate,
     report_type: 'weekly',
-    ai_generated_text: reportText,
+    summary_text: reportText,
     total_patients: consultations.length,
     metrics: analytics
   });

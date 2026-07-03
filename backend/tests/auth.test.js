@@ -1,7 +1,9 @@
-// Mock the User model so these tests never touch a real database.
+// Mock the User and AuditLog models so these tests never touch a real database.
 jest.mock('../models/User');
+jest.mock('../models/AuditLog');
 
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { login, register } = require('../controllers/authController');
 
 process.env.JWT_SECRET = 'test-secret';
@@ -30,6 +32,7 @@ beforeEach(() => {
   User.dummyCompare = jest.fn().mockResolvedValue();
   User.incrementFailedLogin = jest.fn().mockResolvedValue();
   User.resetFailedLogin = jest.fn().mockResolvedValue();
+  AuditLog.create.mockResolvedValue();
 });
 
 describe('login', () => {

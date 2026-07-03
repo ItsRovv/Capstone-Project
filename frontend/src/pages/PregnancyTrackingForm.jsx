@@ -53,11 +53,12 @@ export function PregnancyTrackingForm() {
   const handlePrint = () => window.print();
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="h-full flex flex-col">
       <Topbar title="Pregnancy Tracking Form" onMenuClick={onOpenMenu} />
 
-      <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 print:p-0 print:max-w-none">
-        {/* Action bar */}
+      <div className="flex-1 overflow-y-auto w-full print:p-0 print:max-w-none">
+        <div className="max-w-[1400px] mx-auto px-4 md:px-6">
+          {/* Action bar */}
         <div className="flex items-center justify-between mb-4 print:hidden">
           <p className="text-sm text-ink-500">
             Auto-filled: <strong>{monthYear}</strong>
@@ -267,6 +268,7 @@ export function PregnancyTrackingForm() {
           <div className="flex justify-end mt-6 text-sm text-ink-600">
             <span>Page __ of __</span>
           </div>
+        </div>
         </div>
       </div>
     </div>

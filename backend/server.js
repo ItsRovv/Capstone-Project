@@ -10,7 +10,7 @@ const session = require('express-session');
 const patientRoutes = require('./routes/patients');
 const consultationRoutes = require('./routes/consultations');
 const reportRoutes = require('./routes/reports');
-const aiRoutes = require('./routes/aiRoutes');
+const summaryRoutes = require('./routes/summaryRoutes');
 const authRoutes = require('./routes/auth');
 const automationRoutes = require('./routes/automation');
 const pregnancyRoutes = require('./routes/pregnancies');
@@ -172,7 +172,7 @@ mountV1('/patients', patientRoutes);
 mountV1('/patients/:patientId/pregnancies', pregnancyRoutes);
 mountV1('/consultations', consultationRoutes);
 mountV1('/reports', reportRoutes);
-mountV1('/ai', aiRoutes);
+mountV1('/summary', summaryRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
 mountV1('/automation', automationRoutes);
 

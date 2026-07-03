@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../config/db');
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
 const AuditLog = require('../models/AuditLog');
-const aiService = require('../services/aiService');
+const summaryService = require('../services/summaryService');
 const { validateConsultation } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
@@ -12,6 +13,20 @@ const { routeError } = require('../utils/routeError');
 
 // Clinic staff only.
 router.use(auth, requireStaff);
+
+// Get today's consultation count (used by dashboard)
+router.get('/today', auth, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const [rows] = await db.query(
+      'SELECT COUNT(*) AS total FROM consultations WHERE visit_date::date = ?',
+      [today]
+    );
+    res.json({ count: parseInt(rows[0]?.total) || 0 });
+  } catch (err) {
+    routeError(res, err);
+  }
+});
 
 // Get all consultations for a patient
 router.get('/patient/:patientId', auth, async (req, res) => {
@@ -106,7 +121,7 @@ router.post('/:id/summarize', auth, async (req, res) => {
       return res.status(400).json({ message: 'Consultation has no raw notes to summarize' });
     }
 
-    const structured = await aiService.summarizeNote(consultation.raw_notes);
+    const structured = await summaryService.summarizeNote(consultation.raw_notes);
 
     // Persist the structured output and mark that AI was used.
     await Consultation.update(req.params.id, {

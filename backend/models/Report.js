@@ -3,7 +3,7 @@ const db = require('../config/db');
 class Report {
   // Save a report
   static async save(reportData) {
-    const { date, report_type, ai_generated_text, total_patients, metrics } = reportData;
+    const { date, report_type, summary_text, total_patients, metrics } = reportData;
     const query = `
       INSERT INTO clinic_reports (report_date, report_type, ai_generated_text, total_patients, metrics)
       VALUES (?, ?, ?, ?, ?)
@@ -11,9 +11,9 @@ class Report {
     const values = [
       date,
       report_type,
-      typeof ai_generated_text === 'object'
-        ? JSON.stringify(ai_generated_text)
-        : (ai_generated_text ?? null),
+      typeof summary_text === 'object'
+        ? JSON.stringify(summary_text)
+        : (summary_text ?? null),
       total_patients ?? null,
       metrics ? JSON.stringify(metrics) : null
     ];

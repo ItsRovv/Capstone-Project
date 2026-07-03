@@ -6,9 +6,9 @@ export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen flex bg-cream">
+    <div className="h-screen flex overflow-hidden bg-cream">
       {/* Desktop sidebar */}
-      <div className="hidden md:block flex-shrink-0">
+      <div className="hidden md:block flex-shrink-0 h-full overflow-hidden">
         <Sidebar />
       </div>
 
@@ -26,7 +26,7 @@ export function Layout() {
         </div>
       )}
 
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 h-full overflow-y-auto">
         <Outlet context={{ onOpenMenu: () => setMobileOpen(true) }} />
       </div>
     </div>

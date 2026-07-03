@@ -162,9 +162,9 @@ export function PatientDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="h-full flex flex-col">
         <Topbar title="Patient" onMenuClick={onOpenMenu} />
-        <div className="flex-1 p-8">
+        <div className="flex-1 overflow-y-auto p-8">
           <PageLoader />
         </div>
       </div>
@@ -173,9 +173,9 @@ export function PatientDetail() {
 
   if (!patient) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="h-full flex flex-col">
         <Topbar title="Not found" onMenuClick={onOpenMenu} />
-        <div className="flex-1 p-8 text-center text-ink-500">Patient not found.</div>
+        <div className="flex-1 overflow-y-auto p-8 text-center text-ink-500">Patient not found.</div>
       </div>
     );
   }
@@ -183,7 +183,7 @@ export function PatientDetail() {
   const age = patient.age || ageFromDob(patient.date_of_birth);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title={`${patient.first_name} ${patient.last_name}`}
         subtitle={`Patient #${patient.id} · ${patient.sex || '—'}${age ? ` · ${age} y/o` : ''}`}
@@ -197,9 +197,10 @@ export function PatientDetail() {
         }
       />
 
-      <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto space-y-4">
-        <Card>
-          <div className="flex flex-col md:flex-row md:items-center gap-4">
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
+          <Card>
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
             <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4">
               <Field label="Date of birth" value={formatDate(patient.date_of_birth)} />
               <Field label="Contact" value={patient.contact_number} />
@@ -289,6 +290,7 @@ export function PatientDetail() {
             )}
           </Card>
         )}
+        </div>
       </div>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit patient" size="lg">

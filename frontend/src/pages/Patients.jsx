@@ -102,7 +102,7 @@ export function Patients() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       <Topbar
         title="Patients"
         subtitle="All registered patients at JLMC."
@@ -122,12 +122,13 @@ export function Patients() {
         }
       />
 
-      <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto w-full">
-        <Card padding="p-0" className="overflow-hidden">
-          {loading ? (
-            <PageLoader label="Loading patients…" />
-          ) : patients.length === 0 ? (
-            <EmptyState
+      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8">
+          <Card padding="p-0" className="overflow-hidden">
+            {loading ? (
+              <PageLoader label="Loading patients…" />
+            ) : patients.length === 0 ? (
+              <EmptyState
               icon={<Icon.Users width={40} height={40} />}
               title={search ? 'No matches' : 'No patients yet'}
               description={
@@ -242,6 +243,7 @@ export function Patients() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       <Modal

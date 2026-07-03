@@ -1,20 +1,25 @@
-// Mock the models, DB, and AI service so no real connections or API keys are needed.
+// Mock the models, DB, and summary service so no real connections are needed.
 jest.mock('../config/db');
 jest.mock('../models/Consultation');
 jest.mock('../models/Report');
-jest.mock('../services/aiService');
+jest.mock('../services/summaryService');
+jest.mock('../models/Pregnancy');
 
 const db = require('../config/db');
 const Consultation = require('../models/Consultation');
 const Report = require('../models/Report');
-const aiService = require('../services/aiService');
+const summaryService = require('../services/summaryService');
+const Pregnancy = require('../models/Pregnancy');
 const { generateDailyReport, generateWeeklyReport } = require('../services/reportService');
 
 beforeEach(() => {
   jest.clearAllMocks();
-  aiService.generateReport.mockResolvedValue('Daily summary text');
+  summaryService.generateReport.mockResolvedValue('Daily summary text');
   Report.save.mockResolvedValue(42);
   db.query.mockResolvedValue([[]]);
+  Pregnancy.findActive.mockResolvedValue([]);
+  Pregnancy.findByDate.mockResolvedValue([]);
+  Pregnancy.findByDateRange.mockResolvedValue([]);
 });
 
 describe('generateDailyReport', () => {
@@ -27,7 +32,7 @@ describe('generateDailyReport', () => {
     const result = await generateDailyReport('2026-06-15');
 
     expect(Consultation.findByDate).toHaveBeenCalledWith('2026-06-15');
-    expect(aiService.generateReport).toHaveBeenCalled();
+    expect(summaryService.generateReport).toHaveBeenCalled();
     expect(Report.save).toHaveBeenCalled();
     expect(result).toMatchObject({
       id: 42,

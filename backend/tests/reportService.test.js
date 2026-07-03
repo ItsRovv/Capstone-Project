@@ -9,6 +9,7 @@ const db = require('../config/db');
 const Consultation = require('../models/Consultation');
 const Report = require('../models/Report');
 const summaryService = require('../services/summaryService');
+const Pregnancy = require('../models/Pregnancy');
 const { generateDailyReport, generateWeeklyReport } = require('../services/reportService');
 
 beforeEach(() => {
@@ -16,6 +17,9 @@ beforeEach(() => {
   summaryService.generateReport.mockResolvedValue('Daily summary text');
   Report.save.mockResolvedValue(42);
   db.query.mockResolvedValue([[]]);
+  Pregnancy.findActive.mockResolvedValue([]);
+  Pregnancy.findByDate.mockResolvedValue([]);
+  Pregnancy.findByDateRange.mockResolvedValue([]);
 });
 
 describe('generateDailyReport', () => {

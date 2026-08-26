@@ -34,10 +34,10 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('lc:logout', onLogout);
   }, []);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (identifier, password) => {
     setLoading(true);
     try {
-      const { user: u } = await authService.login(email, password);
+      const { user: u } = await authService.login(identifier, password);
       setUser(u);
       return u;
     } finally {

@@ -10,15 +10,15 @@ const DUMMY_HASH = bcrypt.hashSync('__dummy_password_never_matches__', BCRYPT_RO
 class User {
   // Create a new user (for registration)
   static async create(userData) {
-    const { name, email, password, role = 'staff', email_verified = false } = userData;
+    const { name, email, password, role = 'staff', email_verified = false, username = null } = userData;
     // Hash password with a strong cost factor (12 rounds ≈ 200–400 ms)
     const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const query = `
-      INSERT INTO users (name, email, password_hash, role, email_verified)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (name, username, email, password_hash, role, email_verified)
+      VALUES (?, ?, ?, ?, ?, ?)
     `;
-    const values = [name, email, password_hash, role, !!email_verified];
+    const values = [name, username || null, email, password_hash, role, !!email_verified];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -27,6 +27,20 @@ class User {
   static async findByEmail(email) {
     const query = 'SELECT * FROM users WHERE email = ?';
     const [rows] = await db.execute(query, [email]);
+    return rows[0];
+  }
+
+  // Find user by username
+  static async findByUsername(username) {
+    const query = 'SELECT * FROM users WHERE username = ?';
+    const [rows] = await db.execute(query, [username]);
+    return rows[0];
+  }
+
+  // Find user by email OR username (for login)
+  static async findByEmailOrUsername(identifier) {
+    const query = 'SELECT * FROM users WHERE email = ? OR username = ?';
+    const [rows] = await db.execute(query, [identifier, identifier]);
     return rows[0];
   }
 
@@ -39,7 +53,7 @@ class User {
 
   // Find all users (without password_hash)
   static async findAll() {
-    const query = 'SELECT id, name, email, role, created_at, updated_at FROM users ORDER BY created_at DESC';
+    const query = 'SELECT id, name, username, email, role, email_verified, created_at, updated_at FROM users ORDER BY created_at DESC';
     const [rows] = await db.execute(query);
     return rows;
   }
@@ -90,21 +104,21 @@ class User {
     await db.execute(query, [id]);
   }
 
-  // Update user (e.g., name, email, role, or password)
+  // Update user (e.g., name, email, role, username, or password)
   static async update(id, userData) {
-    const { name, email, role } = userData;
+    const { name, email, role, username } = userData;
 
     if (userData.password) {
       const password_hash = await bcrypt.hash(userData.password, BCRYPT_ROUNDS);
       const query =
-        'UPDATE users SET name = ?, email = ?, password_hash = ?, role = ? WHERE id = ?';
-      const values = [name ?? null, email ?? null, password_hash, role ?? null, id];
+        'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ?, role = ? WHERE id = ?';
+      const values = [name ?? null, username ?? null, email ?? null, password_hash, role ?? null, id];
       const [result] = await db.execute(query, values);
       return result.affectedRows > 0;
     }
 
-    const query = 'UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?';
-    const values = [name ?? null, email ?? null, role ?? null, id];
+    const query = 'UPDATE users SET name = ?, username = ?, email = ?, role = ? WHERE id = ?';
+    const values = [name ?? null, username ?? null, email ?? null, role ?? null, id];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
   }

@@ -9,11 +9,14 @@ const session = require('express-session');
 
 const patientRoutes = require('./routes/patients');
 const consultationRoutes = require('./routes/consultations');
+const consultationTransactionRoutes = require('./routes/consultationTransactions');
 const reportRoutes = require('./routes/reports');
 const summaryRoutes = require('./routes/summaryRoutes');
 const authRoutes = require('./routes/auth');
 const automationRoutes = require('./routes/automation');
 const pregnancyRoutes = require('./routes/pregnancies');
+const pregnancyTrackingRoutes = require('./routes/pregnancyTracking');
+const queueRoutes = require('./routes/queue');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { csrfProtection } = require('./middleware/csrf');
 const { mapErrorToClientMessage } = require('./utils/dbErrorMapper');
@@ -107,7 +110,12 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev', { skip: skipHealt
 
 // Liveness probe — process is up. Used by docker-compose / load balancers.
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'lying-in-clinic-api', uptime: process.uptime() });
+  res.json({
+    status: 'ok',
+    service: 'lying-in-clinic-api',
+    uptime: process.uptime(),
+    dbMode: typeof db.getMode === 'function' ? db.getMode() : 'primary',
+  });
 });
 
 // Readiness probe — process is up AND the database is reachable. Orchestrators
@@ -155,6 +163,16 @@ function mountV1(path, ...handlers) {
   app.use(`${legacyPrefix}${path}`, ...handlers);
 }
 
+// Health endpoint under /api/v1 so the frontend API client can reach it.
+app.get(`${v1Prefix}/health`, (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'lying-in-clinic-api',
+    uptime: process.uptime(),
+    dbMode: typeof db.getMode === 'function' ? db.getMode() : 'primary',
+  });
+});
+
 app.post(`${v1Prefix}/auth/login`, authLimiter);
 app.post(`${v1Prefix}/auth/register`, authLimiter);
 app.use(`${v1Prefix}/auth`, authRoutes);
@@ -170,9 +188,12 @@ app.use(legacyPrefix, apiLimiter);
 
 mountV1('/patients', patientRoutes);
 mountV1('/patients/:patientId/pregnancies', pregnancyRoutes);
+mountV1('/pregnancy-tracking', pregnancyTrackingRoutes);
 mountV1('/consultations', consultationRoutes);
+mountV1('/consultation-transactions', consultationTransactionRoutes);
 mountV1('/reports', reportRoutes);
 mountV1('/summary', summaryRoutes);
+mountV1('/queue', queueRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
 mountV1('/automation', automationRoutes);
 

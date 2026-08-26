@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const summaryService = require('../services/summaryService');
-const { generateDailyReport, generateWeeklyReport } = require('../services/reportService');
+const { generateDailyReport, generateWeeklyReport, generateMonthlyCensusReport } = require('../services/reportService');
 const { runDailyReportJob } = require('../utils/scheduler');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
@@ -25,12 +25,12 @@ function summaryErrorMessage(err) {
 // Note summarization endpoint — all authenticated staff
 router.post('/summarize-note', auth, summaryLimiter, async (req, res) => {
   try {
-    const { rawNote } = req.body;
+    const { rawNote, context } = req.body;
     if (!rawNote) {
       return res.status(400).json({ message: 'Raw note is required' });
     }
 
-    const structured = await summaryService.summarizeNote(rawNote);
+    const structured = await summaryService.summarizeNote(rawNote, context || {});
 
     res.json({ success: true, structured });
   } catch (err) {
@@ -48,7 +48,11 @@ router.post('/generate-report', auth, requireRole('admin', 'doctor'), summaryLim
     }
 
     const result =
-      type === 'weekly' ? await generateWeeklyReport(date) : await generateDailyReport(date);
+      type === 'monthly'
+        ? await generateMonthlyCensusReport(date)
+        : type === 'weekly'
+          ? await generateWeeklyReport(date)
+          : await generateDailyReport(date);
 
     res.json({ success: true, ...result });
   } catch (err) {

@@ -88,9 +88,11 @@ function publicUser(user) {
   return {
     id: user.id,
     name: user.name,
+    username: user.username || null,
     email: user.email,
     role: user.role,
-    email_verified: Boolean(user.email_verified)
+    email_verified: Boolean(user.email_verified),
+    created_at: user.created_at || null
   };
 }
 
@@ -110,47 +112,46 @@ async function issueOtp(user, purpose) {
   await User.setOtp(user.id, { hash, expiresAt: otpExpiry(), purpose });
 
   const { subject, text, html } = buildOtpEmail(purpose, code, user.name);
-  let sent = false;
+  let mailResult;
   try {
-    sent = await sendMail({ to: user.email, subject, text, html });
+    mailResult = await sendMail({ to: user.email, subject, text, html });
   } catch (err) {
-    // A mail-transport failure must not break account creation / reset requests.
-    // The OTP is stored; the user can request a new one once email is fixed.
-    console.error('[auth] Failed to send OTP email:', err.message);
+    mailResult = { sent: false, error: err.message };
   }
 
   // Dev fallback: if the email wasn't actually sent (SMTP not set up or failed),
   // print the code to the server console so the flow is testable locally.
   // Never do this in production.
-  if (!sent && process.env.NODE_ENV !== 'production') {
+  if (!mailResult.sent && process.env.NODE_ENV !== 'production') {
     console.log(
       `\n[auth][DEV] OTP for ${user.email} (${purpose}): ${code}` +
         `  — expires in ${require('../utils/otp').OTP_EXPIRY_MINUTES} min\n`
     );
   }
 
-  return sent;
+  return mailResult;
 }
 
 /**
  * POST /api/auth/login
- * Body: { email, password }
+ * Body: { identifier, password }  — identifier can be email or username
+ *       (backwards-compatible: { email, password } still works)
  */
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
+    // Accept either "identifier" (email/username) or legacy "email" field
+    const identifier = req.body?.identifier || req.body?.email || '';
+    const { password } = req.body || {};
+    if (!identifier || !password) {
+      return res.status(400).json({ message: 'Email/username and password are required' });
     }
 
-    const user = await User.findByEmail(email);
+    // Look up by email OR username
+    const user = await User.findByEmailOrUsername(identifier);
     // Always run a compare to prevent timing-based user enumeration
     if (!user) {
       await User.dummyCompare();
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email/username or password' });
     }
 
     // OAuth-only accounts can't log in with password
@@ -174,12 +175,25 @@ async function login(req, res, next) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Block login until the account's email has been verified via OTP.
-    if (!user.email_verified) {
+    // 2-step verification: only required when logging in with a Gmail address.
+    // Username logins and non-Gmail internal accounts skip verification —
+    // the admin who created them is the trust source.
+    const isGmailLogin = /@gmail\.com$/i.test(identifier);
+
+    if (isGmailLogin && !user.email_verified) {
+      // Send an OTP to the Gmail address for 2-step verification
+      const otpResult = await issueOtp(user, 'email_verify');
       return res.status(403).json({
         code: 'EMAIL_NOT_VERIFIED',
-        message: 'Your email is not verified yet. Please verify your account using the code we emailed you.'
+        message: 'A verification code has been sent to your Gmail. Please enter it to complete sign-in.',
+        email: user.email,
+        otpSent: otpResult.sent
       });
+    }
+
+    // Auto-verify non-Gmail / username logins (internal accounts)
+    if (!user.email_verified) {
+      await User.markEmailVerified(user.id);
     }
 
     // Successful login — reset lockout counter and issue token via httpOnly cookie
@@ -215,12 +229,15 @@ async function login(req, res, next) {
  */
 async function register(req, res, next) {
   try {
-    const { name, email, password, role } = req.body || {};
+    const { name, email, password, role, username } = req.body || {};
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Invalid email format' });
+    }
+    if (username && !/^[a-zA-Z0-9_.-]{3,50}$/.test(username)) {
+      return res.status(400).json({ message: 'Username must be 3-50 characters: letters, numbers, dots, hyphens, or underscores only.' });
     }
     if (!isStrongPassword(password)) {
       return res.status(400).json({
@@ -256,6 +273,14 @@ async function register(req, res, next) {
       return res.status(409).json({ message: 'Email is already registered' });
     }
 
+    // Check username uniqueness if provided
+    if (username) {
+      const existingUsername = await User.findByUsername(username);
+      if (existingUsername) {
+        return res.status(409).json({ message: 'Username is already taken' });
+      }
+    }
+
     // First user is admin; subsequent users default to 'staff' unless role specified.
     const finalRole = userCount === 0 ? 'admin' : (role || 'staff');
     if (!STAFF_ROLES.includes(finalRole)) {
@@ -263,12 +288,14 @@ async function register(req, res, next) {
     }
 
     // The very first account (bootstrap admin) is auto-verified so setup is never
-    // blocked. Likewise, if email/SMTP isn't configured we auto-verify to avoid
-    // locking accounts out. Otherwise the new user must verify via an emailed OTP.
+    // blocked. Admin-created accounts are also auto-verified — the admin is
+    // creating the account inside the system and already trusts the user, so
+    // email verification is unnecessary friction. The password is enough.
+    // (Google/Apple OAuth accounts are auto-verified by the provider separately.)
     const isFirstUser = userCount === 0;
-    const autoVerify = isFirstUser || !isMailConfigured();
+    const autoVerify = true;
 
-    const id = await User.create({ name, email, password, role: finalRole, email_verified: autoVerify });
+    const id = await User.create({ name, email, password, role: finalRole, email_verified: autoVerify, username: username || null });
     const user = await User.findById(id);
 
     if (isFirstUser) {
@@ -279,17 +306,12 @@ async function register(req, res, next) {
       return res.status(201).json({ token: responseToken, user: publicUser(user) });
     }
 
-    // Admin-created account: send a verification OTP to the new user's email.
-    let emailSent = false;
-    if (!autoVerify) {
-      emailSent = await issueOtp(user, 'email_verify');
-    }
-
+    // Admin-created account: already verified — no OTP needed.
+    // The user can log in immediately with the password the admin set.
     return res.status(201).json({
       user: publicUser(user),
-      emailVerificationSent: emailSent,
-      // When SMTP is off the account is auto-verified and can log in right away.
-      requiresVerification: !autoVerify
+      emailVerificationSent: false,
+      requiresVerification: false
     });
   } catch (err) {
     return next(err);
@@ -457,7 +479,7 @@ async function listUsers(req, res, next) {
 async function updateUser(req, res, next) {
   try {
     const targetId = parseInt(req.params.id, 10);
-    const { name, email, role, password } = req.body || {};
+    const { name, email, role, password, username } = req.body || {};
     if (!name || !email || !role) {
       return res.status(400).json({ message: 'Name, email, and role are required' });
     }
@@ -467,6 +489,16 @@ async function updateUser(req, res, next) {
     if (!STAFF_ROLES.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' });
     }
+    if (username && !/^[a-zA-Z0-9_.-]{3,50}$/.test(username)) {
+      return res.status(400).json({ message: 'Username must be 3-50 characters: letters, numbers, dots, hyphens, or underscores only.' });
+    }
+    // Check username uniqueness if changing
+    if (username) {
+      const existing = await User.findByUsername(username);
+      if (existing && existing.id !== targetId) {
+        return res.status(409).json({ message: 'Username is already taken' });
+      }
+    }
     if (password !== undefined && password !== '') {
       if (!isStrongPassword(password)) {
         return res.status(400).json({
@@ -474,7 +506,7 @@ async function updateUser(req, res, next) {
         });
       }
     }
-    const updated = await User.update(targetId, { name, email, role, ...(password ? { password } : {}) });
+    const updated = await User.update(targetId, { name, email, role, username: username || null, ...(password ? { password } : {}) });
     if (!updated) return res.status(404).json({ message: 'User not found' });
     const user = await User.findById(targetId);
     return res.json({ message: 'User updated successfully', user: publicUser(user) });
@@ -538,6 +570,45 @@ function oauthCallback(req, res) {
   res.redirect(redirect);
 }
 
+async function resendVerification(req, res, next) {
+  try {
+    const { email } = req.body || {};
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ message: 'A valid email is required' });
+    }
+
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return res.status(404).json({ message: 'No account found for that email.' });
+    }
+    if (user.email_verified) {
+      return res.json({ message: 'This account is already verified.' });
+    }
+
+    const emailResult = await issueOtp(user, 'email_verify');
+
+    // Dev fallback: auto-verify if SMTP failed so the user isn't stuck.
+    if (!emailResult.sent && process.env.NODE_ENV !== 'production') {
+      await User.markEmailVerified(user.id);
+      console.warn('[auth][DEV] SMTP failed on resend — auto-verifying account.');
+      return res.json({
+        message: 'Email service is not working. Your account has been auto-verified in dev mode — you can now sign in.',
+        sent: false,
+        autoVerified: true,
+        error: emailResult.error || undefined
+      });
+    }
+
+    return res.json({
+      message: 'A new verification code has been sent.',
+      sent: emailResult.sent,
+      error: emailResult.error || undefined
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   login,
   register,
@@ -549,5 +620,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   verifyEmail,
+  resendVerification,
   oauthCallback
 };

@@ -1,8 +1,8 @@
 import api from './api';
 
 export const authService = {
-  async login(email, password) {
-    const { data } = await api.post('/auth/login', { email, password });
+  async login(identifier, password) {
+    const { data } = await api.post('/auth/login', { identifier, password });
     // The server sets an httpOnly cookie — we only store the public user object locally.
     return data; // { token, user }
   },
@@ -31,6 +31,11 @@ export const authService = {
   // Verify a newly created account using the emailed OTP.
   async verifyEmail({ email, otp }) {
     const { data } = await api.post('/auth/verify-email', { email, otp });
+    return data;
+  },
+  // Resend the email verification OTP.
+  async resendVerification(email) {
+    const { data } = await api.post('/auth/resend-verification', { email });
     return data;
   }
 };

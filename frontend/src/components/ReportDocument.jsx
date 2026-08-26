@@ -144,6 +144,8 @@ export function ReportDocument({ metrics, date, type }) {
 
   const {
     totalPatients = 0,
+    totalConsultations = 0,
+    uniquePatients = 0,
     newPatients = 0,
     returningPatients = 0,
     topComplaints = [],
@@ -151,8 +153,16 @@ export function ReportDocument({ metrics, date, type }) {
     peakHour,
     trend,
     followUpAlerts = [],
-    pregnancy = null
+    pregnancy = null,
+    monthly = false,
+    monthYear,
+    range
   } = metrics || {};
+
+  const isMonthly = monthly || type === 'monthly';
+  const headerDate = isMonthly && monthYear
+    ? new Date(monthYear + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : formatDate(date);
 
   return (
     <div className="space-y-4">
@@ -188,8 +198,8 @@ export function ReportDocument({ metrics, date, type }) {
               <p className="text-primary-100 text-sm mt-1">Tughan, Juban, Sorsogon</p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-primary-200 uppercase tracking-wider font-semibold">{type} Report</p>
-              <p className="text-lg font-bold mt-1">{formatDate(date)}</p>
+              <p className="text-xs text-primary-200 uppercase tracking-wider font-semibold">{isMonthly ? 'Monthly Census' : `${type} Report`}</p>
+              <p className="text-lg font-bold mt-1">{headerDate}</p>
             </div>
           </div>
         </div>
@@ -197,21 +207,43 @@ export function ReportDocument({ metrics, date, type }) {
         {/* Quick Stats */}
         <div className="px-8 py-5 bg-ink-50/50 border-b border-ink-100">
           <div className="grid grid-cols-3 gap-4">
-            <StatBadge
-              label="Total Consultations"
-              value={totalPatients}
-              tone={totalPatients > 0 ? 'primary' : 'info'}
-            />
-            <StatBadge
-              label="New Patients"
-              value={newPatients}
-              tone="success"
-            />
-            <StatBadge
-              label="Returning Patients"
-              value={returningPatients}
-              tone="warning"
-            />
+            {isMonthly ? (
+              <>
+                <StatBadge
+                  label="Total Consultations"
+                  value={totalConsultations}
+                  tone={totalConsultations > 0 ? 'primary' : 'info'}
+                />
+                <StatBadge
+                  label="Unique Patients"
+                  value={uniquePatients}
+                  tone="success"
+                />
+                <StatBadge
+                  label="Deliveries"
+                  value={pregnancy?.deliveries || 0}
+                  tone="warning"
+                />
+              </>
+            ) : (
+              <>
+                <StatBadge
+                  label="Total Consultations"
+                  value={totalPatients}
+                  tone={totalPatients > 0 ? 'primary' : 'info'}
+                />
+                <StatBadge
+                  label="New Patients"
+                  value={newPatients}
+                  tone="success"
+                />
+                <StatBadge
+                  label="Returning Patients"
+                  value={returningPatients}
+                  tone="warning"
+                />
+              </>
+            )}
           </div>
           {trend && (
             <div className="mt-3">
@@ -227,7 +259,22 @@ export function ReportDocument({ metrics, date, type }) {
             icon={<Icon.Users width={16} height={16} />}
             title="Patient Overview"
           />
-          {totalPatients === 0 ? (
+          {isMonthly ? (
+            totalConsultations === 0 ? (
+              <p className="text-sm text-ink-600 italic">No patient consultations were recorded during this month.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-ink-700">
+                  Total of <strong>{totalConsultations}</strong> consultation{totalConsultations !== 1 ? 's' : ''} across <strong>{uniquePatients}</strong> unique patient{uniquePatients !== 1 ? 's' : ''} this month.
+                </p>
+                {newPatients > 0 && (
+                  <p className="text-sm text-ink-600">
+                    Patient mix: {newPatients} new ({Math.round((newPatients / uniquePatients) * 100)}%) &middot; {returningPatients} returning
+                  </p>
+                )}
+              </div>
+            )
+          ) : totalPatients === 0 ? (
             <p className="text-sm text-ink-600 italic">No patient consultations were recorded during this period.</p>
           ) : (
             <div className="space-y-2">
@@ -325,11 +372,19 @@ export function ReportDocument({ metrics, date, type }) {
                   value={pregnancy.activeTotal}
                   tone="primary"
                 />
-                <StatBadge
-                  label="Upcoming EDDs (30d)"
-                  value={pregnancy.upcomingEDDs?.length || 0}
-                  tone="warning"
-                />
+                {isMonthly ? (
+                  <StatBadge
+                    label="Deliveries"
+                    value={pregnancy.deliveries || 0}
+                    tone="warning"
+                  />
+                ) : (
+                  <StatBadge
+                    label="Upcoming EDDs (30d)"
+                    value={pregnancy.upcomingEDDs?.length || 0}
+                    tone="warning"
+                  />
+                )}
               </div>
               {pregnancy.activeTotal > 0 && (
                 <div className="space-y-3">

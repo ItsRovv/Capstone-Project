@@ -2,13 +2,13 @@ import { Spinner } from './Spinner';
 
 const variants = {
   primary:
-    'bg-primary-500 text-white hover:bg-primary-600 active:bg-primary-700 shadow-sm hover:shadow-md focus-visible:ring-primary-300',
+    'bg-primary-700 text-white hover:bg-primary-800 active:bg-primary-900 focus-visible:ring-primary-300',
   secondary:
-    'bg-white text-ink-800 border border-ink-200 hover:bg-ink-50 hover:border-ink-300 active:bg-ink-100 shadow-sm hover:shadow-soft focus-visible:ring-ink-200',
+    'bg-white text-ink-800 border border-ink-300 hover:bg-ink-50 hover:border-ink-400 active:bg-ink-100 focus-visible:ring-ink-200',
   ghost:
     'text-ink-700 hover:bg-ink-100 active:bg-ink-200 focus-visible:ring-ink-200',
   danger:
-    'bg-red-500 text-white hover:bg-red-600 active:bg-red-700 shadow-sm hover:shadow-md focus-visible:ring-red-300'
+    'bg-red-600 text-white hover:bg-red-700 active:bg-red-800 focus-visible:ring-red-300'
 };
 
 const sizes = {

@@ -1,13 +1,34 @@
 const db = require('../config/db');
 
+// Auto-compute BMI (kg/m²) from weight (kg) and height (cm) when both are present.
+function computeBmi(weightKg, heightCm) {
+  if (!weightKg || !heightCm) return null;
+  const heightM = heightCm / 100;
+  if (!heightM) return null;
+  return Math.round((weightKg / (heightM * heightM)) * 10) / 10;
+}
+
 class Pregnancy {
   static async create(patientId, data) {
-    const { lmp, edd, gp, trimester, weeks, status, notes } = data;
+    const {
+      lmp, edd, gp, trimester, weeks, status, notes,
+      baseline_weight_kg, baseline_height_cm, aog, ob_index, blood_type,
+      pregnancy_number, first_visit_date
+    } = data;
+    const baseline_bmi = data.baseline_bmi ?? computeBmi(baseline_weight_kg, baseline_height_cm);
     const query = `
-      INSERT INTO pregnancies (patient_id, lmp, edd, gp, trimester, weeks, status, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pregnancies (
+        patient_id, lmp, edd, gp, trimester, weeks, status, notes,
+        baseline_weight_kg, baseline_height_cm, baseline_bmi, aog, ob_index,
+        blood_type, pregnancy_number, first_visit_date
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const values = [patientId, lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null];
+    const values = [
+      patientId, lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null,
+      baseline_weight_kg ?? null, baseline_height_cm ?? null, baseline_bmi ?? null, aog ?? null, ob_index ?? null,
+      blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null
+    ];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -25,13 +46,24 @@ class Pregnancy {
   }
 
   static async update(id, data) {
-    const { lmp, edd, gp, trimester, weeks, status, notes } = data;
+    const {
+      lmp, edd, gp, trimester, weeks, status, notes,
+      baseline_weight_kg, baseline_height_cm, aog, ob_index, blood_type,
+      pregnancy_number, first_visit_date
+    } = data;
+    const baseline_bmi = data.baseline_bmi ?? computeBmi(baseline_weight_kg, baseline_height_cm);
     const query = `
       UPDATE pregnancies
-      SET lmp = ?, edd = ?, gp = ?, trimester = ?, weeks = ?, status = ?, notes = ?
+      SET lmp = ?, edd = ?, gp = ?, trimester = ?, weeks = ?, status = ?, notes = ?,
+          baseline_weight_kg = ?, baseline_height_cm = ?, baseline_bmi = ?, aog = ?,
+          ob_index = ?, blood_type = ?, pregnancy_number = ?, first_visit_date = ?
       WHERE id = ?
     `;
-    const values = [lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null, id];
+    const values = [
+      lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null,
+      baseline_weight_kg ?? null, baseline_height_cm ?? null, baseline_bmi ?? null, aog ?? null,
+      ob_index ?? null, blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null, id
+    ];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
   }

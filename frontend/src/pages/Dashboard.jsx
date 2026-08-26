@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useOutletContext, Link } from 'react-router-dom';
-import { Topbar } from '../components/Topbar';
 import { Card, CardHeader } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { RoleBadge } from '../components/UI/Badge';
@@ -13,6 +12,8 @@ import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
 import { pregnancyService } from '../services/pregnancyService';
 import { reportService } from '../services/reportService';
+import { consultationTransactionService } from '../services/consultationTransactionService';
+import { queueService } from '../services/queueService';
 import { apiError } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ReportDocument } from '../components/ReportDocument';
@@ -63,19 +64,22 @@ function todayISO() {
 }
 
 export function Dashboard() {
-  const { onOpenMenu } = useOutletContext();
+  useOutletContext();
   const { user } = useAuth();
   const toast = useToast();
 
   const [stats, setStats] = useState({
     patients: 0,
     todayConsultations: 0,
-    activePatients: 0,
+    transactions: 0,
     reports: 0
   });
   const [todayConsults, setTodayConsults] = useState([]);
   const [activePatients, setActivePatients] = useState([]);
+  const [recentConsultations, setRecentConsultations] = useState([]);
+  const [queue, setQueue] = useState([]);
   const [loading, setLoading] = useState(true);
+  const carouselRef = useRef(null);
 
   const [reportModal, setReportModal] = useState({ open: false, date: todayISO() });
   const [generating, setGenerating] = useState(false);
@@ -86,11 +90,14 @@ export function Dashboard() {
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, reports, active, todayRes] = await Promise.all([
+      const [patientsRes, reports, active, todayRes, recent, transactions, queueRes] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
         reportService.list(),
         patientService.active().catch(() => []),
-        consultationService.today().catch(() => ({ count: 0 }))
+        consultationService.today().catch(() => ({ count: 0 })),
+        consultationService.recent(8).catch(() => []),
+        consultationTransactionService.listAll().catch(() => []),
+        queueService.listToday().catch(() => [])
       ]);
 
       const patientTotal = patientsRes.total ?? patientsRes.data?.length ?? 0;
@@ -99,11 +106,13 @@ export function Dashboard() {
       setStats({
         patients: patientTotal,
         todayConsultations: todayCount,
-        activePatients: active.length,
+        transactions: transactions.length,
         reports: reports.length
       });
       setActivePatients(active);
       setTodayConsults([]);
+      setRecentConsultations(recent);
+      setQueue(queueRes || []);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load dashboard'));
     } finally {
@@ -145,43 +154,197 @@ export function Dashboard() {
 
   return (
     <div className="h-full flex flex-col">
-      <Topbar
-        title={`Good ${greet()}, ${user?.name?.split(' ')[0] || 'there'}`}
-        subtitle="Here's what's happening at JLMC today."
-        onMenuClick={onOpenMenu}
-      />
-
       <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-6">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 pt-4 md:pt-6 space-y-5">
           {loading ? (
             <PageLoader label="Loading dashboard…" />
           ) : (
             <>
+              {/* Profile banner */}
+              <div className="bg-white rounded-lg border border-ink-200 px-5 py-4 flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-primary-700 text-white flex items-center justify-center text-xl font-bold font-display flex-shrink-0">
+                  {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-lg md:text-xl font-display font-bold text-ink-900 uppercase tracking-wide truncate">
+                    {user?.name || 'Staff'}
+                  </h1>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <RoleBadge role={user?.role} />
+                    <span className="text-sm text-ink-500">
+                      Good {greet()} — here's what's happening at JLMC today.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard
-                icon={<Icon.Users />}
-                label="Total patients"
-                value={stats.patients}
-                tone="primary"
-              />
-              <StatCard
-                icon={<Icon.Stethoscope />}
-                label="Today's consultations"
-                value={stats.todayConsultations}
-                tone="info"
-              />
-              <StatCard
-                icon={<Icon.Heart />}
-                label="Active patients"
-                value={stats.activePatients}
-                tone="success"
-              />
-              <StatCard
-                icon={<Icon.Report />}
-                label="Reports generated"
-                value={stats.reports}
-                tone="warning"
-              />
+              <Link to="/patients" className="block cursor-pointer">
+                <StatCard
+                  icon={<Icon.Users />}
+                  label="Total patients"
+                  value={stats.patients}
+                  tone="primary"
+                />
+              </Link>
+              <Link to="/consultations" className="block cursor-pointer">
+                <StatCard
+                  icon={<Icon.Stethoscope />}
+                  label="Today's consultations"
+                  value={stats.todayConsultations}
+                  tone="info"
+                />
+              </Link>
+              <Link to="/consultation-transactions" className="block cursor-pointer">
+                <StatCard
+                  icon={<Icon.Receipt />}
+                  label="Total transactions"
+                  value={stats.transactions}
+                  tone="success"
+                />
+              </Link>
+              <Link to="/reports" className="block cursor-pointer">
+                <StatCard
+                  icon={<Icon.Report />}
+                  label="Reports generated"
+                  value={stats.reports}
+                  tone="warning"
+                />
+              </Link>
+            </div>
+
+            {/* Today's Queue */}
+            {queue.length > 0 && (
+              <div className="bg-white rounded-lg border border-ink-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-ink-800">Today's Queue</h2>
+                    <p className="text-xs text-ink-500">
+                      {queue.filter((q) => q.status === 'waiting').length} waiting · {queue.filter((q) => q.status === 'serving').length} serving
+                    </p>
+                  </div>
+                  <Link to="/consultations" className="text-xs font-medium text-primary-700 hover:text-primary-800">
+                    View all
+                  </Link>
+                </div>
+                <div className="space-y-2">
+                  {queue.slice(0, 5).map((q) => (
+                    <Link
+                      key={q.id}
+                      to={`/patients/${q.patient_id}`}
+                      className="flex items-center gap-3 p-2.5 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
+                    >
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                        q.status === 'serving'
+                          ? 'bg-amber-100 text-amber-700'
+                          : q.status === 'done'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-primary-100 text-primary-700'
+                      }`}>
+                        #{String(q.queue_number).padStart(2, '0')}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-ink-900 truncate">
+                          {q.first_name} {q.last_name}
+                        </p>
+                        <p className="text-xs text-ink-500 capitalize">{q.status}</p>
+                      </div>
+                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap">
+                        Serve →
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recently accessed — consultations carousel */}
+            <div className="bg-white rounded-lg border border-ink-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-ink-800">Recent consultations</h2>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => carouselRef.current?.scrollBy({ left: -260, behavior: 'smooth' })}
+                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
+                    aria-label="Scroll left"
+                  >
+                    <Icon.Chevron width={14} height={14} className="rotate-180" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => carouselRef.current?.scrollBy({ left: 260, behavior: 'smooth' })}
+                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
+                    aria-label="Scroll right"
+                  >
+                    <Icon.Chevron width={14} height={14} />
+                  </button>
+                </div>
+              </div>
+              {recentConsultations.length === 0 ? (
+                <div className="text-sm text-ink-500 py-6 text-center">
+                  No consultations recorded yet.
+                </div>
+              ) : (
+                <div ref={carouselRef} className="flex gap-3 overflow-x-auto pb-1 scroll-smooth">
+                  {recentConsultations.map((c, i) => (
+                    <Link
+                      key={c.id}
+                      to={`/patients/${c.patient_id}`}
+                      className="flex-shrink-0 w-56 rounded-lg border border-ink-200 overflow-hidden hover:border-primary-300 transition-colors"
+                    >
+                      <div className={BANNER_TONES[i % BANNER_TONES.length]} />
+                      <div className="p-3">
+                        <p className="text-[11px] text-ink-400">{formatDate(c.visit_date)}</p>
+                        <p className="font-medium text-ink-900 text-sm truncate mt-0.5">
+                          {c.patient_first_name} {c.patient_last_name}
+                        </p>
+                        <p className="text-xs text-ink-500 truncate mt-0.5">
+                          {c.chief_complaint || 'Consultation visit'}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Today's schedule — active patients grid */}
+            <div className="bg-white rounded-lg border border-ink-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-ink-800">Today's schedule</h2>
+                  <p className="text-xs text-ink-500">Patients currently active under care</p>
+                </div>
+                <Link to="/patients" className="text-xs font-medium text-primary-700 hover:text-primary-800">
+                  View all
+                </Link>
+              </div>
+              {activePatients.length === 0 ? (
+                <div className="text-sm text-ink-500 py-6 text-center">
+                  No active patients right now.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activePatients.slice(0, 6).map((p, i) => (
+                    <Link
+                      key={p.id}
+                      to={`/patients/${p.id}`}
+                      className="rounded-lg border border-ink-200 overflow-hidden hover:border-primary-300 transition-colors"
+                    >
+                      <div className={BANNER_TONES[(i + 1) % BANNER_TONES.length]} />
+                      <div className="p-3">
+                        <p className="font-medium text-ink-900 text-sm truncate">
+                          {p.first_name} {p.last_name}
+                        </p>
+                        <p className="text-xs text-ink-500 truncate mt-0.5">
+                          {p.trimester || '—'} · {p.weeks ? `${p.weeks} wks` : '—'}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -191,7 +354,7 @@ export function Dashboard() {
                   subtitle="Common workflows to get you started."
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <Link to="/patients" className="block">
+                  <Link to="/patients?action=add" className="block">
                     <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
                       <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center mb-3">
                         <Icon.Plus />
@@ -200,7 +363,7 @@ export function Dashboard() {
                       <p className="text-xs text-ink-500 mt-0.5">Register a new patient</p>
                     </div>
                   </Link>
-                  <Link to="/consultations" className="block">
+                  <Link to="/patients?action=consult" className="block">
                     <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
                       <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 inline-flex items-center justify-center mb-3">
                         <Icon.Stethoscope />
@@ -254,89 +417,6 @@ export function Dashboard() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader
-                  title="Active patients"
-                  subtitle={`${activePatients.length} patient${activePatients.length === 1 ? '' : 's'} currently under care`}
-                  action={
-                    <Link to="/patients">
-                      <Button variant="ghost" size="sm">
-                        View all
-                        <Icon.Chevron width={14} height={14} />
-                      </Button>
-                    </Link>
-                  }
-                />
-                {activePatients.length === 0 ? (
-                  <div className="text-sm text-ink-500 py-8 text-center">
-                    No active patients currently in the clinic.
-                  </div>
-                ) : (
-                  <div className="max-h-80 overflow-y-auto">
-                    <ul className="divide-y divide-ink-100">
-                      {activePatients.map((p) => (
-                        <li key={p.id} className="py-3 flex items-center gap-4">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-ink-900 truncate">
-                              {p.first_name} {p.last_name}
-                            </p>
-                            <p className="text-xs text-ink-500 truncate">
-                              {p.trimester || '—'} · {p.weeks || '—'}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                              Ongoing
-                            </p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </Card>
-
-              <Card>
-                <CardHeader
-                  title="Consultations today"
-                  subtitle={`${stats.todayConsultations} consultation${stats.todayConsultations === 1 ? '' : 's'} recorded`}
-                  action={
-                    <Link to="/consultations">
-                      <Button variant="ghost" size="sm">
-                        View all
-                        <Icon.Chevron width={14} height={14} />
-                      </Button>
-                    </Link>
-                  }
-                />
-                {stats.todayConsultations === 0 ? (
-                  <div className="text-sm text-ink-500 py-8 text-center">
-                    No consultations recorded for today.
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 py-4">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 inline-flex items-center justify-center">
-                      <Icon.Stethoscope />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-ink-900">
-                        {stats.todayConsultations} consultation{stats.todayConsultations === 1 ? '' : 's'} today
-                      </p>
-                      <p className="text-xs text-ink-500">
-                        View detailed consultation records
-                      </p>
-                    </div>
-                    <Link to="/consultations">
-                      <Button variant="ghost" size="sm">
-                        Details
-                        <Icon.Chevron width={14} height={14} />
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </Card>
-            </div>
           </>
         )}
         </div>
@@ -437,6 +517,13 @@ export function Dashboard() {
     </div>
   );
 }
+
+const BANNER_TONES = [
+  'h-16 bg-primary-500',
+  'h-16 bg-primary-700',
+  'h-16 bg-emerald-600',
+  'h-16 bg-sky-600'
+];
 
 function greet() {
   const h = new Date().getHours();

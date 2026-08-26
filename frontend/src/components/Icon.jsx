@@ -153,5 +153,11 @@ export const Icon = {
       <rect x="8" y="2" width="8" height="4" rx="1" />
       <path d="M9 12h6M9 16h6" />
     </svg>
+  ),
+  Receipt: (p) => (
+    <svg {...base} {...p}>
+      <path d="M4 2v20l4-2 4 2 4-2 4 2V2" />
+      <path d="M8 7h8M8 11h8M8 15h5" />
+    </svg>
   )
 };

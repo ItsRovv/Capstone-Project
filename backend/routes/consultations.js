@@ -28,8 +28,29 @@ router.get('/today', auth, async (req, res) => {
   }
 });
 
-// Get all consultations for a patient
-router.get('/patient/:patientId', auth, async (req, res) => {
+// Get today's full consultations with patient names (doctor/admin only)
+router.get('/today/detailed', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const consultations = await Consultation.findTodayDetailed();
+    res.json(consultations);
+  } catch (err) {
+    routeError(res, err);
+  }
+});
+
+// Get most recent consultations across all patients (used by dashboard)
+router.get('/recent', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 6, 20);
+    const consultations = await Consultation.findRecent(limit);
+    res.json(consultations);
+  } catch (err) {
+    routeError(res, err);
+  }
+});
+
+// Get all consultations for a patient (doctor/admin only)
+router.get('/patient/:patientId', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     const consultations = await Consultation.findByPatientId(req.params.patientId);
     res.json(consultations);
@@ -38,8 +59,8 @@ router.get('/patient/:patientId', auth, async (req, res) => {
   }
 });
 
-// Get consultation by ID
-router.get('/:id', auth, async (req, res) => {
+// Get consultation by ID (doctor/admin only)
+router.get('/:id', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     const consultation = await Consultation.findById(req.params.id);
     if (!consultation) {
@@ -51,28 +72,32 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Create new consultation
-router.post('/', auth, async (req, res) => {
+// Create new consultation (doctor/admin only)
+router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     // Validate input
-    const { error } = validateConsultation(req.body);
+    const { error, value } = validateConsultation(req.body);
     if (error) {
       return res.status(400).json({ message: error.details[0].message });
     }
 
     // Check if patient exists
-    const patient = await Patient.findById(req.body.patient_id);
+    const patient = await Patient.findById(value.patient_id);
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    const consultationId = await Consultation.create(req.body);
+    // Auto-assign the current doctor
+    const consultationId = await Consultation.create({
+      ...value,
+      doctor_id: req.user?.id ?? null
+    });
     await AuditLog.create({
       userId: req.user?.id,
       action: 'CREATE',
       tableName: 'consultations',
       recordId: consultationId,
-      newData: req.body,
+      newData: value,
       ipAddress: req.ip
     });
     res.status(201).json({ id: consultationId, message: 'Consultation created successfully' });
@@ -81,17 +106,17 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// Update consultation by ID
-router.put('/:id', auth, async (req, res) => {
+// Update consultation by ID (doctor/admin only)
+router.put('/:id', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     // Validate input
-    const { error } = validateConsultation(req.body);
+    const { error, value } = validateConsultation(req.body);
     if (error) {
       return res.status(400).json({ message: error.details[0].message });
     }
 
     const oldConsultation = await Consultation.findById(req.params.id);
-    const updated = await Consultation.update(req.params.id, req.body);
+    const updated = await Consultation.update(req.params.id, value);
     if (!updated) {
       return res.status(404).json({ message: 'Consultation not found' });
     }
@@ -101,7 +126,7 @@ router.put('/:id', auth, async (req, res) => {
       tableName: 'consultations',
       recordId: req.params.id,
       oldData: oldConsultation || undefined,
-      newData: req.body,
+      newData: value,
       ipAddress: req.ip
     });
     res.json({ message: 'Consultation updated successfully' });
@@ -110,8 +135,8 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-// Summarize a consultation's raw notes with AI and persist the structured result
-router.post('/:id/summarize', auth, async (req, res) => {
+// Summarize a consultation's raw notes with AI and persist the structured result (doctor/admin only)
+router.post('/:id/summarize', requireRole('admin', 'doctor'), async (req, res) => {
   try {
     const consultation = await Consultation.findById(req.params.id);
     if (!consultation) {

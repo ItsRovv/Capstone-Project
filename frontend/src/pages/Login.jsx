@@ -27,7 +27,7 @@ export function Login() {
   const location = useLocation();
   const from = location.state?.from?.pathname || '/';
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
 
   // Handle OAuth redirect errors (e.g. user denied permission)
@@ -44,12 +44,17 @@ export function Login() {
   async function onSubmit(e) {
     e.preventDefault();
     try {
-      await login(email, password);
+      await login(identifier, password);
       navigate(from || '/', { replace: true });
     } catch (err) {
       if (err?.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
-        toast.info('Please verify your email to continue.');
-        navigate('/verify-email', { state: { email } });
+        const otpSent = err?.response?.data?.otpSent;
+        toast.info(
+          otpSent
+            ? 'A verification code was sent to your Gmail. Please enter it to sign in.'
+            : 'Please verify your Gmail account to continue.'
+        );
+        navigate('/verify-email', { state: { email: err?.response?.data?.email || identifier } });
         return;
       }
       toast.error(apiError(err, 'Login failed'));
@@ -61,7 +66,7 @@ export function Login() {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-cream">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-primary-50">
       {/* Brand side */}
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-primary-500 via-primary-600 to-primary-700 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-20" aria-hidden="true">
@@ -109,7 +114,7 @@ export function Login() {
       </div>
 
       {/* Form side */}
-      <div className="flex items-center justify-center p-6 sm:p-10">
+      <div className="flex items-center justify-center p-6 sm:p-10 bg-primary-50">
         <div className="w-full max-w-md animate-slide-up">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <JLMCLogo size={40} className="rounded-xl flex-shrink-0" />
@@ -126,13 +131,13 @@ export function Login() {
 
           <form onSubmit={onSubmit} className="mt-8 space-y-4">
             <Input
-              type="email"
-              label="Email"
-              placeholder="you@clinic.local"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              label="Email or Username"
+              placeholder="you@clinic.local or dr.smith"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               required
-              autoComplete="email"
+              autoComplete="username"
             />
             {/* Password field with "Forgot password?" on the right of the label */}
             <div className="space-y-1.5">
@@ -175,7 +180,7 @@ export function Login() {
             <button
               type="button"
               onClick={loginWithGoogle}
-              className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-lg border border-ink-200 bg-white text-sm font-medium text-ink-800 hover:bg-ink-50 hover:border-ink-300 transition-colors"
+              className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-md border border-ink-300 bg-white text-sm font-medium text-ink-800 hover:bg-ink-50 hover:border-ink-400 transition-colors"
             >
               <GoogleIcon className="w-5 h-5" />
               Continue with Google

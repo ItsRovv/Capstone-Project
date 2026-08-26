@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { useToast } from '../components/UI/Toast';
@@ -16,6 +16,14 @@ export function VerifyEmail() {
   const [email, setEmail] = useState(location.state?.email || '');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   async function submit(e) {
     e.preventDefault();
@@ -28,6 +36,32 @@ export function VerifyEmail() {
       toast.error(apiError(err, 'Verification failed'));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    if (!email) {
+      toast.error('Enter your email first');
+      return;
+    }
+    setResending(true);
+    try {
+      const data = await authService.resendVerification(email);
+      if (data.autoVerified) {
+        toast.success(data.message);
+        navigate('/login', { replace: true });
+      } else if (data.sent) {
+        toast.success('A new code has been sent to your email.');
+      } else if (data.error) {
+        toast.error(`Email failed to send: ${data.error}. Please contact the clinic admin.`);
+      } else {
+        toast.info(data.message);
+      }
+      setResendCooldown(60);
+    } catch (err) {
+      toast.error(apiError(err, 'Could not resend code'));
+    } finally {
+      setResending(false);
     }
   }
 
@@ -72,6 +106,21 @@ export function VerifyEmail() {
             Verify account
           </Button>
         </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending || resendCooldown > 0}
+            className="text-sm text-primary-600 font-medium hover:text-primary-700 disabled:text-ink-400 disabled:cursor-not-allowed"
+          >
+            {resending
+              ? 'Sending…'
+              : resendCooldown > 0
+              ? `Resend code in ${resendCooldown}s`
+              : "Didn't receive it? Resend code"}
+          </button>
+        </div>
 
         <p className="text-sm text-ink-500 mt-6 text-center">
           Already verified?{' '}

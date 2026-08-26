@@ -256,4 +256,109 @@ async function generateWeeklyReport(endDate) {
   };
 }
 
-module.exports = { generateDailyReport, generateWeeklyReport };
+/**
+ * Generate and persist a monthly census report for the given month.
+ * @param {string} monthYear - 'YYYY-MM' (e.g. '2025-01')
+ */
+async function generateMonthlyCensusReport(monthYear) {
+  const [year, month] = monthYear.split('-').map(Number);
+  if (!year || !month) {
+    throw new Error('Invalid month format. Use YYYY-MM.');
+  }
+
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0); // last day of month
+  const startISO = start.toISOString().split('T')[0];
+  const endISO = end.toISOString().split('T')[0];
+
+  const consultations = await Consultation.findByDateRange(startISO, endISO);
+  const pregnancies = await Pregnancy.findByDateRange(startISO, endISO);
+  const activePregnancies = await Pregnancy.findActive();
+
+  // Unique patients this month
+  const uniquePatientIds = [...new Set(consultations.map((c) => c.patient_id))];
+
+  // New vs returning (first-ever visit falls in this month)
+  let newPatients = 0;
+  let returningPatients = 0;
+  if (uniquePatientIds.length > 0) {
+    const [firstVisits] = await db.query(
+      `SELECT patient_id, to_char(MIN(visit_date::date), 'YYYY-MM-DD') AS first_visit
+       FROM consultations
+       WHERE patient_id IN (${uniquePatientIds.map(() => '?').join(',')})
+       GROUP BY patient_id`,
+      uniquePatientIds
+    );
+    const firstVisitMap = Object.fromEntries(firstVisits.map((r) => [r.patient_id, r.first_visit]));
+    for (const pid of uniquePatientIds) {
+      const fv = firstVisitMap[pid];
+      if (fv && fv >= startISO && fv <= endISO) newPatients++;
+      else returningPatients++;
+    }
+  }
+
+  // Pregnancy census
+  const trimesterCounts = { 1: 0, 2: 0, 3: 0 };
+  for (const p of activePregnancies) {
+    const t = Number(p.trimester);
+    if (t >= 1 && t <= 3) trimesterCounts[t]++;
+  }
+
+  const statusCounts = {};
+  for (const p of activePregnancies) {
+    const s = p.status || 'unknown';
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  }
+
+  // Deliveries this month (pregnancies completed in date range)
+  const deliveries = pregnancies.filter((p) => p.status === 'Completed' || p.status === 'Delivered');
+
+  // Top complaints & diagnoses
+  const topComplaints = rankItems(consultations.map((c) => c.chief_complaint));
+  const topDiagnoses = rankItems(consultations.map((c) => c.diagnosis));
+
+  const monthLabel = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const analytics = {
+    date: monthLabel,
+    monthYear,
+    range: { start: startISO, end: endISO },
+    totalConsultations: consultations.length,
+    uniquePatients: uniquePatientIds.length,
+    newPatients,
+    returningPatients,
+    topComplaints,
+    topDiagnoses,
+    pregnancy: {
+      newRecords: pregnancies.length,
+      activeTotal: activePregnancies.length,
+      deliveries: deliveries.length,
+      byTrimester: trimesterCounts,
+      byStatus: statusCounts
+    },
+    monthly: true
+  };
+
+  const reportText = await summaryService.generateReport(analytics);
+
+  const id = await Report.save({
+    date: endISO,
+    report_type: 'monthly',
+    summary_text: reportText,
+    total_patients: uniquePatientIds.length,
+    metrics: analytics
+  });
+
+  return {
+    id,
+    report: reportText,
+    metrics: analytics,
+    total_patients: uniquePatientIds.length,
+    report_type: 'monthly',
+    date: endISO,
+    monthYear,
+    range: { start: startISO, end: endISO }
+  };
+}
+
+module.exports = { generateDailyReport, generateWeeklyReport, generateMonthlyCensusReport };

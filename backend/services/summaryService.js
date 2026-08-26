@@ -31,11 +31,26 @@ function firstSentenceAsComplaint(text) {
   return sentences[0]?.trim() || '';
 }
 
-function summarizeNote(rawNote) {
+function summarizeNote(rawNote, context = {}) {
   const text = String(rawNote || '');
 
+  // Build pregnancy context prefix if provided
+  let pregnancyPrefix = '';
+  if (context.pregnancyNumber || context.aog || context.lmp || context.edd || context.obIndex || context.bloodType) {
+    const parts = [];
+    if (context.pregnancyNumber) parts.push(`Pregnancy #${context.pregnancyNumber}`);
+    if (context.obIndex) parts.push(`OB Index: ${context.obIndex}`);
+    if (context.aog) parts.push(`AOG: ${context.aog}`);
+    if (context.lmp) parts.push(`LMP: ${context.lmp}`);
+    if (context.edd) parts.push(`EDD: ${context.edd}`);
+    if (context.bloodType) parts.push(`Blood Type: ${context.bloodType}`);
+    pregnancyPrefix = `[Patient Context] ${parts.join(', ')}\n\n`;
+  }
+
+  const fullText = pregnancyPrefix + text;
+
   const chiefComplaint =
-    extractSection(text, [
+    extractSection(fullText, [
       /Chief\s*Complaint[s]?[:\s]+(.+?)(?:\n|\.|$)/i,
       /Complaint[s]?[:\s]+(.+?)(?:\n|\.|$)/i,
       /c\/o[:\s]+(.+?)(?:\n|\.|$)/i,
@@ -43,16 +58,58 @@ function summarizeNote(rawNote) {
       /presented?\s+with[:\s]+(.+?)(?:\n|\.|$)/i
     ]) || firstSentenceAsComplaint(text);
 
-  const findings =
-    extractSection(text, [
-      /Findings?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is,
-      /Exam(ination)?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is,
-      /Assessment[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is,
-      /Physical\s*Exam[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is
+  // ── Split findings into SOAP components ──────────────────────────────
+  // Subjective: patient-reported symptoms, history
+  const subjective =
+    extractSection(fullText, [
+      /Subjective[:\s]+(.+?)(?:\n\n|\n[A-Z]|Objective|Objective|Exam|Findings|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|Assessment|$)/is,
+      /History[:\s]+(.+?)(?:\n\n|\n[A-Z]|Objective|Exam|Findings|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|Assessment|$)/is,
+      /HPI[:\s]+(.+?)(?:\n\n|\n[A-Z]|Objective|Exam|Findings|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|Assessment|$)/is,
+      /Symptoms[:\s]+(.+?)(?:\n\n|\n[A-Z]|Objective|Exam|Findings|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|Assessment|$)/is
     ]);
 
+  // Objective: exam findings, vitals, observable signs
+  const objective =
+    extractSection(fullText, [
+      /Objective[:\s]+(.+?)(?:\n\n|\n[A-Z]|Assessment|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is,
+      /Exam(ination)?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Assessment|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is,
+      /Physical\s*Exam[:\s]+(.+?)(?:\n\n|\n[A-Z]|Assessment|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is,
+      /PE[:\s]+(.+?)(?:\n\n|\n[A-Z]|Assessment|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is,
+      /Findings?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Assessment|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is
+    ]);
+
+  // Assessment: clinical impression, differential
+  const assessment =
+    extractSection(fullText, [
+      /Assessment[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|Plan|$)/is,
+      /Impression[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Rx|Prescription|Follow[-\s]?up|Plan|$)/is
+    ]);
+
+  // Plan: treatment plan, interventions
+  const plan =
+    extractSection(fullText, [
+      /Plan[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Rx|Prescription|Follow[-\s]?up|Advice|Recommendation|$)/is,
+      /Treatment[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Rx|Prescription|Follow[-\s]?up|Advice|Recommendation|$)/is,
+      /Advice[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Rx|Prescription|Follow[-\s]?up|Recommendation|$)/is,
+      /Recommendation[s]?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Rx|Prescription|Follow[-\s]?up|$)/is
+    ]);
+
+  // Fallback: if no explicit SOAP sections found, use the old findings extraction
+  // and try to split it into subjective (symptoms) and objective (vitals/exam)
+  const findings =
+    extractSection(fullText, [
+      /Findings?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is,
+      /Exam(ination)?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Diagnosis|Impression|Rx|Prescription|Follow[-\s]?up|$)/is
+    ]);
+
+  // If SOAP sections weren't found individually, distribute findings
+  const finalSubjective = subjective || extractSymptomsFromText(findings || text);
+  const finalObjective = objective || extractObjectiveFromText(findings || text);
+  const finalAssessment = assessment || '';
+  const finalPlan = plan || '';
+
   const diagnosis =
-    extractSection(text, [
+    extractSection(fullText, [
       /Diagnosis[:\s]+(.+?)(?:\n|\.|$)/i,
       /Diagnoses[:\s]+(.+?)(?:\n|\.|$)/i,
       /dx[:\s]+(.+?)(?:\n|\.|$)/i,
@@ -61,7 +118,7 @@ function summarizeNote(rawNote) {
     ]);
 
   const prescription =
-    extractSection(text, [
+    extractSection(fullText, [
       /Prescription[:\s]+(.+?)(?:\n\n|\n[A-Z]|Follow[-\s]?up|Advice|Recommendation|$)/is,
       /Medication[s]?[:\s]+(.+?)(?:\n\n|\n[A-Z]|Follow[-\s]?up|Advice|Recommendation|$)/is,
       /Rx[:\s]+(.+?)(?:\n\n|\n[A-Z]|Follow[-\s]?up|Advice|Recommendation|$)/is,
@@ -70,7 +127,7 @@ function summarizeNote(rawNote) {
     ]);
 
   const followUp =
-    extractSection(text, [
+    extractSection(fullText, [
       /Follow[-\s]?up[:\s]+(.+?)(?:\n|\.|$)/i,
       /Return[:\s]+(.+?)(?:\n|\.|$)/i,
       /Next\s*visit[:\s]+(.+?)(?:\n|\.|$)/i,
@@ -80,11 +137,33 @@ function summarizeNote(rawNote) {
 
   return {
     chiefComplaint: chiefComplaint || '',
+    subjective: finalSubjective || '',
+    objective: finalObjective || '',
+    assessment: finalAssessment || '',
+    plan: finalPlan || '',
     findings: findings || '',
     diagnosis: diagnosis || '',
     prescription: prescription || '',
     followUp: followUp || ''
   };
+}
+
+// Helper: extract symptom-like sentences as subjective
+function extractSymptomsFromText(text) {
+  if (!text) return '';
+  const sentences = text.split(/[.;\n]+/).map((s) => s.trim()).filter(Boolean);
+  const symptomWords = /(pain|ache|fever|headache|nausea|vomit|cough|swell|bleed|cramp|dizzy|fatigue|weak|numb|rash|itch|burn|sore|tender|stiff|spasm|discharge|spotting|contraction|worried|concern|complain|feel|report|deny|denies|no\s+\w+)/i;
+  const subjective = sentences.filter((s) => symptomWords.test(s));
+  return subjective.join('. ') || sentences.slice(0, 2).join('. ');
+}
+
+// Helper: extract vitals/exam findings as objective
+function extractObjectiveFromText(text) {
+  if (!text) return '';
+  const sentences = text.split(/[.;\n]+/).map((s) => s.trim()).filter(Boolean);
+  const objectiveWords = /(bp|blood\s*pressure|hr|heart\s*rate|rr|temp|spo2|weight|height|bmi|aog|lmp|edd|fundal|fht|fhr|cervix|dilated|effaced|station|presenting|part|membrane|strip|exam|palpation|auscultation|inspection|measured|checked|found|observed|noted|seen|positive|negative|normal|abnormal|clear|good|fair|poor)/i;
+  const objective = sentences.filter((s) => objectiveWords.test(s));
+  return objective.join('. ');
 }
 
 /* ─────────────────── helpers for report generation ─────────────────── */

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JLMC Data Flow Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f8fafc;
+      color: #1e293b;
+      line-height: 1.6;
+    }
+    h1, h2, h3 { color: #0f172a; margin-top: 0; }
+    h1 { text-align: center; margin-bottom: 8px; }
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      margin-bottom: 32px;
+      font-size: 14px;
+    }
+    .diagram-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+      padding: 24px;
+      margin-bottom: 32px;
+      overflow: auto;
+    }
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 16px 0 32px;
+      font-size: 13px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .box {
+      width: 24px; height: 16px; border: 2px solid #0f172a;
+    }
+    .circle {
+      width: 20px; height: 20px; border-radius: 50%; border: 2px solid #0f172a;
+    }
+    .store {
+      width: 24px; height: 14px; border: 2px solid #0f172a; border-bottom: none;
+    }
+    .print-btn {
+      position: fixed;
+      top: 20px; right: 20px;
+      padding: 10px 18px;
+      background: #0f172a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .print-btn:hover { background: #334155; }
+    @media print {
+      body { padding: 0; background: #fff; }
+      .print-btn { display: none; }
+      .diagram-card { box-shadow: none; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <h1>Jean Lying-in Maternity Clinic (JLMC) System</h1>
+  <p class="subtitle">Data Flow Diagrams — Context, Level 1, and Level 2 Decomposition</p>
+
+  <div class="legend">
+    <div class="legend-item"><div class="box"></div> External Entity</div>
+    <div class="legend-item"><div class="circle"></div> Process</div>
+    <div class="legend-item"><div class="store"></div> Data Store</div>
+    <div class="legend-item">→ Data Flow</div>
+  </div>
+
+  <!-- Context Diagram -->
+  <div class="diagram-card">
+    <h2>Level 0 — Context Diagram</h2>
+    <p class="subtitle">The system as a single process interacting with external entities.</p>
+    <div class="mermaid">
+      flowchart LR
+        subgraph EXT["External Entities"]
+          E1["Clinic Staff / Admin"]
+          E2["Clinic Owner"]
+          E3["Patient"]
+        end
+        P0["JLMC Web-Based Clinic Management System"]
+        DS1[(Users DB)]
+        DS2[(Patients DB)]
+        DS3[(Consultations DB)]
+        DS4[(Reports DB)]
+
+        E1 -->|Login credentials| P0
+        E1 -->|Patient / consultation / pregnancy data| P0
+        E2 -->|Report request| P0
+        E3 -->|Personal & medical info| P0
+
+        P0 -->|Session token / dashboard| E1
+        P0 -->|Clinic reports| E2
+        P0 -->|Appointment / consultation info| E3
+
+        P0 <-->|Read / Write user data| DS1
+        P0 <-->|Read / Write patient records| DS2
+        P0 <-->|Read / Write consultations| DS3
+        P0 <-->|Read / Write reports| DS4
+    </div>
+  </div>
+
+  <!-- Level 1 DFD -->
+  <div class="diagram-card">
+    <h2>Level 1 — Main System Processes</h2>
+    <p class="subtitle">Top-level decomposition of the system into core processes.</p>
+    <div class="mermaid">
+      flowchart LR
+        E1["Clinic Staff / Admin"]
+        E2["Clinic Owner"]
+        E3["Patient"]
+
+        P1["1.0 Authentication & Authorization"]
+        P2["2.0 Patient Management"]
+        P3["3.0 Consultation Management"]
+        P4["4.0 Pregnancy Tracking"]
+        P5["5.0 Report Generation"]
+        P6["6.0 Audit Logging"]
+
+        DS1[(D1 Users)]
+        DS2[(D2 Patients)]
+        DS3[(D3 Consultations)]
+        DS4[(D4 Pregnancies)]
+        DS5[(D5 Pregnancy Tracking Forms)]
+        DS6[(D6 Reports)]
+        DS7[(D7 Audit Logs)]
+
+        E1 -->|login credentials| P1
+        P1 -->|JWT cookie / role| E1
+
+        E1 -->|patient info| P2
+        P2 <-->|read/write| DS2
+        E3 -->|updated info| P2
+
+        E1 -->|consultation notes| P3
+        P3 <-->|read/write| DS3
+        P3 -->|pregnancy data| P4
+        P4 <-->|read/write| DS4
+        P4 <-->|read/write| DS5
+
+        E2 -->|report criteria| P5
+        P5 <-->|read/write| DS6
+        P5 -->|summary report| E2
+
+        P1 -->|login event| P6
+        P2 -->|record change event| P6
+        P3 -->|record change event| P6
+        P4 -->|record change event| P6
+        P6 -->|write log| DS7
+    </div>
+  </div>
+
+  <!-- Level 2: Patient Management -->
+  <div class="diagram-card">
+    <h2>Level 2 — Patient Management Process</h2>
+    <p class="subtitle">Detailed data flow for adding, updating, and viewing patient records.</p>
+    <div class="mermaid">
+      flowchart LR
+        E1["Clinic Staff / Admin"]
+
+        P2.1["2.1 Add Patient"]
+        P2.2["2.2 View / Search Patient"]
+        P2.3["2.3 Update Patient"]
+        P2.4["2.4 Validate Patient Data"]
+
+        DS2[(D2 Patients)]
+        DS1[(D1 Users)]
+
+        E1 -->|new patient form| P2.1
+        P2.1 -->|validate| P2.4
+        P2.4 -->|valid data| P2.1
+        P2.1 -->|save patient| DS2
+        DS2 -->|patient record| P2.2
+
+        E1 -->|search keyword / patient ID| P2.2
+        P2.2 -->|patient list / detail| E1
+
+        E1 -->|updated info| P2.3
+        P2.3 -->|validate| P2.4
+        P2.3 -->|update record| DS2
+        P2.3 -->|log change| DS1
+    </div>
+  </div>
+
+  <!-- Level 2: Consultation & Pregnancy Tracking -->
+  <div class="diagram-card">
+    <h2>Level 2 — Consultation & Pregnancy Tracking</h2>
+    <p class="subtitle">Detailed data flow for consultations, pregnancy records, and monthly tracking forms.</p>
+    <div class="mermaid">
+      flowchart LR
+        E1["Clinic Staff / Admin"]
+        E2["Clinic Owner"]
+
+        P3.1["3.1 Create Consultation"]
+        P3.2["3.2 Summarize Notes"]
+        P3.3["3.3 View History"]
+
+        P4.1["4.1 Manage Pregnancy Record"]
+        P4.2["4.2 Fill Tracking Form"]
+        P4.3["4.3 Load Active Pregnancies"]
+
+        DS3[(D3 Consultations)]
+        DS4[(D4 Pregnancies)]
+        DS5[(D5 Pregnancy Tracking Forms)]
+        DS6[(D6 Reports)]
+
+        E1 -->|raw consultation notes| P3.1
+        P3.1 -->|structured notes| P3.2
+        P3.2 -->|summary text| P3.1
+        P3.1 -->|save consultation| DS3
+        DS3 -->|history| P3.3
+        P3.3 -->|consultation list| E1
+
+        P3.1 -->|pregnancy info| P4.1
+        E1 -->|pregnancy details| P4.1
+        P4.1 -->|read/write| DS4
+
+        E1 -->|month/year| P4.2
+        P4.2 -->|fetch active| P4.3
+        P4.3 -->|read active pregnancies| DS4
+        P4.3 -->|pre-fill rows| P4.2
+        P4.2 -->|read/write form| DS5
+        P4.2 -->|saved form| E1
+
+        E2 -->|report request| P5
+        P5 -->|read data| DS3
+        P5 -->|read data| DS4
+        P5 -->|read data| DS5
+        P5 -->|generate report| DS6
+        P5 -->|report output| E2
+    </div>
+  </div>
+
+  <!-- Data Dictionary -->
+  <div class="diagram-card">
+    <h2>Data Store Dictionary</h2>
+    <ul>
+      <li><strong>D1 Users</strong> — admin/staff credentials, roles, and session tokens</li>
+      <li><strong>D2 Patients</strong> — personal details, contact info, medical history, allergies</li>
+      <li><strong>D3 Consultations</strong> — visit records, chief complaint, findings, diagnosis, prescription, follow-up</li>
+      <li><strong>D4 Pregnancies</strong> — EDD, OB index, status, delivery date</li>
+      <li><strong>D5 Pregnancy Tracking Forms</strong> — monthly rows, trimester visit dates, document submission</li>
+      <li><strong>D6 Reports</strong> — generated clinic summaries and analytics</li>
+      <li><strong>D7 Audit Logs</strong> — timestamps and actions for accountability</li>
+    </ul>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>

@@ -6,12 +6,30 @@ import { Modal } from '../components/UI/Modal';
 import { RoleBadge } from '../components/UI/Badge';
 import { Spinner } from '../components/UI/Spinner';
 import { Icon } from '../components/Icon';
+import { useAuth } from '../contexts/AuthContext';
 import api, { apiError } from '../services/api';
 
-const EMPTY_FORM = { name: '', email: '', password: '', role: 'staff' };
+const EMPTY_FORM = { name: '', username: '', email: '', password: '', role: 'staff' };
+
+const ROLE_OPTIONS = [
+  { value: 'staff', label: 'Staff' },
+  { value: 'nurse', label: 'Nurse' },
+  { value: 'doctor', label: 'Doctor' },
+  { value: 'admin', label: 'Administrator' }
+];
+
+function formatDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
 
 export function ManageUsers() {
   const toast = useToast();
+  const { user: currentUser } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,13 +70,9 @@ export function ManageUsers() {
     setCreating(true);
     try {
       const { data } = await api.post('/auth/register', createForm);
-      if (data?.requiresVerification) {
-        toast.success(
-          `User "${createForm.name}" created. A verification code was emailed to ${createForm.email}.`
-        );
-      } else {
-        toast.success(`User "${createForm.name}" created.`);
-      }
+      toast.success(
+        `User "${createForm.name}" created. They can now sign in with their password.`
+      );
       setCreateOpen(false);
       setCreateForm(EMPTY_FORM);
       fetchUsers();
@@ -72,16 +86,33 @@ export function ManageUsers() {
   // ── Edit ────────────────────────────────────────────────────────────────────
   function openEdit(user) {
     setEditTarget(user);
-    setEditForm({ name: user.name, email: user.email, role: user.role, password: '' });
+    setEditForm({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '' });
   }
 
   const updateEdit = (k) => (e) => setEditForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Inline role change directly from the table
+  async function handleInlineRoleChange(user, newRole) {
+    if (newRole === user.role) return;
+    try {
+      const { data } = await api.put(`/auth/users/${user.id}`, {
+        name: user.name,
+        username: user.username || null,
+        email: user.email,
+        role: newRole
+      });
+      toast.success(`${user.name}'s role updated to ${newRole}`);
+      fetchUsers();
+    } catch (err) {
+      toast.error(apiError(err, 'Failed to update role'));
+    }
+  }
 
   async function handleEdit(e) {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: editForm.name, email: editForm.email, role: editForm.role };
+      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null };
       if (editForm.password) payload.password = editForm.password;
       const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
@@ -133,29 +164,62 @@ export function ManageUsers() {
             <thead>
               <tr className="bg-ink-50 border-b border-ink-100 text-ink-600 text-left">
                 <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Username</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium">Created</th>
+                <th className="px-4 py-3 font-medium">Date Created</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-ink-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-ink-400">
                     No users found.
                   </td>
                 </tr>
               )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-ink-50 hover:bg-ink-50/50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-ink-900">{u.name}</td>
+                  <td className="px-4 py-3 font-medium text-ink-900">
+                    <div className="flex items-center gap-2">
+                      {u.name}
+                      {u.id === currentUser?.id && (
+                        <span className="text-[10px] text-primary-600 font-bold bg-primary-50 px-1.5 py-0.5 rounded">You</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-ink-600">
+                    {u.username ? (
+                      <span className="font-mono text-xs bg-ink-50 px-2 py-0.5 rounded">@{u.username}</span>
+                    ) : (
+                      <span className="text-ink-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-ink-600">{u.email}</td>
-                  <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
-                  <td className="px-4 py-3 text-ink-500">{u.created_at?.slice(0, 10) ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={u.role}
+                      onChange={(e) => handleInlineRoleChange(u, e.target.value)}
+                      disabled={u.id === currentUser?.id}
+                      className="text-xs font-semibold rounded-lg px-2 py-1 border border-ink-200 outline-none focus:ring-2 focus:ring-primary-300 cursor-pointer bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+                      title={u.id === currentUser?.id ? "You can't change your own role" : 'Change role'}
+                    >
+                      {ROLE_OPTIONS.map((r) => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-ink-500">{formatDate(u.created_at)}</td>
                   <td className="px-4 py-3 flex gap-2 justify-end">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>Edit</Button>
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(u)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50"
+                      disabled={u.id === currentUser?.id}
+                      onClick={() => setDeleteTarget(u)}
+                    >
                       Delete
                     </Button>
                   </td>
@@ -182,6 +246,13 @@ export function ManageUsers() {
       >
         <form id="create-user-form" onSubmit={handleCreate} className="space-y-4">
           <Input label="Full name" value={createForm.name} onChange={updateCreate('name')} required />
+          <Input
+            label="Username (optional)"
+            value={createForm.username}
+            onChange={updateCreate('username')}
+            placeholder="dr.smith"
+            hint="3-50 chars: letters, numbers, dots, hyphens, underscores. User can log in with this instead of email."
+          />
           <Input type="email" label="Email" value={createForm.email} onChange={updateCreate('email')} required />
           <Input
             type="password"
@@ -215,6 +286,13 @@ export function ManageUsers() {
       >
         <form id="edit-user-form" onSubmit={handleEdit} className="space-y-4">
           <Input label="Full name" value={editForm.name} onChange={updateEdit('name')} required />
+          <Input
+            label="Username (optional)"
+            value={editForm.username}
+            onChange={updateEdit('username')}
+            placeholder="dr.smith"
+            hint="3-50 chars: letters, numbers, dots, hyphens, underscores. User can log in with this instead of email."
+          />
           <Input type="email" label="Email" value={editForm.email} onChange={updateEdit('email')} required />
           <Input
             type="password"

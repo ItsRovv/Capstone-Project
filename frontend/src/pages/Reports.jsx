@@ -186,14 +186,24 @@ export function Reports() {
             >
               <option value="daily">Daily</option>
               <option value="weekly">Weekly (7-day window ending on date)</option>
+              <option value="monthly">Monthly Census</option>
             </select>
           </div>
-          <Input
-            type="date"
-            label={modal.type === 'weekly' ? 'Week ending date' : 'Report date'}
-            value={modal.date}
-            onChange={(e) => setModal((m) => ({ ...m, date: e.target.value }))}
-          />
+          {modal.type === 'monthly' ? (
+            <Input
+              type="month"
+              label="Report month"
+              value={modal.date ? modal.date.slice(0, 7) : ''}
+              onChange={(e) => setModal((m) => ({ ...m, date: e.target.value }))}
+            />
+          ) : (
+            <Input
+              type="date"
+              label={modal.type === 'weekly' ? 'Week ending date' : 'Report date'}
+              value={modal.date}
+              onChange={(e) => setModal((m) => ({ ...m, date: e.target.value }))}
+            />
+          )}
           {generated && (
             <ReportDocument
               metrics={generated.metrics}

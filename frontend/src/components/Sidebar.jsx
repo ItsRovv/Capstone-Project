@@ -1,13 +1,22 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { queueService } from '../services/queueService';
 import { Icon } from './Icon';
-import { RoleBadge } from './UI/Badge';
-import { JLMCLogo } from './JLMCLogo';
 
 const STAFF_NAV = [
   { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
   { to: '/patients', label: 'Patients', icon: Icon.Users },
-  { to: '/consultations', label: 'Consultations', icon: Icon.Stethoscope },
+  { to: '/consultations', label: 'Daily Queue', icon: Icon.Stethoscope },
+  { to: '/consultation-transactions', label: 'Transactions', icon: Icon.FileText },
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
+];
+
+const DOCTOR_NAV = [
+  { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
+  { to: '/patients', label: 'Patients', icon: Icon.Users },
+  { to: '/doctor/consultations', label: 'Consultation', icon: Icon.Stethoscope },
+  { to: '/consultation-transactions', label: 'Transactions', icon: Icon.FileText },
   { to: '/reports', label: 'Reports', icon: Icon.Report },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
 ];
@@ -16,36 +25,40 @@ const ADMIN_NAV = [
   { to: '/admin/users', label: 'Manage Users', icon: Icon.User }
 ];
 
+function getNavItems(role) {
+  if (role === 'admin') return [...DOCTOR_NAV, ...ADMIN_NAV];
+  if (role === 'doctor') return DOCTOR_NAV;
+  return STAFF_NAV;
+}
+
 export function Sidebar({ onClose }) {
   const { user, logout } = useAuth();
-  const navItems = user?.role === 'admin' ? [...STAFF_NAV, ...ADMIN_NAV] : STAFF_NAV;
+  const [queueCount, setQueueCount] = useState(0);
+  const navItems = getNavItems(user?.role);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueService.countWaiting().then((res) => {
+      if (!cancelled) setQueueCount(res?.count || 0);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   return (
-    <aside className="h-full w-64 bg-white border-r border-ink-100 flex flex-col">
-      <div className="px-4 py-4 border-b border-ink-100">
-        {onClose && (
-          <div className="flex justify-end mb-1 md:hidden">
-            <button
-              onClick={onClose}
-              className="text-ink-500 hover:text-ink-800 p-1"
-              aria-label="Close menu"
-            >
-              <Icon.Close />
-            </button>
-          </div>
-        )}
-        <div className="flex flex-col items-center text-center gap-2">
-          <JLMCLogo size={48} className="rounded-2xl flex-shrink-0" />
-          <div>
-            <p className="font-display font-bold text-ink-900 text-sm leading-snug">
-              Jean Lying-in Maternity Clinic
-            </p>
-            <p className="text-xs text-ink-500 mt-0.5">Tughan, Juban, Sorsogon</p>
-          </div>
+    <aside className="h-full w-60 bg-primary-900 flex flex-col">
+      {onClose && (
+        <div className="flex justify-end px-3 pt-3 md:hidden">
+          <button
+            onClick={onClose}
+            className="text-primary-200 hover:text-white p-1"
+            aria-label="Close menu"
+          >
+            <Icon.Close />
+          </button>
         </div>
-      </div>
+      )}
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-2.5 py-4 space-y-0.5">
         {navItems.map((item) => {
           const IconComp = item.icon;
           return (
@@ -55,36 +68,32 @@ export function Sidebar({ onClose }) {
               end={item.end}
               onClick={onClose}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                 transition-all duration-200
+                `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium
+                 transition-colors duration-150
                  ${isActive
-                    ? 'bg-primary-50 text-primary-700 shadow-glow'
-                    : 'text-ink-600 hover:bg-ink-50 hover:text-ink-900 hover:translate-x-0.5'
+                    ? 'bg-primary-700 text-white'
+                    : 'text-primary-100/80 hover:bg-primary-800 hover:text-white'
                  }`
               }
             >
-              <IconComp />
-              <span>{item.label}</span>
+              <IconComp width={18} height={18} />
+              <span className="flex-1">{item.label}</span>
+              {item.to === '/consultations' && queueCount > 0 && (
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                  {queueCount > 9 ? '9+' : queueCount}
+                </span>
+              )}
             </NavLink>
           );
         })}
       </nav>
 
-      <div className="px-3 py-4 border-t border-ink-100">
-        <div className="flex items-center gap-3 px-3 py-2 mb-2">
-          <div className="w-9 h-9 rounded-full bg-primary-100 text-primary-700 inline-flex items-center justify-center font-semibold">
-            {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-ink-900 truncate">{user?.name}</p>
-            <RoleBadge role={user?.role} />
-          </div>
-        </div>
+      <div className="px-2.5 py-3 border-t border-primary-800">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-ink-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-primary-100/80 hover:bg-primary-800 hover:text-white transition-colors"
         >
-          <Icon.Logout />
+          <Icon.Logout width={18} height={18} />
           <span>Sign out</span>
         </button>
       </div>

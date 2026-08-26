@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -8,7 +8,9 @@ import { Spinner, PageLoader } from '../components/UI/Spinner';
 import { EmptyState } from '../components/UI/EmptyState';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/UI/Toast';
+import { useAuth } from '../contexts/AuthContext';
 import { patientService } from '../services/patientService';
+import { queueService } from '../services/queueService';
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 
@@ -30,7 +32,12 @@ function formatDate(d) {
 
 export function Patients() {
   const { onOpenMenu } = useOutletContext();
+  const { user } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const action = searchParams.get('action');
+  const isConsultMode = action === 'consult';
+
   const [patients, setPatients] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -41,6 +48,8 @@ export function Patients() {
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [queueSet, setQueueSet] = useState(new Set());
+  const [addingQueue, setAddingQueue] = useState(null);
 
   const LIMIT = 50;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -48,13 +57,31 @@ export function Patients() {
   async function load(q = search, p = page) {
     setLoading(true);
     try {
-      const res = await patientService.list(q, { page: p, limit: LIMIT });
+      const [res, queueRes] = await Promise.all([
+        patientService.list(q, { page: p, limit: LIMIT }),
+        queueService.listToday().catch(() => [])
+      ]);
       setPatients(res.data || []);
       setTotal(res.total || 0);
+      const qSet = new Set((queueRes || []).map((qe) => qe.patient_id));
+      setQueueSet(qSet);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load patients'));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleAddToQueue(patientId) {
+    setAddingQueue(patientId);
+    try {
+      const result = await queueService.add(patientId);
+      toast.success(`Added to queue #${String(result.queue_number).padStart(2, '0')}`);
+      setQueueSet((prev) => new Set(prev).add(patientId));
+    } catch (err) {
+      toast.error(apiError(err, 'Could not add to queue'));
+    } finally {
+      setAddingQueue(null);
     }
   }
 
@@ -70,6 +97,16 @@ export function Patients() {
   useEffect(() => {
     load(search, page);
   }, [page]);
+
+  // Auto-open add modal when ?action=add
+  useEffect(() => {
+    if (action === 'add') {
+      setEditing(null);
+      setModalOpen(true);
+      // clean the param so refresh doesn't re-open
+      setSearchParams({}, { replace: true });
+    }
+  }, [action]);
 
   async function handleCreate(payload) {
     setSubmitting(true);
@@ -123,7 +160,24 @@ export function Patients() {
       />
 
       <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
+          {isConsultMode && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 inline-flex items-center justify-center flex-shrink-0">
+                <Icon.Stethoscope width={16} height={16} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-emerald-800">Record a consultation</p>
+                <p className="text-xs text-emerald-600">Select a patient below to add a new consultation visit.</p>
+              </div>
+              <button
+                onClick={() => setSearchParams({}, { replace: true })}
+                className="ml-auto text-emerald-600 hover:text-emerald-800 text-xs font-medium"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <Card padding="p-0" className="overflow-hidden">
             {loading ? (
               <PageLoader label="Loading patients…" />
@@ -166,7 +220,7 @@ export function Patients() {
                 </thead>
                 <tbody className="divide-y divide-ink-100">
                   {patients.map((p) => (
-                    <tr key={p.id} className="hover:bg-ink-50/60 transition-colors">
+                    <tr key={p.id} className={`hover:bg-ink-50/60 transition-colors ${isConsultMode ? 'cursor-pointer' : ''}`}>
                       <td className="px-6 py-3.5">
                         <Link
                           to={`/patients/${p.id}`}
@@ -194,20 +248,43 @@ export function Patients() {
                       </td>
                       <td className="px-6 py-3.5 text-right">
                         <div className="inline-flex gap-1">
+                          {!isConsultMode && ['admin', 'nurse', 'staff'].includes(user?.role) && !queueSet.has(p.id) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleAddToQueue(p.id)}
+                              loading={addingQueue === p.id}
+                              className="text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
+                              title="Add to queue"
+                            >
+                              <Icon.Clipboard width={14} height={14} />
+                            </Button>
+                          )}
+                          {!isConsultMode && queueSet.has(p.id) && (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
+                              <Icon.Check width={12} height={12} /> In queue
+                            </span>
+                          )}
                           <Link to={`/patients/${p.id}`}>
                             <Button variant="ghost" size="sm">
-                              View
+                              {isConsultMode ? (
+                                <span className="flex items-center gap-1 text-emerald-700">
+                                  <Icon.Stethoscope width={14} height={14} /> Select
+                                </span>
+                              ) : 'View'}
                             </Button>
                           </Link>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteTarget(p)}
-                            className="text-ink-500 hover:!text-red-600 hover:!bg-red-50"
-                            aria-label="Delete"
-                          >
-                            <Icon.Trash width={16} height={16} />
-                          </Button>
+                          {!isConsultMode && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteTarget(p)}
+                              className="text-ink-500 hover:!text-red-600 hover:!bg-red-50"
+                              aria-label="Delete"
+                            >
+                              <Icon.Trash width={16} height={16} />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -253,7 +330,7 @@ export function Patients() {
           setEditing(null);
         }}
         title={editing ? 'Edit patient' : 'New patient'}
-        size="lg"
+        size="xl"
       >
         <PatientForm
           initial={editing}

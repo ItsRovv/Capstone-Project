@@ -5,6 +5,7 @@ const AuditLog = require('../models/AuditLog');
 const { requireStaff } = require('../middleware/role');
 const auth = require('../middleware/auth');
 const { routeError } = require('../utils/routeError');
+const { syncPregnancyToTracking } = require('../services/pregnancySyncService');
 
 router.use(auth, requireStaff);
 
@@ -32,6 +33,11 @@ router.post('/', async (req, res) => {
       newData: { patient_id: patientId, ...req.body },
       ipAddress: req.ip
     });
+    // Auto-sync to monthly tracking form (best-effort, non-blocking)
+    const newPreg = await Pregnancy.findById(pregnancyId);
+    if (newPreg) {
+      syncPregnancyToTracking(newPreg).catch(() => {});
+    }
     res.status(201).json({ id: pregnancyId, message: 'Pregnancy record created' });
   } catch (err) {
     routeError(res, err);
@@ -42,7 +48,14 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const oldPregnancy = await Pregnancy.findById(req.params.id);
-    const updated = await Pregnancy.update(req.params.id, req.body);
+    // Merge with the existing record so partial updates (e.g. status-only)
+    // don't null out fields the caller didn't send.
+    const merged = { ...(oldPregnancy || {}), ...req.body };
+    // Recompute BMI if weight/height changed in this request.
+    if ('baseline_weight_kg' in req.body || 'baseline_height_cm' in req.body) {
+      delete merged.baseline_bmi;
+    }
+    const updated = await Pregnancy.update(req.params.id, merged);
     if (!updated) {
       return res.status(404).json({ message: 'Pregnancy record not found' });
     }
@@ -55,6 +68,11 @@ router.put('/:id', async (req, res) => {
       newData: req.body,
       ipAddress: req.ip
     });
+    // Auto-sync to monthly tracking form (best-effort, non-blocking)
+    const updatedPreg = await Pregnancy.findById(req.params.id);
+    if (updatedPreg) {
+      syncPregnancyToTracking(updatedPreg).catch(() => {});
+    }
     res.json({ message: 'Pregnancy record updated' });
   } catch (err) {
     routeError(res, err);

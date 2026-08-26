@@ -12,6 +12,7 @@ const {
   forgotPassword,
   resetPassword,
   verifyEmail,
+  resendVerification,
   oauthCallback
 } = require('../controllers/authController');
 const AuditLog = require('../models/AuditLog');
@@ -28,6 +29,7 @@ router.post('/logout', logout);
 router.post('/forgot-password', otpLimiter, forgotPassword);
 router.post('/reset-password', otpLimiter, resetPassword);
 router.post('/verify-email', otpLimiter, verifyEmail);
+router.post('/resend-verification', otpLimiter, resendVerification);
 
 // ── OAuth (Social Login) ───────────────────────────────────────────────────
 

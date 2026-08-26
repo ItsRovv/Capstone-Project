@@ -17,10 +17,12 @@ A full-stack patient records management system for a lying-in clinic in Sorsogon
 - 👥 **Patient management** — search + pagination, add, edit, delete; detailed view with consultations & appointments
 - 🩺 **Consultation records** with one-click AI note summarization (`POST /api/consultations/:id/summarize`)
 - 📅 **Appointment scheduling** with status tracking (scheduled / completed / cancelled)
+- 🤰 **Pregnancy tracking forms** — monthly trimester sheets pre-filled from active pregnancies and saved by month/year
 - 📊 **AI-generated reports** — daily *and* weekly summaries of clinic activity in plain language
 - ⏰ **Automatic end-of-day reports** — a scheduler generates the daily report and (optionally) emails it to the clinic owner
 - 🎨 **Polished UI** — sage-green medical palette, responsive, accessible
-- 🛡️ **Production-hardened** — Helmet CSP + HSTS, CORS, DB connect retry, `/health` endpoint, graceful errors, SPA fallback
+- � **Auto-failover database** — local PostgreSQL backup that automatically takes over when Supabase is unreachable, with reverse-sync on recovery
+- �🛡️ **Production-hardened** — Helmet CSP + HSTS, CORS, DB connect retry, `/health` endpoint, graceful errors, SPA fallback
 
 ## Quick start (development)
 
@@ -81,6 +83,15 @@ docker-compose up -d
 | `REPORT_CRON`     | Cron schedule for the automatic daily report | `0 18 * * *` (6 PM)     |
 | `REPORT_EMAIL`    | Recipient for the auto-generated report (blank = store only) | (empty)         |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | SMTP settings for emailing reports (all optional) | (empty) |
+| `FALLBACK_DB_HOST` | Local PostgreSQL host for auto-failover | `localhost` |
+| `FALLBACK_DB_PORT` | Local PostgreSQL port | `5432` |
+| `FALLBACK_DB_USER` | Local PostgreSQL user | `postgres` |
+| `FALLBACK_DB_PASSWORD` | Local PostgreSQL password (leave blank to disable failover) | (empty) |
+| `FALLBACK_DB_NAME` | Local PostgreSQL database name | `jlmc_local` |
+| `FALLBACK_DB_SSL` | Use SSL for local PostgreSQL | `false` |
+| `DB_AUTO_SYNC` | Auto-sync primary → fallback on startup | `true` |
+| `DB_HEALTH_CHECK_INTERVAL_MS` | Health check interval (ms) | `30000` |
+| `DB_HEALTH_FAIL_THRESHOLD` | Consecutive failures before failover | `3` |
 
 ### `frontend/.env`
 
@@ -95,14 +106,15 @@ In production, `NODE_ENV=production` causes the API server to serve the built Re
 ```
 lying-in-clinic-web-app/
 ├── backend/                  # Express API
-│   ├── config/db.js
+│   ├── config/db.js          # delegates to dbManager (auto-failover)
+│   ├── config/dbManager.js   # dual-pool failover manager
 │   ├── controllers/          # authController.js
 │   ├── middleware/           # auth, validation, role
-│   ├── models/               # Patient, Consultation, Appointment, Report, User
-│   ├── routes/               # auth, patients, consultations, appointments, reports, ai
-│   ├── services/             # aiService, reportService (daily/weekly generation)
+│   ├── models/               # Patient, Consultation, Appointment, Report, User, PregnancyTrackingForm
+│   ├── routes/               # auth, patients, consultations, pregnancies, pregnancyTracking, reports, summary, automation
+│   ├── services/             # summaryService, reportService (daily/weekly generation)
 │   ├── middleware/           # auth, validation, role, rateLimit
-│   ├── utils/                # promptTemplates, seed, scheduler, mailer
+│   ├── utils/                # promptTemplates, seed, scheduler, mailer, sync
 │   ├── tests/                # jest unit tests (auth, validation, role, prompts)
 │   ├── server.js
 │   └── package.json
@@ -110,12 +122,13 @@ lying-in-clinic-web-app/
 │   ├── src/
 │   │   ├── components/       # Layout, Sidebar, Topbar, ProtectedRoute, UI primitives
 │   │   ├── contexts/         # AuthContext
-│   │   ├── pages/            # Login, Register, Dashboard, Patients, PatientDetail, ...
-│   │   ├── services/         # api, patientService, ...
+│   │   ├── pages/            # Login, Register, Dashboard, Patients, PatientDetail, PregnancyTrackingForm, ...
+│   │   ├── services/         # api, patientService, pregnancyTrackingService, ...
 │   │   ├── App.jsx
 │   │   └── main.jsx
 │   └── package.json
 ├── database/schema.sql       # Postgres DDL (Supabase / local)
+├── docs/data-flow-diagram.html  # DFD for title defense (Level 0 + Level 1)
 ├── docker-compose.yml        # API container only (DB is Supabase)
 ├── Dockerfile
 ├── deploy/
@@ -148,6 +161,56 @@ All proposed features are implemented: patient registration, consultation record
 patient history lookup, appointment scheduling, the AI note summarizer, and AI
 report generation — including the **weekly report** and **automatic end-of-day
 report** described in the proposal.
+
+## Auto-failover database (local backup)
+
+The system supports automatic failover to a local PostgreSQL instance when Supabase is unreachable. This ensures the clinic stays operational during internet outages or Supabase downtime.
+
+### How it works
+
+1. On startup, the backend connects to Supabase (primary) and optionally to a local PostgreSQL database (fallback).
+2. A health check pings Supabase every 30 seconds.
+3. After 3 consecutive failures, all queries automatically switch to the local database.
+4. The frontend shows an amber banner: "Backup database active".
+5. When Supabase recovers, the system reverse-syncs local changes back to Supabase and switches back to primary.
+
+### Setup steps
+
+```bash
+# 1. Install PostgreSQL locally on the clinic machine
+#    Windows: download from https://www.postgresql.org/download/windows/
+#    Remember the password you set for the postgres user.
+
+# 2. Create the fallback database
+createdb -U postgres jlmc_local
+# Or via psql:
+#   psql -U postgres -c "CREATE DATABASE jlmc_local;"
+
+# 3. Configure backend/.env
+#    Add the following (replace your_password with your local PG password):
+#    FALLBACK_DB_HOST=localhost
+#    FALLBACK_DB_PORT=5432
+#    FALLBACK_DB_USER=postgres
+#    FALLBACK_DB_PASSWORD=your_password
+#    FALLBACK_DB_NAME=jlmc_local
+#    FALLBACK_DB_SSL=false
+
+# 4. Restart the backend
+npm run start:dev
+# You should see:
+#   ✓ [dbManager] Connected to primary (Supabase)
+#   ✓ [dbManager] Fallback (local PG) connected
+#   ✓ [dbManager] Fallback schema applied
+#   ✓ [sync] Snapshot complete
+
+# 5. To test failover:
+#    - Stop your internet connection or change DATABASE_URL to an invalid value
+#    - After ~90 seconds (3 failed health checks), the system switches to local DB
+#    - The frontend shows an amber banner
+#    - Restore connection → system reverse-syncs and switches back to Supabase
+```
+
+> **Note:** If `FALLBACK_DB_PASSWORD` is left blank, failover is silently disabled and the system works exactly as before (Supabase only).
 
 ## License
 

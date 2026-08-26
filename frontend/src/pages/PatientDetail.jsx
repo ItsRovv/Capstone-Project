@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useOutletContext, useParams } from 'react-router-dom';
+import { useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card, CardHeader } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -13,6 +13,9 @@ import { pregnancyService } from '../services/pregnancyService';
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 import { ConsultationForm } from '../components/ConsultationForm';
+import { useAuth } from '../contexts/AuthContext';
+
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function formatDate(d) {
   if (!d) return '—';
@@ -43,12 +46,16 @@ export function PatientDetail() {
   const { id } = useParams();
   const { onOpenMenu } = useOutletContext();
   const toast = useToast();
+  const { user } = useAuth();
+  const isStaff = user?.role === 'staff' || user?.role === 'nurse';
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [patient, setPatient] = useState(null);
   const [consultations, setConsultations] = useState([]);
   const [pregnancies, setPregnancies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('overview');
+  const initialTab = searchParams.get('tab') || 'overview';
+  const [tab, setTab] = useState(initialTab);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -58,6 +65,7 @@ export function PatientDetail() {
   const [pregnancySubmitting, setPregnancySubmitting] = useState(false);
   const [editPregnancyOpen, setEditPregnancyOpen] = useState(false);
   const [editingPregnancy, setEditingPregnancy] = useState(null);
+  const [viewConsult, setViewConsult] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -211,10 +219,15 @@ export function PatientDetail() {
         </Card>
 
         <div className="flex gap-2 border-b border-ink-100">
-          {['overview', 'consultations'].map((t) => (
+          {['overview', ...(isStaff ? [] : ['consultations'])].map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                setTab(t);
+                if (searchParams.has('tab')) {
+                  setSearchParams({}, { replace: true });
+                }
+              }}
               className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 ${
                 tab === t
                   ? 'border-primary-500 text-primary-700'
@@ -227,21 +240,40 @@ export function PatientDetail() {
         </div>
 
         {tab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-            {/* Pregnancy — expandable */}
-            <PregnancyCard
-              patient={patient}
-              pregnancies={pregnancies}
-              onAddNew={() => setNewPregnancyOpen(true)}
-              onEdit={(pr) => {
-                setEditingPregnancy(pr);
-                setEditPregnancyOpen(true);
-              }}
-              onDelete={handleDeletePregnancy}
-              onUpdateStatus={handleUpdatePregnancyStatus}
-            />
-            {/* Allergies — red marked */}
-            <AllergiesCard patient={patient} />
+          <div className="space-y-4">
+            {/* Emergency Contact — top of page, all patients */}
+            <PersonalInfoCard patient={patient} />
+
+            {/* Recent Consultation — hidden for staff/nurse (clinical privacy) */}
+            {!isStaff && (
+              <RecentConsultationCard
+                consultations={consultations}
+                onViewDetail={(c) => setViewConsult(c)}
+                onViewAll={() => setTab('consultations')}
+              />
+            )}
+
+            <div className={`grid grid-cols-1 ${isStaff ? '' : 'md:grid-cols-2'} gap-4 items-start ${patient.sex?.toLowerCase() === 'male' ? 'md:grid-cols-1' : ''}`}>
+              {/* Pregnancy History — expandable, hidden for male patients */}
+              {patient.sex?.toLowerCase() !== 'male' && (
+                <PregnancyCard
+                  patient={patient}
+                  pregnancies={pregnancies}
+                  isStaff={isStaff}
+                  onAddNew={() => setNewPregnancyOpen(true)}
+                  onEdit={(pr) => {
+                    setEditingPregnancy(pr);
+                    setEditPregnancyOpen(true);
+                  }}
+                  onDelete={handleDeletePregnancy}
+                  onUpdateStatus={handleUpdatePregnancyStatus}
+                />
+              )}
+              {/* Medical Information — hidden for staff/nurse (clinical privacy) */}
+              {!isStaff && (
+                <MedicalInfoCard patient={patient} />
+              )}
+            </div>
           </div>
         )}
 
@@ -262,27 +294,45 @@ export function PatientDetail() {
                 {consultations.map((c) => (
                   <li
                     key={c.id}
-                    className="px-6 py-4 hover:bg-ink-50/60 transition-colors"
+                    className="px-6 py-4 hover:bg-ink-50/60 transition-colors cursor-pointer"
+                    onClick={() => setViewConsult(c)}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-ink-900">
-                          {c.chief_complaint || 'Consultation'}
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-ink-900">
+                            {c.chief_complaint || 'Consultation'}
+                          </p>
+                          <SoapBadge consultation={c} />
+                        </div>
                         <p className="text-xs text-ink-500 mt-0.5">
                           {formatDateTime(c.visit_date)}
                         </p>
+                        {(c.subjective || c.objective || c.assessment || c.plan) && (
+                          <div className="mt-2 space-y-1 text-sm">
+                            {c.subjective && (
+                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">S:</span> {c.subjective}</p>
+                            )}
+                            {c.objective && (
+                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">O:</span> {c.objective}</p>
+                            )}
+                            {c.assessment && (
+                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">A:</span> {c.assessment}</p>
+                            )}
+                            {c.plan && (
+                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">P:</span> {c.plan}</p>
+                            )}
+                          </div>
+                        )}
                         {c.diagnosis && (
-                          <p className="text-sm text-ink-600 mt-1">
+                          <p className="text-sm text-ink-600 mt-1 truncate">
                             Diagnosis: {c.diagnosis}
                           </p>
                         )}
-                        {c.prescription && (
-                          <p className="text-sm text-ink-600 mt-1">
-                            Rx: {c.prescription}
-                          </p>
-                        )}
                       </div>
+                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
+                        View details →
+                      </span>
                     </div>
                   </li>
                 ))}
@@ -293,7 +343,7 @@ export function PatientDetail() {
         </div>
       </div>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit patient" size="lg">
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit patient" size="xl">
         <PatientForm
           initial={patient}
           onSubmit={handleEdit}
@@ -346,8 +396,31 @@ export function PatientDetail() {
           }}
         />
       </Modal>
+
+      {/* Consultation detail modal */}
+      <ConsultationDetailModal
+        consultation={viewConsult}
+        onClose={() => setViewConsult(null)}
+      />
     </div>
   );
+}
+
+function SoapBadge({ consultation }) {
+  const hasSOAP = consultation.subjective || consultation.objective || consultation.assessment || consultation.plan;
+  const allFilled = consultation.subjective && consultation.objective && consultation.assessment && consultation.plan;
+  const hasLegacy = consultation.structured_notes || consultation.chief_complaint;
+
+  if (allFilled) {
+    return <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">SOAP</span>;
+  }
+  if (hasSOAP) {
+    return <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Partial SOAP</span>;
+  }
+  if (hasLegacy) {
+    return <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500 bg-ink-100 border border-ink-200 px-1.5 py-0.5 rounded">Legacy</span>;
+  }
+  return null;
 }
 
 function Field({ label, value }) {
@@ -359,11 +432,14 @@ function Field({ label, value }) {
   );
 }
 
-function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpdateStatus }) {
-  const [expanded, setExpanded] = useState(false);
+function PregnancyCard({ patient, pregnancies, isStaff, onAddNew, onEdit, onDelete, onUpdateStatus }) {
+  const [expanded, setExpanded] = useState(pregnancies.length > 0);
   const [savingId, setSavingId] = useState(null);
 
   const latest = pregnancies[0];
+  // Wider grids in landscape (staff) mode since the card spans full width
+  const mainGrid = isStaff ? 'grid grid-cols-3 md:grid-cols-6 gap-3' : 'grid grid-cols-2 gap-3';
+  const baselineGrid = isStaff ? 'grid grid-cols-4 md:grid-cols-8 gap-3' : 'grid grid-cols-2 gap-3';
 
   async function handleStatusChange(prId, newStatus) {
     setSavingId(prId);
@@ -377,7 +453,7 @@ function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpd
         className="flex items-center justify-between cursor-pointer select-none"
         onClick={() => setExpanded((v) => !v)}
       >
-        <CardHeader title="Pregnancy" subtitle={expanded ? 'Tap to collapse' : 'Tap to expand'} />
+        <CardHeader title="Pregnancy History" subtitle={expanded ? 'Tap to collapse' : 'Tap to expand'} />
         <span className="text-ink-500 text-sm font-medium">
           {expanded ? '−' : '+'}
         </span>
@@ -385,7 +461,7 @@ function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpd
       {expanded && (
         <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
           {pregnancies.length === 0 ? (
-            <p className="text-sm text-ink-500">No pregnancy records yet.</p>
+            <p className="text-sm text-ink-500">No pregnancy history yet — first pregnancy.</p>
           ) : (
             <div className="space-y-3">
               {pregnancies.map((pr, idx) => (
@@ -421,7 +497,7 @@ function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpd
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={mainGrid}>
                     <Field label="LMP" value={formatDate(pr.lmp)} />
                     <Field label="EDD" value={formatDate(pr.edd)} />
                     <Field label="GP" value={pr.gp} />
@@ -434,6 +510,21 @@ function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpd
                       disabled={savingId === pr.id}
                     />
                   </div>
+                  {(pr.baseline_weight_kg || pr.baseline_height_cm || pr.aog || pr.ob_index || pr.blood_type || pr.pregnancy_number) && (
+                    <div className="pt-2 border-t border-ink-100 mt-2">
+                      <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">First Prenatal Visit — Baseline Data</p>
+                      <div className={baselineGrid}>
+                        <Field label="Weight" value={pr.baseline_weight_kg ? `${pr.baseline_weight_kg} kg` : null} />
+                        <Field label="Height" value={pr.baseline_height_cm ? `${pr.baseline_height_cm} cm` : null} />
+                        <Field label="BMI" value={pr.baseline_bmi} />
+                        <Field label="AOG" value={pr.aog} />
+                        <Field label="OB Index" value={pr.ob_index} />
+                        <Field label="Blood Type" value={pr.blood_type} />
+                        <Field label="Pregnancy #" value={pr.pregnancy_number} />
+                        <Field label="First Visit" value={formatDate(pr.first_visit_date)} />
+                      </div>
+                    </div>
+                  )}
                   {pr.notes && (
                     <div className="pt-2 border-t border-ink-100 mt-2">
                       <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Notes</p>
@@ -453,7 +544,7 @@ function PregnancyCard({ patient, pregnancies, onAddNew, onEdit, onDelete, onUpd
         <p className="text-sm text-ink-500">
           {latest
             ? `${latest.trimester || '—'} · ${latest.weeks || '—'}`
-            : 'No pregnancy records'}
+            : 'No pregnancy history yet'}
         </p>
       )}
     </Card>
@@ -482,25 +573,251 @@ function StatusSelect({ label, value, onChange, disabled }) {
   );
 }
 
-function AllergiesCard({ patient }) {
-  const allergies = patient.allergies
+function MedicalInfoCard({ patient }) {
+  const info = patient.medical_info;
+  // Fall back to legacy comma-separated `allergies` text if medical_info hasn't been filled in yet.
+  const legacyAllergies = patient.allergies
     ? patient.allergies.split(',').map((a) => a.trim()).filter(Boolean)
     : [];
+  const allergies = info?.drug_food_allergies?.length ? info.drug_food_allergies : legacyAllergies;
+  const medications = info?.medications_supplements || [];
+  const illnessRows = (info?.illness_history || []).filter((r) => r.personal || r.family || r.remarks);
+  const highRisk = info?.high_risk_behavior;
+  const highRiskFlags = ['smoking', 'alcohol_intake'].filter(
+    (k) => highRisk?.[k]?.personal || highRisk?.[k]?.family
+  );
 
   return (
     <Card>
-      <CardHeader title="Allergies" />
-      {allergies.length === 0 ? (
-        <p className="text-sm text-ink-500">No known allergies.</p>
+      <CardHeader title="Medical Information" />
+      <div className="space-y-3">
+        <div>
+          <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Drug &amp; Food Allergies</p>
+          {allergies.length === 0 ? (
+            <p className="text-sm text-ink-500">No known allergies.</p>
+          ) : (
+            <ul className="space-y-1">
+              {allergies.map((a, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                  <span className="text-sm font-medium text-red-600">{a}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {medications.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Medications &amp; Supplements</p>
+            <ul className="space-y-1">
+              {medications.map((m, i) => (
+                <li key={i} className="text-sm text-ink-700">• {m}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {illnessRows.length > 0 && (
+          <div className="pt-2 border-t border-ink-100">
+            <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Illness / Health Problems</p>
+            <ul className="space-y-1">
+              {illnessRows.map((r, i) => (
+                <li key={i} className="text-sm text-ink-700">
+                  {r.condition}
+                  {r.personal && <span className="ml-1 text-xs text-amber-600 font-medium">(Personal)</span>}
+                  {r.family && <span className="ml-1 text-xs text-amber-600 font-medium">(Family)</span>}
+                  {r.remarks && <span className="ml-1 text-xs text-ink-500">— {r.remarks}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {highRiskFlags.length > 0 && (
+          <div className="pt-2 border-t border-ink-100">
+            <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">High-Risk Behavior</p>
+            <ul className="space-y-1">
+              {highRiskFlags.map((k) => (
+                <li key={k} className="text-sm text-ink-700 capitalize">
+                  {k === 'alcohol_intake' ? 'Alcohol Intake' : 'Smoking'}
+                  {highRisk[k].remarks && <span className="ml-1 text-xs text-ink-500">— {highRisk[k].remarks}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function ConsultationDetailModal({ consultation, onClose }) {
+  if (!consultation) return null;
+  const c = consultation;
+  const editable = c.visit_date && Date.now() - new Date(c.visit_date).getTime() < ONE_WEEK_MS;
+
+  return (
+    <Modal
+      open={Boolean(consultation)}
+      onClose={onClose}
+      title="Consultation Details"
+      size="lg"
+    >
+      <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+        {/* Header: date + badge */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-ink-500">{formatDateTime(c.visit_date)}</p>
+          <SoapBadge consultation={c} />
+        </div>
+
+        {/* Chief complaint */}
+        {c.chief_complaint && (
+          <div className="rounded-lg bg-ink-50 border border-ink-100 px-4 py-3">
+            <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Chief Complaint</p>
+            <p className="text-sm font-medium text-ink-900">{c.chief_complaint}</p>
+          </div>
+        )}
+
+        {/* SOAP Notes — 2x2 grid */}
+        {(c.subjective || c.objective || c.assessment || c.plan) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {c.subjective && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+                <p className="text-xs font-bold text-sky-700 uppercase tracking-wide mb-1">S — Subjective</p>
+                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.subjective}</p>
+              </div>
+            )}
+            {c.objective && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-1">O — Objective</p>
+                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.objective}</p>
+              </div>
+            )}
+            {c.assessment && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">A — Assessment</p>
+                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.assessment}</p>
+              </div>
+            )}
+            {c.plan && (
+              <div className="rounded-lg border border-primary-200 bg-primary-50/50 p-3">
+                <p className="text-xs font-bold text-primary-700 uppercase tracking-wide mb-1">P — Plan</p>
+                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.plan}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Diagnosis + Follow-up */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {c.diagnosis && (
+            <div>
+              <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Diagnosis</p>
+              <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.diagnosis}</p>
+            </div>
+          )}
+          {c.followUp && (
+            <div>
+              <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Follow-up</p>
+              <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.followUp}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Prescription */}
+        {c.prescription && (
+          <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3">
+            <p className="text-xs font-bold text-teal-700 uppercase tracking-wide mb-1">Prescription</p>
+            <p className="text-sm text-ink-700 whitespace-pre-wrap font-mono">{c.prescription}</p>
+          </div>
+        )}
+
+        {/* Legacy structured notes (if no SOAP fields) */}
+        {!c.subjective && !c.objective && !c.assessment && !c.plan && c.structured_notes && (
+          <div className="rounded-lg border border-ink-200 p-3">
+            <p className="text-xs font-bold text-ink-500 uppercase tracking-wide mb-1">Notes</p>
+            <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.structured_notes}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-ink-100">
+        <Button variant="secondary" onClick={onClose}>Close</Button>
+        {editable && (
+          <Button onClick={() => { onClose(); }}>
+            <Icon.Edit width={14} height={14} /> Edit (within 1 week)
+          </Button>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function RecentConsultationCard({ consultations, onViewDetail, onViewAll }) {
+  const latest = consultations[0];
+
+  if (!latest) {
+    return (
+      <Card>
+        <CardHeader title="Recent Consultation" />
+        <p className="text-sm text-ink-500">No consultations recorded yet.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="hover:border-primary-300 transition-colors">
+      <div className="flex items-start justify-between">
+        <button
+          type="button"
+          onClick={() => onViewDetail(latest)}
+          className="flex-1 text-left cursor-pointer min-w-0"
+        >
+          <CardHeader
+            title="Recent Consultation"
+            subtitle={formatDateTime(latest.visit_date)}
+          />
+          <p className="font-medium text-ink-900 mt-1 truncate">
+            {latest.chief_complaint || 'Consultation visit'}
+          </p>
+          {latest.diagnosis && (
+            <p className="text-sm text-ink-500 mt-1 truncate">
+              <span className="font-medium">Dx:</span> {latest.diagnosis}
+            </p>
+          )}
+        </button>
+        <div className="flex items-center gap-2 ml-4 shrink-0">
+          <SoapBadge consultation={latest} />
+          <button
+            type="button"
+            onClick={onViewAll}
+            className="text-xs text-primary-600 font-medium whitespace-nowrap hover:text-primary-800"
+          >
+            View all →
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PersonalInfoCard({ patient }) {
+  const info = patient.personal_info;
+
+  return (
+    <Card>
+      <CardHeader title="Emergency Contact" />
+      {info?.emergency_contact?.name ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <Field label="Name" value={info.emergency_contact.name} />
+          <Field label="Relationship" value={info.emergency_contact.relationship} />
+          <Field label="Phone" value={info.emergency_contact.phone} />
+          <Field label="Address" value={info.emergency_contact.address} />
+        </div>
       ) : (
-        <ul className="space-y-2">
-          {allergies.map((a, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
-              <span className="text-sm font-medium text-red-600">{a}</span>
-            </li>
-          ))}
-        </ul>
+        <p className="text-sm text-ink-500">No emergency contact on file.</p>
       )}
     </Card>
   );
@@ -514,10 +831,18 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
     trimester: '',
     weeks: '',
     status: 'Ongoing',
-    notes: ''
+    notes: '',
+    baseline_weight_kg: '',
+    baseline_height_cm: '',
+    aog: '',
+    ob_index: '',
+    blood_type: '',
+    pregnancy_number: '',
+    first_visit_date: ''
   };
 
   const [form, setForm] = useState(blank);
+  const [showBaseline, setShowBaseline] = useState(false);
 
   // Reset form when initialData changes (edit mode)
   useEffect(() => {
@@ -529,12 +854,30 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
         trimester: initialData.trimester ?? '',
         weeks: initialData.weeks ? String(initialData.weeks) : '',
         status: initialData.status ?? 'Ongoing',
-        notes: initialData.notes ?? ''
+        notes: initialData.notes ?? '',
+        baseline_weight_kg: initialData.baseline_weight_kg ?? '',
+        baseline_height_cm: initialData.baseline_height_cm ?? '',
+        aog: initialData.aog ?? '',
+        ob_index: initialData.ob_index ?? '',
+        blood_type: initialData.blood_type ?? '',
+        pregnancy_number: initialData.pregnancy_number ?? '',
+        first_visit_date: initialData.first_visit_date ?? ''
       });
+      setShowBaseline(!!(initialData.baseline_weight_kg || initialData.baseline_height_cm || initialData.aog || initialData.ob_index));
     } else {
       setForm(blank);
+      setShowBaseline(false);
     }
   }, [initialData]);
+
+  // Auto-calculate BMI from weight (kg) and height (cm)
+  const bmi = (() => {
+    const w = parseFloat(form.baseline_weight_kg);
+    const h = parseFloat(form.baseline_height_cm);
+    if (!w || !h) return '';
+    const heightM = h / 100;
+    return (w / (heightM * heightM)).toFixed(1);
+  })();
 
   // Auto-calculate EDD, trimester, and weeks from LMP (Naegele's rule: +280 days)
   useEffect(() => {
@@ -566,6 +909,60 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
     }));
   }, [form.lmp]);
 
+  // Auto-fill OB Index from pregnancy number (G-P-A-L format)
+  // G = gravida (total pregnancies including current) = pregnancy_number
+  // P-A-L default to 0 (doctor/staff can adjust manually after)
+  useEffect(() => {
+    const n = parseInt(form.pregnancy_number, 10);
+    if (!n || n < 1) return;
+    const autoObIndex = `G${n}P0-0-0-0`;
+    setForm((f) => ({ ...f, ob_index: autoObIndex }));
+  }, [form.pregnancy_number]);
+
+  // Auto-fill GP from pregnancy number (e.g. G1P0, G2P1)
+  useEffect(() => {
+    const n = parseInt(form.pregnancy_number, 10);
+    if (!n || n < 1) return;
+    const para = n - 1; // previous completed pregnancies
+    const autoGp = `G${n}P${para}`;
+    setForm((f) => ({ ...f, gp: autoGp }));
+  }, [form.pregnancy_number]);
+
+  // Auto-calculate LMP, weeks, trimester, and EDD from AOG
+  // (only if LMP hasn't been set manually — AOG is the source of truth)
+  useEffect(() => {
+    if (!form.aog) return;
+    // Extract number of weeks from AOG string (e.g. "3 weeks", "12 wks", "8")
+    const match = form.aog.match(/(\d+)\s*(?:weeks?|wks?|w)?/i);
+    if (!match) return;
+    const weeksFromAog = parseInt(match[1], 10);
+    if (isNaN(weeksFromAog) || weeksFromAog < 0) return;
+
+    // Calculate LMP = today - (weeks * 7 days)
+    const lmpDate = new Date();
+    lmpDate.setDate(lmpDate.getDate() - weeksFromAog * 7);
+    const lmpStr = lmpDate.toISOString().split('T')[0];
+
+    // EDD = LMP + 280 days
+    const eddDate = new Date(lmpDate);
+    eddDate.setDate(eddDate.getDate() + 280);
+    const eddStr = eddDate.toISOString().split('T')[0];
+
+    // Trimester from weeks
+    let trimester = '';
+    if (weeksFromAog <= 12) trimester = '1st Trimester';
+    else if (weeksFromAog <= 27) trimester = '2nd Trimester';
+    else trimester = '3rd Trimester';
+
+    setForm((f) => ({
+      ...f,
+      lmp: f.lmp || lmpStr,
+      edd: f.lmp ? f.edd : eddStr,
+      weeks: weeksFromAog.toString(),
+      trimester: f.lmp ? f.trimester : trimester
+    }));
+  }, [form.aog]);
+
   const update = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   function handleSubmit(e) {
@@ -573,6 +970,7 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
     const payload = Object.fromEntries(
       Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
     );
+    payload.baseline_bmi = bmi ? Number(bmi) : null;
     onSubmit(payload);
   }
 
@@ -652,6 +1050,147 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
           className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 resize-none"
         />
       </div>
+
+      {/* First Prenatal Visit — optional baseline data */}
+      <div className="pt-2 border-t border-ink-100">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setShowBaseline((v) => !v)}
+            className="flex items-center justify-between flex-1 text-left"
+          >
+            <span className="text-sm font-semibold text-ink-800">First Prenatal Visit (optional)</span>
+            <span className="text-ink-500 text-sm font-medium">{showBaseline ? '−' : '+'}</span>
+          </button>
+        </div>
+
+        {/* Quick-fill: "This is her first pregnancy" — toggle on/off */}
+        {!initialData && (
+          <button
+            type="button"
+            onClick={() => {
+              if (form.pregnancy_number === '1') {
+                // Undo — clear the first-pregnancy fields
+                setForm((f) => ({
+                  ...f,
+                  pregnancy_number: '',
+                  ob_index: '',
+                  first_visit_date: ''
+                }));
+              } else {
+                // Apply — mark as first pregnancy, set first visit to today,
+                // and attach baseline data to this current pregnancy
+                const today = new Date().toISOString().split('T')[0];
+                setForm((f) => ({
+                  ...f,
+                  pregnancy_number: '1',
+                  ob_index: 'G1P0-0-0-0',
+                  status: 'Ongoing',
+                  first_visit_date: today
+                }));
+                setShowBaseline(true);
+              }
+            }}
+            className={`mt-2 w-full text-left text-xs font-medium rounded-lg px-3 py-2 border transition-colors ${
+              form.pregnancy_number === '1'
+                ? 'bg-primary-50 border-primary-300 text-primary-700'
+                : 'bg-ink-50 border-ink-200 text-ink-600 hover:bg-ink-100 hover:border-ink-300'
+            }`}
+          >
+            {form.pregnancy_number === '1' ? '✓ First pregnancy — baseline data attached to current pregnancy (click to undo)' : '+ This is her first pregnancy (attach baseline data to current pregnancy)'}
+          </button>
+        )}
+
+        {showBaseline && (
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-700 mb-1">First visit date</label>
+              <input
+                type="date"
+                value={form.first_visit_date}
+                onChange={update('first_visit_date')}
+                className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">Weight (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.baseline_weight_kg}
+                  onChange={update('baseline_weight_kg')}
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">Height (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.baseline_height_cm}
+                  onChange={update('baseline_height_cm')}
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">BMI</label>
+                <input
+                  type="text"
+                  value={bmi}
+                  readOnly
+                  placeholder="auto"
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 bg-ink-50 text-sm text-ink-600 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">Blood Type</label>
+                <input
+                  type="text"
+                  value={form.blood_type}
+                  onChange={update('blood_type')}
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">Age of Gestation (AOG)</label>
+                <input
+                  type="text"
+                  value={form.aog}
+                  onChange={update('aog')}
+                  placeholder="e.g. 8 weeks"
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-ink-700 mb-1">OB Index</label>
+                <input
+                  type="text"
+                  value={form.ob_index}
+                  onChange={update('ob_index')}
+                  placeholder="auto-filled from pregnancy #"
+                  className="w-full px-3 py-2 rounded-lg border border-ink-200 bg-ink-50 text-sm text-ink-700 outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 focus:bg-white"
+                />
+                <p className="text-[10px] text-ink-400 mt-0.5">Auto-filled — edit if needed (G-P-A-L format)</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-ink-700 mb-1">This is my ___ pregnancy</label>
+              <input
+                type="number"
+                min="1"
+                value={form.pregnancy_number}
+                onChange={update('pregnancy_number')}
+                placeholder="e.g. 2"
+                className="w-full sm:w-32 px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>

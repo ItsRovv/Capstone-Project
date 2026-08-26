@@ -175,6 +175,7 @@ async function run() {
 
   if (FORCE) {
     console.log('  --force flag detected. Cleaning old mock data...');
+    await db.execute("DELETE FROM consultation_transactions WHERE patient_id IN (SELECT id FROM patients WHERE first_name = 'MOCKDATA_MARKER')");
     await db.execute("DELETE FROM consultations WHERE patient_id IN (SELECT id FROM patients WHERE first_name = 'MOCKDATA_MARKER')");
     await db.execute("DELETE FROM pregnancies WHERE patient_id IN (SELECT id FROM patients WHERE first_name = 'MOCKDATA_MARKER')");
     await db.execute("DELETE FROM patients WHERE first_name = 'MOCKDATA_MARKER'");
@@ -251,13 +252,14 @@ async function run() {
   // ── Create consultations spread across last 90 days ──
   const NUM_CONSULTATIONS = 120;
   let consultCount = 0;
+  const consultationIds = [];
 
   for (let i = 0; i < NUM_CONSULTATIONS; i++) {
     const patientId = pick(patientIds);
     const template = pick(CONSULTATION_TEMPLATES);
     const visitDate = randomDateInLastDays(90);
 
-    await db.execute(
+    const [result] = await db.execute(
       `INSERT INTO consultations (patient_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, ai_summary_used)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -277,6 +279,7 @@ async function run() {
         Math.random() > 0.5
       ]
     );
+    consultationIds.push({ id: result.insertId, patientId });
     consultCount++;
   }
   console.log(`✓ Created ${consultCount} consultations over the last 90 days`);
@@ -312,15 +315,110 @@ async function run() {
   }
   console.log(`✓ Created ${todayConsults} consultations for today`);
 
+  // ── Create consultation transactions for ~40% of consultations ──
+  const PHILHEALTH_PACKAGES = [
+    { code: 'ANV01', label: 'Antenatal Care — 1st Trimester', amount: 1100 },
+    { code: 'ANV02', label: 'Antenatal Care — 2nd Trimester', amount: 1500 },
+    { code: 'ANV03', label: 'Antenatal Care — 3rd Trimester', amount: 3750 },
+    { code: 'NSDBF', label: 'Normal Spontaneous Delivery (Birthing Facility)', amount: 14000 },
+    { code: '99460', label: 'Newborn Care Package', amount: 2950 },
+    { code: 'PPC01', label: 'Postpartum Care (3 visits)', amount: 1350 },
+    { code: 'TDAP1', label: 'Tetanus-Diphtheria-Pertussis Vaccine — 1st Dose', amount: 150 },
+    { code: 'TDAP2', label: 'Tetanus-Diphtheria-Pertussis Vaccine — 2nd Dose', amount: 150 }
+  ];
+
+  const RECOMMENDATION_TEMPLATES = [
+    'Ferrous Sulfate 325mg once daily, Folic Acid 400mcg, Calcium Carbonate — take with meals',
+    'Continue prenatal vitamins. Increase fluid intake. Follow-up in 2 weeks.',
+    'Postpartum care: continue iron supplements for 3 months. Breastfeeding support as needed.',
+    'Diabetic diet, blood sugar monitoring log. Return in 2 weeks for OGTT recheck.',
+    'Amoxicillin 500mg TID x 7 days. Increase water intake. Return if symptoms persist.',
+    'Ondansetron 4mg PRN for nausea. Small frequent meals. IV fluids if unable to tolerate PO.',
+    'DMPA injection given. Return in 3 months for next dose. Counsel on side effects.',
+    'Newborn screening scheduled. Immunization per EPI schedule. Follow-up at 6 weeks postpartum.'
+  ];
+
+  const TRANSACTION_TEMPLATES = [
+    { pkgCodes: ['ANV01'], rec: 0 },
+    { pkgCodes: ['ANV01', 'TDAP1'], rec: 0 },
+    { pkgCodes: ['ANV02'], rec: 1 },
+    { pkgCodes: ['ANV02', 'TDAP2'], rec: 1 },
+    { pkgCodes: ['ANV03'], rec: 1 },
+    { pkgCodes: ['NSDBF', '99460'], rec: 2 },
+    { pkgCodes: ['NSDBF', '99460', 'PPC01'], rec: 2 },
+    { pkgCodes: ['PPC01'], rec: 3 },
+    { pkgCodes: ['ANV01', 'ANV02', 'ANV03'], rec: 4 },
+    { pkgCodes: ['TDAP1', 'TDAP2'], rec: 5 },
+    { pkgCodes: ['NSDBF'], rec: 7 },
+    { pkgCodes: ['ANV03', 'PPC01'], rec: 6 }
+  ];
+
+  let txCount = 0;
+  const numTransactions = Math.floor(consultationIds.length * 0.4);
+
+  for (let i = 0; i < numTransactions; i++) {
+    const consult = pick(consultationIds);
+    const template = pick(TRANSACTION_TEMPLATES);
+    const packages = template.pkgCodes.map((code) => {
+      const pkg = PHILHEALTH_PACKAGES.find((p) => p.code === code);
+      return { code: pkg.code, label: pkg.label, amount: pkg.amount };
+    });
+    const total = packages.reduce((sum, p) => sum + p.amount, 0);
+    const txDate = randomDateInLastDays(60);
+
+    await db.execute(
+      `INSERT INTO consultation_transactions (patient_id, consultation_id, transaction_date, packages, recommendations, total_amount)
+       VALUES (?, ?, ?, ?::jsonb, ?, ?)`,
+      [
+        consult.patientId,
+        consult.id,
+        timestampStr(txDate),
+        JSON.stringify(packages),
+        RECOMMENDATION_TEMPLATES[template.rec],
+        total
+      ]
+    );
+    txCount++;
+  }
+
+  // Also create a few transactions not linked to any consultation
+  const unlinkedTx = randomInt(3, 6);
+  for (let i = 0; i < unlinkedTx; i++) {
+    const patientId = pick(patientIds);
+    const template = pick(TRANSACTION_TEMPLATES);
+    const packages = template.pkgCodes.map((code) => {
+      const pkg = PHILHEALTH_PACKAGES.find((p) => p.code === code);
+      return { code: pkg.code, label: pkg.label, amount: pkg.amount };
+    });
+    const total = packages.reduce((sum, p) => sum + p.amount, 0);
+    const txDate = randomDateInLastDays(30);
+
+    await db.execute(
+      `INSERT INTO consultation_transactions (patient_id, consultation_id, transaction_date, packages, recommendations, total_amount)
+       VALUES (?, NULL, ?, ?::jsonb, ?, ?)`,
+      [
+        patientId,
+        timestampStr(txDate),
+        JSON.stringify(packages),
+        RECOMMENDATION_TEMPLATES[template.rec],
+        total
+      ]
+    );
+    txCount++;
+  }
+  console.log(`✓ Created ${txCount} consultation transactions`);
+
   // ── Summary ──
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Mock data seed complete!');
-  console.log(`  Patients:      ${NUM_PATIENTS}`);
-  console.log(`  Pregnancies:   ${pregnancyRecords.length}`);
-  console.log(`  Consultations: ${consultCount + todayConsults} (${todayConsults} today)`);
+  console.log(`  Patients:           ${NUM_PATIENTS}`);
+  console.log(`  Pregnancies:        ${pregnancyRecords.length}`);
+  console.log(`  Consultations:      ${consultCount + todayConsults} (${todayConsults} today)`);
+  console.log(`  Transactions:       ${txCount}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Visit /analytics to see the dashboard.');
   console.log('  Visit /reports to generate AI reports.');
+  console.log('  Visit /consultation-transactions to see transactions.');
   console.log('  To remove mock data: node utils/seedMockData.js --force');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 

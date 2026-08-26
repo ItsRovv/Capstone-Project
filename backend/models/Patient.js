@@ -2,31 +2,59 @@ const db = require('../config/db');
 const { encryptObject, decryptObject, encryptDeterministic } = require('../utils/encryption');
 
 // Fields encrypted with randomized AES-256-GCM
-const ENCRYPTED_FIELDS = ['address', 'allergies', 'emergency_contact'];
+const ENCRYPTED_FIELDS = ['address', 'allergies', 'emergency_contact', 'personal_info', 'medical_info'];
 // Fields encrypted deterministically so exact-match lookup still works
 const DETERMINISTIC_FIELDS = ['contact_number'];
+// Fields that store a JSON object/array as an encrypted string — stringified
+// before encryption, parsed back after decryption.
+const JSON_FIELDS = ['personal_info', 'medical_info'];
+
+function stringifyJsonFields(data) {
+  const result = { ...data };
+  for (const field of JSON_FIELDS) {
+    if (result[field] !== undefined && result[field] !== null && typeof result[field] !== 'string') {
+      result[field] = JSON.stringify(result[field]);
+    }
+  }
+  return result;
+}
+
+function parseJsonFields(data) {
+  const result = { ...data };
+  for (const field of JSON_FIELDS) {
+    if (typeof result[field] === 'string' && result[field].length) {
+      try {
+        result[field] = JSON.parse(result[field]);
+      } catch {
+        // Leave as-is if not valid JSON (e.g. legacy/corrupt data)
+      }
+    }
+  }
+  return result;
+}
 
 function encryptPatient(data) {
-  return encryptObject(data, [...ENCRYPTED_FIELDS, ...DETERMINISTIC_FIELDS], {
+  return encryptObject(stringifyJsonFields(data), [...ENCRYPTED_FIELDS, ...DETERMINISTIC_FIELDS], {
     deterministic: DETERMINISTIC_FIELDS
   });
 }
 
 function decryptPatient(data) {
-  return decryptObject(data, [...ENCRYPTED_FIELDS, ...DETERMINISTIC_FIELDS], {
+  const decrypted = decryptObject(data, [...ENCRYPTED_FIELDS, ...DETERMINISTIC_FIELDS], {
     deterministic: DETERMINISTIC_FIELDS
   });
+  return parseJsonFields(decrypted);
 }
 
 class Patient {
   // Create a new patient
   static async create(patientData) {
-    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies } = encryptPatient(patientData);
+    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies, personal_info, medical_info } = encryptPatient(patientData);
     const query = `
-      INSERT INTO patients (first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO patients (first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies, personal_info, medical_info)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null];
+    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null, personal_info ?? null, medical_info ?? null];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -74,13 +102,13 @@ class Patient {
 
   // Update patient by ID
   static async update(id, patientData) {
-    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies } = encryptPatient(patientData);
+    const { first_name, last_name, date_of_birth, age, sex, address, contact_number, emergency_contact, allergies, personal_info, medical_info } = encryptPatient(patientData);
     const query = `
       UPDATE patients
-      SET first_name = ?, last_name = ?, date_of_birth = ?, age = ?, sex = ?, address = ?, contact_number = ?, emergency_contact = ?, allergies = ?
+      SET first_name = ?, last_name = ?, date_of_birth = ?, age = ?, sex = ?, address = ?, contact_number = ?, emergency_contact = ?, allergies = ?, personal_info = ?, medical_info = ?
       WHERE id = ?
     `;
-    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null, id];
+    const values = [first_name, last_name, date_of_birth ?? null, age ?? null, sex ?? null, address ?? null, contact_number ?? null, emergency_contact ?? null, allergies ?? null, personal_info ?? null, medical_info ?? null, id];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
   }

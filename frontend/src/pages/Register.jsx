@@ -28,7 +28,7 @@ export function Register() {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-cream">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-primary-50">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-primary-500 via-primary-600 to-primary-700 text-white relative overflow-hidden">
         <div className="flex items-center gap-3">
           <JLMCLogo size={40} className="rounded-xl flex-shrink-0" />
@@ -51,7 +51,7 @@ export function Register() {
         </p>
       </div>
 
-      <div className="flex items-center justify-center p-6 sm:p-10">
+      <div className="flex items-center justify-center p-6 sm:p-10 bg-primary-50">
         <div className="w-full max-w-md animate-slide-up">
           <h1 className="text-2xl sm:text-3xl font-display font-bold text-ink-900">
             Create an account

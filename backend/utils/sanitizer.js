@@ -45,4 +45,23 @@ function sanitizeObject(obj, fields) {
   return result;
 }
 
-module.exports = { sanitizeHtml, sanitizeObject };
+/**
+ * Recursively sanitize every string value found anywhere inside a JSON-like
+ * value (object, array, or primitive). Used for nested JSONB fields such as
+ * `personal_info` / `medical_info` where the exact shape may vary.
+ */
+function sanitizeDeep(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return sanitizeHtml(value);
+  if (Array.isArray(value)) return value.map(sanitizeDeep);
+  if (typeof value === 'object') {
+    const result = {};
+    for (const key of Object.keys(value)) {
+      result[key] = sanitizeDeep(value[key]);
+    }
+    return result;
+  }
+  return value;
+}
+
+module.exports = { sanitizeHtml, sanitizeObject, sanitizeDeep };

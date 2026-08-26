@@ -9,6 +9,8 @@ import { Dashboard } from './pages/Dashboard';
 import { Patients } from './pages/Patients';
 import { PatientDetail } from './pages/PatientDetail';
 import { Consultations } from './pages/Consultations';
+import { ConsultationTransactions } from './pages/ConsultationTransactions';
+import { DoctorConsultations } from './pages/DoctorConsultations';
 import { Reports } from './pages/Reports';
 import { PregnancyTrackingForm } from './pages/PregnancyTrackingForm';
 import { ManageUsers } from './pages/ManageUsers';
@@ -64,7 +66,23 @@ export default function App() {
         <Route path="patients" element={<Patients />} />
         <Route path="patients/:id" element={<PatientDetail />} />
         <Route path="consultations" element={<Consultations />} />
-        <Route path="reports" element={<Reports />} />
+        <Route
+          path="doctor/consultations"
+          element={
+            <ProtectedRoute roles={['admin', 'doctor']}>
+              <DoctorConsultations />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="consultation-transactions" element={<ConsultationTransactions />} />
+        <Route
+          path="reports"
+          element={
+            <ProtectedRoute roles={['admin', 'doctor']}>
+              <Reports />
+            </ProtectedRoute>
+          }
+        />
         <Route path="pregnancy-tracking" element={<PregnancyTrackingForm />} />
         <Route
           path="admin/users"

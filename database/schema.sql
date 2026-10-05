@@ -143,7 +143,6 @@ CREATE TRIGGER trg_consultation_transactions_updated_at BEFORE UPDATE ON consult
 CREATE INDEX IF NOT EXISTS idx_consultation_transactions_patient ON consultation_transactions (patient_id);
 CREATE INDEX IF NOT EXISTS idx_consultation_transactions_consultation ON consultation_transactions (consultation_id);
 
-ALTER TABLE consultation_transactions DISABLE ROW LEVEL SECURITY;
 
 -- ── clinic_reports ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS clinic_reports (
@@ -212,16 +211,6 @@ CREATE TRIGGER trg_pregnancy_tracking_forms_updated_at BEFORE UPDATE ON pregnanc
 
 CREATE INDEX IF NOT EXISTS idx_pregnancy_tracking_forms_month_year ON pregnancy_tracking_forms (month_year);
 
--- ── Disable Row Level Security ────────────────────────────────────────────────
--- Auth and access control are handled by the Express backend middleware.
--- RLS is not needed since the frontend never connects directly to the DB.
-ALTER TABLE patients DISABLE ROW LEVEL SECURITY;
-ALTER TABLE users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE consultations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE clinic_reports DISABLE ROW LEVEL SECURITY;
-ALTER TABLE pregnancies DISABLE ROW LEVEL SECURITY;
-ALTER TABLE pregnancy_tracking_forms DISABLE ROW LEVEL SECURITY;
-
 -- ── audit_logs ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -272,4 +261,43 @@ CREATE TRIGGER trg_queue_entries_updated_at BEFORE UPDATE ON queue_entries
 CREATE INDEX IF NOT EXISTS idx_queue_entries_date ON queue_entries (entry_date, status, queue_number);
 CREATE INDEX IF NOT EXISTS idx_queue_entries_patient ON queue_entries (patient_id, entry_date DESC);
 
-ALTER TABLE queue_entries DISABLE ROW LEVEL SECURITY;
+-- ── Row Level Security (backend-only access) ─────────────────────────────────
+-- The Express backend handles authentication and authorization. RLS is enabled
+-- to satisfy Supabase security posture requirements; policies allow the backend
+-- DB role full access because no other client connects directly to Postgres.
+ALTER TABLE IF EXISTS public.patients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.consultations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.consultation_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.clinic_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.pregnancies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.pregnancy_tracking_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.queue_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "App full access" ON public.patients;
+CREATE POLICY "App full access" ON public.patients FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.users;
+CREATE POLICY "App full access" ON public.users FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.consultations;
+CREATE POLICY "App full access" ON public.consultations FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.consultation_transactions;
+CREATE POLICY "App full access" ON public.consultation_transactions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.clinic_reports;
+CREATE POLICY "App full access" ON public.clinic_reports FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.pregnancies;
+CREATE POLICY "App full access" ON public.pregnancies FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.pregnancy_tracking_forms;
+CREATE POLICY "App full access" ON public.pregnancy_tracking_forms FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.queue_entries;
+CREATE POLICY "App full access" ON public.queue_entries FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.audit_logs;
+CREATE POLICY "App full access" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);

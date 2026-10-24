@@ -29,6 +29,13 @@ function getKey() {
 
 const KEY = getKey();
 
+function isEncryptedPayload(value) {
+  if (typeof value !== 'string' || value.length % 4 !== 0) return false;
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return false;
+  const buf = Buffer.from(value, 'base64');
+  return buf.length >= IV_LEN + TAG_LEN && buf.toString('base64') === value;
+}
+
 function encryptField(plaintext) {
   if (!KEY) return plaintext; // dev fallback
   if (plaintext === null || plaintext === undefined) return plaintext;
@@ -44,6 +51,7 @@ function encryptField(plaintext) {
 function decryptField(ciphertext) {
   if (!KEY) return ciphertext; // dev fallback
   if (ciphertext === null || ciphertext === undefined) return ciphertext;
+  if (!isEncryptedPayload(ciphertext)) return ciphertext;
   const buf = Buffer.from(String(ciphertext), 'base64');
   if (buf.length < IV_LEN + TAG_LEN) return ciphertext; // likely plaintext legacy
   const iv = buf.subarray(0, IV_LEN);
@@ -77,6 +85,7 @@ function encryptDeterministic(plaintext) {
 function decryptDeterministic(ciphertext) {
   if (!KEY) return ciphertext;
   if (ciphertext === null || ciphertext === undefined) return ciphertext;
+  if (!isEncryptedPayload(ciphertext)) return ciphertext;
   const buf = Buffer.from(String(ciphertext), 'base64');
   if (buf.length < IV_LEN + TAG_LEN) return ciphertext;
   const iv = buf.subarray(0, IV_LEN);

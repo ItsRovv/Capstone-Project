@@ -16,6 +16,16 @@
   html {
     scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Phones: scale the whole UI down slightly (all rem-based sizes follow)
+     while keeping body text comfortably readable. */
+  @media (max-width: 639px) {
+    html {
+      font-size: 15px;
+    }
   }
 
   html,
@@ -95,10 +105,18 @@
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
+  /* iOS Safari zooms the page when a focused field is smaller than 16px. */
+  @media (max-width: 639px) {
+    .input-base {
+      font-size: 16px;
+      @apply px-3 py-2;
+    }
+  }
+
   /* ── Button base ─────────────────────────── */
   .btn-base {
     @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5
-           font-medium
+           font-medium whitespace-nowrap
            disabled:opacity-50 disabled:cursor-not-allowed
            focus-visible:ring-2 focus-visible:ring-offset-2;
     transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;

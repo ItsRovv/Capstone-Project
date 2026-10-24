@@ -172,7 +172,7 @@ export function PatientDetail() {
     return (
       <div className="h-full flex flex-col">
         <Topbar title="Patient" onMenuClick={onOpenMenu} />
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <PageLoader />
         </div>
       </div>
@@ -183,7 +183,7 @@ export function PatientDetail() {
     return (
       <div className="h-full flex flex-col">
         <Topbar title="Not found" onMenuClick={onOpenMenu} />
-        <div className="flex-1 overflow-y-auto p-8 text-center text-ink-500">Patient not found.</div>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 text-center text-ink-500">Patient not found.</div>
       </div>
     );
   }
@@ -205,7 +205,7 @@ export function PatientDetail() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+      <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
         <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
           <Card>
             <div className="flex flex-col md:flex-row md:items-center gap-4">
@@ -311,21 +311,21 @@ export function PatientDetail() {
                         {(c.subjective || c.objective || c.assessment || c.plan) && (
                           <div className="mt-2 space-y-1 text-sm">
                             {c.subjective && (
-                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">S:</span> {c.subjective}</p>
+                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">S:</span> {c.subjective}</p>
                             )}
                             {c.objective && (
-                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">O:</span> {c.objective}</p>
+                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">O:</span> {c.objective}</p>
                             )}
                             {c.assessment && (
-                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">A:</span> {c.assessment}</p>
+                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">A:</span> {c.assessment}</p>
                             )}
                             {c.plan && (
-                              <p className="text-ink-600 truncate"><span className="font-semibold text-ink-700">P:</span> {c.plan}</p>
+                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">P:</span> {c.plan}</p>
                             )}
                           </div>
                         )}
                         {c.diagnosis && (
-                          <p className="text-sm text-ink-600 mt-1 truncate">
+                          <p className="text-sm text-ink-600 mt-1 line-clamp-2">
                             Diagnosis: {c.diagnosis}
                           </p>
                         )}
@@ -779,11 +779,11 @@ function RecentConsultationCard({ consultations, onViewDetail, onViewAll }) {
             title="Recent Consultation"
             subtitle={formatDateTime(latest.visit_date)}
           />
-          <p className="font-medium text-ink-900 mt-1 truncate">
+          <p className="font-medium text-ink-900 mt-1 line-clamp-2">
             {latest.chief_complaint || 'Consultation visit'}
           </p>
           {latest.diagnosis && (
-            <p className="text-sm text-ink-500 mt-1 truncate">
+            <p className="text-sm text-ink-500 mt-1 line-clamp-2">
               <span className="font-medium">Dx:</span> {latest.diagnosis}
             </p>
           )}

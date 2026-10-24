@@ -26,20 +26,20 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
-function SummaryCard({ title, value, icon: IconComponent, accent = 'primary' }) {
+function SummaryCard({ title, value, icon: IconComponent, accent = 'primary', className = '' }) {
   const styles = {
     primary: 'bg-primary-50 text-primary-700 border-primary-100',
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
     ink: 'bg-ink-50 text-ink-600 border-ink-100'
   };
   return (
-    <Card padding="p-4" className="border border-ink-100">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">{title}</p>
-          <p className="text-2xl font-bold text-ink-900 mt-1">{value}</p>
+    <Card padding="p-3 sm:p-4" className={`border border-ink-100 ${className}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] sm:text-xs font-bold text-ink-400 uppercase tracking-wider leading-tight">{title}</p>
+          <p className="text-lg sm:text-2xl font-bold text-ink-900 mt-1 break-words leading-tight">{value}</p>
         </div>
-        <div className={`w-10 h-10 rounded-lg border flex items-center justify-center ${styles[accent]}`}>
+        <div className={`w-8 h-8 sm:w-10 sm:h-10 flex-shrink-0 rounded-lg border flex items-center justify-center ${styles[accent]}`}>
           <IconComponent width={20} height={20} />
         </div>
       </div>
@@ -152,12 +152,12 @@ export function Reports() {
               setGenerated(null);
             }}
           >
-            <Icon.FileText width={16} height={16} /> Generate report
+            <Icon.FileText width={16} height={16} /> <span className="sm:hidden">Generate</span><span className="hidden sm:inline">Generate report</span>
           </Button>
         }
       />
 
-      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+      <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
         <div className="max-w-5xl w-full mx-auto px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader />
@@ -182,7 +182,7 @@ export function Reports() {
           ) : (
             <>
               {/* Summary cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-4">
                 <SummaryCard title="Total Reports" value={reports.length} icon={Icon.FileText} accent="primary" />
                 <SummaryCard title="Reports Today" value={todayReports} icon={Icon.Report} accent="emerald" />
                 <SummaryCard
@@ -190,6 +190,7 @@ export function Reports() {
                   value={latestReport ? formatDate(latestReport.report_date) : '—'}
                   icon={Icon.Calendar}
                   accent="ink"
+                  className="col-span-2 md:col-span-1"
                 />
               </div>
 
@@ -197,7 +198,7 @@ export function Reports() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setFilter('all')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-sm font-medium transition-colors border ${
                     filter === 'all'
                       ? 'bg-primary-600 text-white border-primary-600'
                       : 'bg-white text-ink-600 border-ink-200 hover:bg-ink-50'
@@ -214,7 +215,7 @@ export function Reports() {
                     <button
                       key={m.key}
                       onClick={() => setFilter(m.key)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                      className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-sm font-medium transition-colors border ${
                         active
                           ? 'bg-primary-600 text-white border-primary-600'
                           : 'bg-white text-ink-600 border-ink-200 hover:bg-ink-50'

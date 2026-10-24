@@ -143,13 +143,13 @@ export function ManageUsers() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex-shrink-0 px-4 md:px-8 pt-4 md:pt-8 pb-4 md:pb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-display font-bold text-ink-900">Manage Users</h1>
-            <p className="text-ink-500 text-sm mt-1">Create and manage staff accounts.</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg md:text-2xl font-display font-bold text-ink-900 leading-tight">Manage Users</h1>
+            <p className="text-ink-500 text-xs sm:text-sm mt-0.5 sm:mt-1">Create and manage staff accounts.</p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Icon.Plus className="mr-1.5" /> Add User
+          <Button onClick={() => setCreateOpen(true)} className="flex-shrink-0" aria-label="Add user">
+            <Icon.Plus width={16} height={16} /> <span className="hidden sm:inline">Add User</span>
           </Button>
         </div>
       </div>
@@ -159,15 +159,15 @@ export function ManageUsers() {
           {loading ? (
             <div className="flex justify-center py-16"><Spinner /></div>
           ) : (
-            <div className="card overflow-hidden p-0">
+            <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-ink-50 border-b border-ink-100 text-ink-600 text-left">
                 <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Username</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium">Date Created</th>
+                <th className="px-4 py-3 font-medium hidden md:table-cell">Username</th>
+                <th className="px-4 py-3 font-medium hidden md:table-cell">Email</th>
+                <th className="px-3 sm:px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium hidden lg:table-cell">Date Created</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -181,23 +181,27 @@ export function ManageUsers() {
               )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-ink-50 hover:bg-ink-50/50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-ink-900">
+                  <td className="px-3 sm:px-4 py-3 font-medium text-ink-900">
                     <div className="flex items-center gap-2">
-                      {u.name}
+                      <span className="break-words">{u.name}</span>
                       {u.id === currentUser?.id && (
-                        <span className="text-[10px] text-primary-600 font-bold bg-primary-50 px-1.5 py-0.5 rounded">You</span>
+                        <span className="text-[10px] text-primary-600 font-bold bg-primary-50 px-1.5 py-0.5 rounded flex-shrink-0">You</span>
                       )}
                     </div>
+                    <div className="md:hidden text-xs font-normal text-ink-500 mt-0.5 space-y-0.5">
+                      {u.username && <p>@{u.username}</p>}
+                      <p className="break-all">{u.email}</p>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-ink-600">
+                  <td className="px-4 py-3 text-ink-600 hidden md:table-cell">
                     {u.username ? (
                       <span className="font-mono text-xs bg-ink-50 px-2 py-0.5 rounded">@{u.username}</span>
                     ) : (
                       <span className="text-ink-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-ink-600">{u.email}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-ink-600 hidden md:table-cell">{u.email}</td>
+                  <td className="px-3 sm:px-4 py-3">
                     <select
                       value={u.role}
                       onChange={(e) => handleInlineRoleChange(u, e.target.value)}
@@ -210,8 +214,9 @@ export function ManageUsers() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-4 py-3 text-ink-500">{formatDate(u.created_at)}</td>
-                  <td className="px-4 py-3 flex gap-2 justify-end">
+                  <td className="px-4 py-3 text-ink-500 hidden lg:table-cell">{formatDate(u.created_at)}</td>
+                  <td className="px-2 sm:px-4 py-3">
+                    <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 items-end sm:justify-end">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>Edit</Button>
                     <Button
                       variant="ghost"
@@ -222,6 +227,7 @@ export function ManageUsers() {
                     >
                       Delete
                     </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

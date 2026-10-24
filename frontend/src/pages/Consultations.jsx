@@ -106,12 +106,12 @@ export function Consultations() {
         onMenuClick={onOpenMenu}
         right={
           <Button onClick={openPatientPicker}>
-            <Icon.Plus width={16} height={16} /> Add to queue
+            <Icon.Plus width={16} height={16} /> <span className="sm:hidden">Add</span><span className="hidden sm:inline">Add to queue</span>
           </Button>
         }
       />
 
-      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+      <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
         <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader />
@@ -129,17 +129,17 @@ export function Consultations() {
               {servingList.length > 0 && (
                 <Card>
                   <CardHeader title="Currently Serving" />
-                  <div className="px-4 pb-4 space-y-2">
+                  <div className="space-y-2 sm:px-4 sm:pb-4">
                     {servingList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50/30"
+                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-amber-200 bg-amber-50/30"
                       >
-                        <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-100 text-amber-700 text-sm font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-10 h-10 rounded-full bg-amber-100 text-amber-700 text-sm font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 truncate">
+                          <p className="text-sm font-medium text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
@@ -162,25 +162,25 @@ export function Consultations() {
                   title="Waiting"
                   subtitle={`${waitingList.length} patient${waitingList.length === 1 ? '' : 's'}`}
                 />
-                <div className="px-4 pb-4 space-y-2">
+                <div className="space-y-2 sm:px-4 sm:pb-4">
                   {waitingList.length === 0 ? (
                     <p className="text-sm text-ink-500 text-center py-4">No waiting patients.</p>
                   ) : (
                     waitingList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
+                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
                       >
-                        <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary-100 text-primary-700 text-sm font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-10 h-10 rounded-full bg-primary-100 text-primary-700 text-sm font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 truncate">
+                          <p className="text-sm font-medium text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                           <Link
                             to={`/patients/${q.patient_id}`}
                             className="text-xs text-primary-600 font-medium whitespace-nowrap"
@@ -191,6 +191,8 @@ export function Consultations() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleRemoveFromQueue(q.id)}
+                            aria-label="Remove from queue"
+                            title="Remove from queue"
                           >
                             <Icon.Close width={14} height={14} />
                           </Button>
@@ -208,17 +210,17 @@ export function Consultations() {
                     title="Completed"
                     subtitle={`${doneList.length} patient${doneList.length === 1 ? '' : 's'}`}
                   />
-                  <div className="px-4 pb-4 space-y-2">
+                  <div className="space-y-2 sm:px-4 sm:pb-4">
                     {doneList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-ink-100 bg-ink-50/40"
+                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 bg-ink-50/40"
                       >
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 truncate">
+                          <p className="text-sm font-medium text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
@@ -242,17 +244,17 @@ export function Consultations() {
                     title="Skipped"
                     subtitle={`${skippedList.length} patient${skippedList.length === 1 ? '' : 's'}`}
                   />
-                  <div className="px-4 pb-4 space-y-2">
+                  <div className="space-y-2 sm:px-4 sm:pb-4">
                     {skippedList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-ink-100 bg-red-50/20"
+                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 bg-red-50/20"
                       >
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-full bg-red-100 text-red-700 text-xs font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 truncate">
+                          <p className="text-sm font-medium text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
@@ -313,7 +315,7 @@ export function Consultations() {
                         {p.first_name?.charAt(0)?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink-900 truncate">
+                        <p className="text-sm font-medium text-ink-900 break-words">
                           {p.first_name} {p.last_name}
                         </p>
                         <p className="text-xs text-ink-500">

@@ -152,6 +152,33 @@ export function Patients() {
     }
   }
 
+  function renderStatus(p) {
+    if (!queueMap.has(p.id)) return <span className="text-xs text-ink-400">—</span>;
+    const q = queueMap.get(p.id);
+    const isDone = q.status === 'done' || q.status === 'skipped';
+    const isServing = q.status === 'serving';
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${
+        isDone
+          ? 'bg-sky-50 text-sky-700'
+          : isServing
+          ? 'bg-amber-50 text-amber-700'
+          : 'bg-emerald-50 text-emerald-700'
+      }`}>
+        {isDone ? (
+          <><Icon.Check width={12} height={12} /> Completed</>
+        ) : isServing ? (
+          <><Icon.Stethoscope width={12} height={12} /> Serving</>
+        ) : (
+          <><Icon.Clock width={12} height={12} /> In queue</>
+        )}
+        {!isDone && (
+          <span className="font-bold">#{String(q.queue_number).padStart(2, '0')}</span>
+        )}
+      </span>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <Topbar
@@ -173,7 +200,7 @@ export function Patients() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+      <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
         <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
           {isConsultMode && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center gap-3">
@@ -220,80 +247,54 @@ export function Patients() {
               <table className="w-full text-sm">
                 <thead className="bg-ink-50 text-ink-600 text-xs uppercase tracking-wider">
                   <tr>
-                    <th className="text-left px-6 py-3 font-semibold">Name</th>
-                    <th className="text-left px-6 py-3 font-semibold">Age</th>
-                    <th className="text-left px-6 py-3 font-semibold">Sex</th>
-                    <th className="text-left px-6 py-3 font-semibold">Status</th>
+                    <th className="text-left px-3 sm:px-6 py-3 font-semibold">Name</th>
+                    <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Age</th>
+                    <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Sex</th>
+                    <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Status</th>
                     <th className="text-left px-6 py-3 font-semibold hidden md:table-cell">
                       Contact
                     </th>
                     <th className="text-left px-6 py-3 font-semibold hidden lg:table-cell">
                       Registered
                     </th>
-                    <th className="text-right px-6 py-3 font-semibold">Actions</th>
+                    <th className="text-right px-3 sm:px-6 py-3 font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
                   {patients.map((p) => (
                     <tr key={p.id} className={`hover:bg-ink-50/60 transition-colors ${isConsultMode ? 'cursor-pointer' : ''}`}>
-                      <td className="px-6 py-3.5">
+                      <td className="px-3 sm:px-6 py-3">
                         <Link
                           to={`/patients/${p.id}`}
-                          className="flex items-center gap-3 group"
+                          className="flex items-center gap-3 group min-w-0"
                         >
-                          <div>
-                            <p className="font-medium text-ink-900 group-hover:text-primary-700">
+                          <div className="min-w-0">
+                            <p className="font-medium text-ink-900 group-hover:text-primary-700 break-words">
                               {p.first_name} {p.last_name}
+                            </p>
+                            <p className="text-xs text-ink-500 sm:hidden">
+                              {[(p.age || ageFromDob(p.date_of_birth)) && `${p.age || ageFromDob(p.date_of_birth)} y/o`, p.sex].filter(Boolean).join(' · ') || '—'}
                             </p>
                             <p className="text-xs text-ink-500 md:hidden">
                               {p.contact_number || '—'}
                             </p>
                           </div>
                         </Link>
+                        {queueMap.has(p.id) && <div className="mt-1.5 sm:hidden">{renderStatus(p)}</div>}
                       </td>
-                      <td className="px-6 py-3.5 text-ink-700">
+                      <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">
                         {p.age || ageFromDob(p.date_of_birth) || '—'}
                       </td>
-                      <td className="px-6 py-3.5 text-ink-700">{p.sex || '—'}</td>
-                      <td className="px-6 py-3.5">
-                        {queueMap.has(p.id) ? (
-                          (() => {
-                            const q = queueMap.get(p.id);
-                            const isDone = q.status === 'done' || q.status === 'skipped';
-                            const isServing = q.status === 'serving';
-                            return (
-                              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${
-                                isDone
-                                  ? 'bg-sky-50 text-sky-700'
-                                  : isServing
-                                  ? 'bg-amber-50 text-amber-700'
-                                  : 'bg-emerald-50 text-emerald-700'
-                              }`}>
-                                {isDone ? (
-                                  <><Icon.Check width={12} height={12} /> Completed</>
-                                ) : isServing ? (
-                                  <><Icon.Stethoscope width={12} height={12} /> Serving</>
-                                ) : (
-                                  <><Icon.Clock width={12} height={12} /> In queue</>
-                                )}
-                                {!isDone && (
-                                  <span className="font-bold">#{String(q.queue_number).padStart(2, '0')}</span>
-                                )}
-                              </span>
-                            );
-                          })()
-                        ) : (
-                          <span className="text-xs text-ink-400">—</span>
-                        )}
-                      </td>
+                      <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{p.sex || '—'}</td>
+                      <td className="px-6 py-3.5 hidden sm:table-cell">{renderStatus(p)}</td>
                       <td className="px-6 py-3.5 text-ink-700 hidden md:table-cell">
                         {p.contact_number || '—'}
                       </td>
-                      <td className="px-6 py-3.5 text-ink-500 hidden lg:table-cell">
+                      <td className="px-6 py-3.5 text-ink-500 hidden lg:table-cell whitespace-nowrap">
                         {formatDate(p.created_at)}
                       </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <div className="inline-flex gap-1">
+                      <td className="px-2 sm:px-6 py-3 text-right align-middle">
+                        <div className="inline-flex items-center gap-0.5 sm:gap-1">
                           {!isConsultMode && ['admin', 'nurse', 'staff'].includes(user?.role) &&
                             (() => {
                               const q = queueMap.get(p.id);

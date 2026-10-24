@@ -152,7 +152,7 @@ export function PregnancyTrackingForm() {
       <div className="flex-1 overflow-y-auto w-full print:p-0 print:max-w-none">
         <div className="max-w-[1400px] mx-auto px-4 md:px-6">
           {/* Action bar */}
-          <div className="flex items-center justify-between mb-4 print:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 sm:pt-4 mb-3 sm:mb-4 print:hidden">
             <p className="text-sm text-ink-500">
               {loading ? 'Loading...' : (
                 <>
@@ -178,10 +178,10 @@ export function PregnancyTrackingForm() {
           </div>
 
           {/* Form paper */}
-          <div className="bg-white p-6 md:p-8 print:p-0">
+          <div className="bg-white p-3 sm:p-6 md:p-8 print:p-0">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-xl font-bold text-ink-900 tracking-tight">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-4 sm:mb-6">
+              <h1 className="text-base sm:text-xl font-bold text-ink-900 tracking-tight">
                 Pregnancy Tracking Form
               </h1>
 
@@ -190,7 +190,7 @@ export function PregnancyTrackingForm() {
                   type="text"
                   value={monthYear}
                   onChange={(e) => setMonthYear(e.target.value)}
-                  className="text-sm text-center text-ink-800 bg-transparent border-b border-ink-400 outline-none px-4 py-1 w-48 font-medium"
+                  className="text-[16px] sm:text-sm text-center text-ink-800 bg-transparent border-b border-ink-400 outline-none px-4 py-1 w-40 sm:w-48 font-medium"
                 />
                 <span className="text-[10px] text-ink-500 mt-0.5">Month & Year</span>
               </div>

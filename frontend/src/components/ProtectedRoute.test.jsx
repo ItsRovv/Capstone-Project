@@ -4,10 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProtectedRoute, PublicOnly } from './ProtectedRoute';
 import { AuthContext } from '../contexts/AuthContext';
 
-function Wrapper({ user = null, children }) {
+function Wrapper({ user = null, initializing = false, initialEntries = ['/'], children }) {
   return (
-    <MemoryRouter initialEntries={['/']}>
-      <AuthContext.Provider value={{ user, isAuthenticated: Boolean(user) }}>
+    <MemoryRouter initialEntries={initialEntries}>
+      <AuthContext.Provider value={{ user, isAuthenticated: Boolean(user), initializing }}>
         {children}
       </AuthContext.Provider>
     </MemoryRouter>
@@ -34,6 +34,19 @@ describe('ProtectedRoute', () => {
       </Wrapper>
     );
     expect(screen.getByTestId('login')).toBeInTheDocument();
+  });
+
+  it('waits for the session check instead of redirecting on page refresh', () => {
+    render(
+      <Wrapper initializing initialEntries={['/patients']}>
+        <Routes>
+          <Route path="/login" element={<div data-testid="login">Login</div>} />
+          <Route path="/patients" element={<ProtectedRoute><div data-testid="content">Patients</div></ProtectedRoute>} />
+        </Routes>
+      </Wrapper>
+    );
+    expect(screen.queryByTestId('login')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('content')).not.toBeInTheDocument();
   });
 
   it('redirects non-admin users away from admin routes', () => {

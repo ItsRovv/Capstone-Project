@@ -9,6 +9,7 @@ export const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [initializing, setInitializing] = useState(true);
 
   // On mount: validate the httpOnly cookie by calling /me.
   // This handles both regular login and OAuth redirect flows.
@@ -21,7 +22,10 @@ export function AuthProvider({ children }) {
       } catch {
         if (!cancelled) setUser(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setInitializing(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -66,7 +70,7 @@ export function AuthProvider({ children }) {
   const isAuthenticated = Boolean(user);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, loading, initializing, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

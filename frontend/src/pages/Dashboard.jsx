@@ -31,12 +31,12 @@ function StatCard({ icon, label, value, hint, tone = 'primary' }) {
         className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-50 ${tones[tone]}`}
       />
       <div
-        className={`w-10 h-10 rounded-xl inline-flex items-center justify-center mb-4 ${tones[tone]}`}
+        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl inline-flex items-center justify-center mb-2.5 sm:mb-4 ${tones[tone]}`}
       >
         {icon}
       </div>
-      <p className="text-sm text-ink-500 font-medium">{label}</p>
-      <p className="text-3xl font-display font-bold text-ink-900 mt-1">{value}</p>
+      <p className="relative text-xs sm:text-sm text-ink-500 font-medium leading-snug">{label}</p>
+      <p className="relative text-2xl sm:text-3xl font-display font-bold text-ink-900 mt-0.5 sm:mt-1">{value}</p>
       {hint && <p className="text-xs text-ink-500 mt-1">{hint}</p>}
     </Card>
   );
@@ -155,14 +155,14 @@ export function Dashboard() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 pt-4 md:pt-6 space-y-5">
+        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 pt-4 md:pt-6 space-y-4 sm:space-y-5">
           {loading ? (
             <PageLoader label="Loading dashboard…" />
           ) : (
             <>
               {/* Profile banner */}
-              <div className="bg-white rounded-lg border border-ink-200 px-5 py-4 flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-primary-700 text-white flex items-center justify-center text-xl font-bold font-display flex-shrink-0">
+              <div className="bg-white rounded-lg border border-ink-200 px-4 sm:px-5 py-3 sm:py-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-primary-700 text-white flex items-center justify-center text-lg sm:text-xl font-bold font-display flex-shrink-0">
                   {user?.name?.charAt(0)?.toUpperCase() || 'U'}
                 </div>
                 <div className="min-w-0">
@@ -178,7 +178,7 @@ export function Dashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
               <Link to="/patients" className="block cursor-pointer">
                 <StatCard
                   icon={<Icon.Users />}

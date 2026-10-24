@@ -25,7 +25,7 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
     >
@@ -35,14 +35,14 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }) {
         aria-hidden="true"
       />
       <div
-        className={`relative w-full ${sizes[size]} card p-0 overflow-hidden animate-scale-in max-h-[90vh] flex flex-col`}
+        className={`relative w-full ${sizes[size]} card p-0 overflow-hidden animate-scale-in max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex flex-col`}
       >
         {title && (
-          <div className="px-6 py-4 border-b border-ink-100 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-ink-900">{title}</h3>
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-ink-100 flex items-center justify-between gap-3">
+            <h3 className="text-base sm:text-lg font-semibold text-ink-900 min-w-0">{title}</h3>
             <button
               onClick={onClose}
-              className="text-ink-500 hover:text-ink-800 hover:bg-ink-100 rounded-lg w-8 h-8 inline-flex items-center justify-center"
+              className="text-ink-500 hover:text-ink-800 hover:bg-ink-100 rounded-lg w-9 h-9 flex-shrink-0 inline-flex items-center justify-center"
               aria-label="Close"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -56,9 +56,9 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }) {
             </button>
           </div>
         )}
-        <div className="px-6 py-5 overflow-y-auto flex-1">{children}</div>
+        <div className="px-4 sm:px-6 py-4 sm:py-5 overflow-y-auto flex-1">{children}</div>
         {footer && (
-          <div className="px-6 py-4 border-t border-ink-100 bg-ink-50/50 flex justify-end gap-2">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-ink-100 bg-ink-50/50 flex flex-wrap justify-end gap-2">
             {footer}
           </div>
         )}

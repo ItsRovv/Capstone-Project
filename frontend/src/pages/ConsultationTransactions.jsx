@@ -29,20 +29,20 @@ function formatCurrency(n) {
   return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function SummaryCard({ title, value, icon: IconComponent, accent = 'primary' }) {
+function SummaryCard({ title, value, icon: IconComponent, accent = 'primary', className = '' }) {
   const styles = {
     primary: 'bg-primary-50 text-primary-700 border-primary-100',
     emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
     ink: 'bg-ink-50 text-ink-600 border-ink-100'
   };
   return (
-    <Card padding="p-4" className="border border-ink-100">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">{title}</p>
-          <p className="text-2xl font-bold text-ink-900 mt-1">{value}</p>
+    <Card padding="p-3 sm:p-4" className={`border border-ink-100 ${className}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11px] sm:text-xs font-bold text-ink-400 uppercase tracking-wider leading-tight">{title}</p>
+          <p className="text-lg sm:text-2xl font-bold text-ink-900 mt-1 whitespace-nowrap leading-tight">{value}</p>
         </div>
-        <div className={`w-10 h-10 rounded-lg border flex items-center justify-center ${styles[accent]}`}>
+        <div className={`hidden sm:flex w-10 h-10 flex-shrink-0 rounded-lg border items-center justify-center ${styles[accent]}`}>
           <IconComponent width={20} height={20} />
         </div>
       </div>
@@ -162,14 +162,14 @@ export function ConsultationTransactions() {
           canManage ? (
             <Link to="/patients">
               <Button>
-                <Icon.Plus width={16} height={16} /> New transaction
+                <Icon.Plus width={16} height={16} /> <span className="sm:hidden">New</span><span className="hidden sm:inline">New transaction</span>
               </Button>
             </Link>
           ) : undefined
         }
       />
 
-      <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
+      <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
         <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader />
@@ -192,7 +192,7 @@ export function ConsultationTransactions() {
           ) : (
             <>
               {/* Summary cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-4">
                 <SummaryCard
                   title="Total to Collect"
                   value={formatCurrency(
@@ -220,6 +220,7 @@ export function ConsultationTransactions() {
                   value={grouped.reduce((sum, g) => sum + g.transactions.length, 0)}
                   icon={Icon.FileText}
                   accent="emerald"
+                  className="col-span-2 md:col-span-1"
                 />
               </div>
 
@@ -232,15 +233,15 @@ export function ConsultationTransactions() {
                   return (
                     <Card key={g.patient.id} padding="p-0" className="overflow-hidden border border-ink-100">
                       {/* Patient header */}
-                      <div className="flex items-center justify-between px-5 py-4 bg-ink-50/40 border-b border-ink-100">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-primary-100 text-primary-600 inline-flex items-center justify-center text-sm font-bold">
+                      <div className="flex items-center justify-between gap-3 px-3 sm:px-5 py-3 sm:py-4 bg-ink-50/40 border-b border-ink-100">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 sm:w-10 sm:h-10 flex-shrink-0 rounded-full bg-primary-100 text-primary-600 inline-flex items-center justify-center text-sm font-bold">
                             {g.patient.first_name?.charAt(0)?.toUpperCase()}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <Link
                               to={`/patients/${g.patient.id}`}
-                              className="font-semibold text-ink-900 hover:text-primary-700"
+                              className="font-semibold text-ink-900 hover:text-primary-700 break-words"
                             >
                               {g.patient.first_name} {g.patient.last_name}
                             </Link>
@@ -259,22 +260,33 @@ export function ConsultationTransactions() {
                       {/* Transactions */}
                       <div className="divide-y divide-ink-100">
                         {visibleTransactions.map((t) => (
-                          <div key={t.id} className="px-5 py-4 hover:bg-ink-50/40 transition-colors">
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1 min-w-0">
+                          <div key={t.id} className="px-3 sm:px-5 py-3 sm:py-4 hover:bg-ink-50/40 transition-colors">
+                              <div className="min-w-0">
                                 {/* Date + Amount row */}
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
-                                  <div className="flex items-center gap-2 text-ink-500">
-                                    <Icon.Calendar width={14} height={14} />
-                                    <span className="text-sm">{formatDateTime(t.transaction_date)}</span>
+                                <div className="flex items-start justify-between gap-2 mb-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 text-ink-500">
+                                      <Icon.Calendar width={14} height={14} className="flex-shrink-0" />
+                                      <span className="text-sm">{formatDateTime(t.transaction_date)}</span>
+                                    </div>
+                                    <p className="text-lg font-bold text-primary-700">
+                                      {formatCurrency(t.total_amount)}
+                                    </p>
                                   </div>
-                                  <p className="text-lg font-bold text-primary-700">
-                                    {formatCurrency(t.total_amount)}
-                                  </p>
+                                  {canManage && (
+                                    <button
+                                      onClick={() => handleDelete(t.id)}
+                                      disabled={deletingId === t.id}
+                                      className="text-ink-400 hover:text-red-600 p-2 -mt-1 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
+                                      aria-label="Delete transaction"
+                                    >
+                                      {deletingId === t.id ? <Spinner size="sm" /> : <Icon.Trash width={16} height={16} />}
+                                    </button>
+                                  )}
                                 </div>
 
                                 {/* Items to pay & PhilHealth reference */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3">
                                   {t.vitamins && t.vitamins.length > 0 && (
                                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-3">
                                       <div className="flex items-center gap-2 mb-2">
@@ -320,7 +332,7 @@ export function ConsultationTransactions() {
                                           <span className="text-sm font-bold text-ink-700">{formatCurrency(t.philhealth_total)}</span>
                                         </div>
                                       )}
-                                      <p className="text-[10px] text-ink-400 mt-1.5 italic">Not charged at the clinic</p>
+                                      <p className="text-[11px] text-ink-400 mt-1.5 italic">Not charged at the clinic</p>
                                     </div>
                                   )}
                                 </div>
@@ -334,17 +346,6 @@ export function ConsultationTransactions() {
                                 )}
                               </div>
 
-                              {canManage && (
-                                <button
-                                  onClick={() => handleDelete(t.id)}
-                                  disabled={deletingId === t.id}
-                                  className="text-ink-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
-                                  aria-label="Delete transaction"
-                                >
-                                  {deletingId === t.id ? <Spinner size="sm" /> : <Icon.Trash width={16} height={16} />}
-                                </button>
-                              )}
-                            </div>
                           </div>
                         ))}
                       </div>

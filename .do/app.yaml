@@ -52,7 +52,7 @@ services:
       # --- CORS: the Vercel frontend origin(s), comma-separated, no trailing slash ---
       - key: CORS_ORIGIN
         scope: RUN_TIME
-        value: "https://your-frontend.vercel.app"
+        value: "https://your-vercel-app-name.vercel.app"
       - key: AUTOMATION_TOKEN
         scope: RUN_TIME
         type: SECRET

@@ -198,6 +198,7 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
   const [personalInfo, setPersonalInfo] = useState(mergePersonalInfo(initial?.personal_info, initial));
   const [medicalInfo, setMedicalInfo] = useState(mergeMedicalInfo(initial?.medical_info));
   const [error, setError] = useState(null);
+  const [addToQueue, setAddToQueue] = useState(false);
   const [section, setSection] = useState('personal');
   const [expanded, setExpanded] = useState({
     patient: true,
@@ -324,7 +325,7 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
       medical_info: medicalInfo
     };
 
-    onSubmit(payload);
+    onSubmit(payload, { addToQueue });
   }
 
   return (
@@ -707,15 +708,28 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
         </ExpandableSection>
       </section>
 
-      <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
-        {onCancel && (
-          <Button type="button" variant="secondary" onClick={onCancel}>
-            Cancel
-          </Button>
+      <div className="flex items-center justify-between pt-2 border-t border-ink-100">
+        {!initial?.id && (
+          <label className="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={addToQueue}
+              onChange={(e) => setAddToQueue(e.target.checked)}
+              className="w-4 h-4 accent-primary-600"
+            />
+            Add to queue after saving
+          </label>
         )}
-        <Button type="submit" loading={submitting}>
-          {initial?.id ? 'Save changes' : 'Add patient'}
-        </Button>
+        <div className="flex justify-end gap-2 ml-auto">
+          {onCancel && (
+            <Button type="button" variant="secondary" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button type="submit" loading={submitting}>
+            {initial?.id ? 'Save changes' : 'Add patient'}
+          </Button>
+        </div>
       </div>
     </form>
   );

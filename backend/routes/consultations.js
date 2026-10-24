@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../config/db');
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
+const Queue = require('../models/Queue');
 const AuditLog = require('../models/AuditLog');
 const summaryService = require('../services/summaryService');
 const { validateConsultation } = require('../middleware/validation');
@@ -92,6 +93,13 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
       ...value,
       doctor_id: req.user?.id ?? null
     });
+
+    // If this patient has an active queue entry today, mark it as completed.
+    const activeQueue = await Queue.findByPatientToday(value.patient_id);
+    if (activeQueue) {
+      await Queue.updateStatus(activeQueue.id, 'done', req.user?.id ?? null);
+    }
+
     await AuditLog.create({
       userId: req.user?.id,
       action: 'CREATE',

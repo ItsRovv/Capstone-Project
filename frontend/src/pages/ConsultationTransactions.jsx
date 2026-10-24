@@ -29,6 +29,27 @@ function formatCurrency(n) {
   return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function SummaryCard({ title, value, icon: IconComponent, accent = 'primary' }) {
+  const styles = {
+    primary: 'bg-primary-50 text-primary-700 border-primary-100',
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    ink: 'bg-ink-50 text-ink-600 border-ink-100'
+  };
+  return (
+    <Card padding="p-4" className="border border-ink-100">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">{title}</p>
+          <p className="text-2xl font-bold text-ink-900 mt-1">{value}</p>
+        </div>
+        <div className={`w-10 h-10 rounded-lg border flex items-center justify-center ${styles[accent]}`}>
+          <IconComponent width={20} height={20} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function ConsultationTransactions() {
   const { onOpenMenu } = useOutletContext();
   const toast = useToast();
@@ -44,6 +65,7 @@ export function ConsultationTransactions() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [expandedPatients, setExpandedPatients] = useState(new Set());
 
   async function load() {
     setLoading(true);
@@ -169,134 +191,195 @@ export function ConsultationTransactions() {
             </Card>
           ) : (
             <>
-              {/* Total to collect summary — especially helpful for frontdesk staff */}
-              <Card padding="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">
-                      {canManage ? 'Total Transactions' : 'Total to Collect from Patients'}
-                    </p>
-                    <p className="text-2xl font-bold text-primary-700 mt-0.5">
-                      {formatCurrency(
-                        grouped.reduce(
-                          (sum, g) => sum + g.transactions.reduce((s, t) => s + Number(t.total_amount || 0), 0),
-                          0
-                        )
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">Transactions</p>
-                    <p className="text-2xl font-bold text-ink-700 mt-0.5">
-                      {grouped.reduce((sum, g) => sum + g.transactions.length, 0)}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-
-              {grouped.map((g) => (
-              <Card key={g.patient.id} padding="p-0" className="overflow-hidden">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center">
-                      <Icon.Users width={16} height={16} />
-                    </div>
-                    <div>
-                      <Link
-                        to={`/patients/${g.patient.id}`}
-                        className="font-semibold text-ink-900 hover:text-primary-700"
-                      >
-                        {g.patient.first_name} {g.patient.last_name}
-                      </Link>
-                      <p className="text-xs text-ink-500">
-                        {g.transactions.length} transaction{g.transactions.length === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                  </div>
-                  {canManage && (
-                    <Button size="sm" onClick={() => openAddModal(g.patient)}>
-                      <Icon.Plus width={14} height={14} /> Add new
-                    </Button>
+              {/* Summary cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <SummaryCard
+                  title="Total to Collect"
+                  value={formatCurrency(
+                    grouped.reduce(
+                      (sum, g) => sum + g.transactions.reduce((s, t) => s + Number(t.total_amount || 0), 0),
+                      0
+                    )
                   )}
-                </div>
-                <ul className="divide-y divide-ink-100">
-                  {g.transactions.map((t) => (
-                    <li key={t.id} className="px-6 py-4 hover:bg-ink-50/60 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-ink-900">
-                              {formatDateTime(t.transaction_date)}
-                            </p>
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-primary-700 bg-primary-50 border border-primary-200 px-1.5 py-0.5 rounded">
-                              To Pay: {formatCurrency(t.total_amount)}
-                            </span>
+                  icon={Icon.Receipt}
+                  accent="primary"
+                />
+                <SummaryCard
+                  title="PhilHealth Reference"
+                  value={formatCurrency(
+                    grouped.reduce(
+                      (sum, g) => sum + g.transactions.reduce((s, t) => s + Number(t.philhealth_total || 0), 0),
+                      0
+                    )
+                  )}
+                  icon={Icon.Heart}
+                  accent="ink"
+                />
+                <SummaryCard
+                  title="Total Transactions"
+                  value={grouped.reduce((sum, g) => sum + g.transactions.length, 0)}
+                  icon={Icon.FileText}
+                  accent="emerald"
+                />
+              </div>
+
+              {/* Patient transaction groups */}
+              <div className="space-y-4">
+                {grouped.map((g) => {
+                  const patientTotal = g.transactions.reduce((s, t) => s + Number(t.total_amount || 0), 0);
+                  const isExpanded = expandedPatients.has(g.patient.id);
+                  const visibleTransactions = isExpanded ? g.transactions : g.transactions.slice(0, 1);
+                  return (
+                    <Card key={g.patient.id} padding="p-0" className="overflow-hidden border border-ink-100">
+                      {/* Patient header */}
+                      <div className="flex items-center justify-between px-5 py-4 bg-ink-50/40 border-b border-ink-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-primary-100 text-primary-600 inline-flex items-center justify-center text-sm font-bold">
+                            {g.patient.first_name?.charAt(0)?.toUpperCase()}
                           </div>
-
-                          {/* Vitamins (charged at clinic) */}
-                          {t.vitamins && t.vitamins.length > 0 && (
-                            <div className="mt-2">
-                              <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1">Vitamins</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {t.vitamins.map((v) => (
-                                  <span
-                                    key={v.id}
-                                    className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"
-                                    title={`${v.label} — ${formatCurrency(v.price)}`}
-                                  >
-                                    {v.label} · {formatCurrency(v.price)}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* PhilHealth packages (reference only) */}
-                          {t.packages && t.packages.length > 0 && (
-                            <div className="mt-2">
-                              <p className="text-xs font-semibold text-ink-400 uppercase tracking-wider mb-1">PhilHealth (availed through PhilHealth)</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {t.packages.map((p) => (
-                                  <span
-                                    key={p.code}
-                                    className="text-xs font-medium text-ink-600 bg-ink-100 border border-ink-200 px-2 py-0.5 rounded-full"
-                                    title={p.label}
-                                  >
-                                    {p.code} · {formatCurrency(p.amount)}
-                                  </span>
-                                ))}
-                              </div>
-                              {t.philhealth_total > 0 && (
-                                <p className="text-xs text-ink-400 mt-1">
-                                  PhilHealth total: {formatCurrency(t.philhealth_total)} <span className="italic">(not charged at clinic)</span>
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          {t.recommendations && (
-                            <p className="text-sm text-ink-600 mt-2">
-                              <span className="font-semibold text-ink-700">Recommendations:</span>{' '}
-                              {t.recommendations}
+                          <div>
+                            <Link
+                              to={`/patients/${g.patient.id}`}
+                              className="font-semibold text-ink-900 hover:text-primary-700"
+                            >
+                              {g.patient.first_name} {g.patient.last_name}
+                            </Link>
+                            <p className="text-xs text-ink-500">
+                              {g.transactions.length} transaction{g.transactions.length === 1 ? '' : 's'} · Total: {formatCurrency(patientTotal)}
                             </p>
-                          )}
+                          </div>
                         </div>
                         {canManage && (
-                          <button
-                            onClick={() => handleDelete(t.id)}
-                            disabled={deletingId === t.id}
-                            className="text-ink-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
-                            aria-label="Delete transaction"
-                          >
-                            {deletingId === t.id ? <Spinner size="sm" /> : <Icon.Trash width={16} height={16} />}
-                          </button>
+                          <Button size="sm" variant="secondary" onClick={() => openAddModal(g.patient)}>
+                            <Icon.Plus width={14} height={14} /> Add
+                          </Button>
                         )}
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            ))}
+
+                      {/* Transactions */}
+                      <div className="divide-y divide-ink-100">
+                        {visibleTransactions.map((t) => (
+                          <div key={t.id} className="px-5 py-4 hover:bg-ink-50/40 transition-colors">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                {/* Date + Amount row */}
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                                  <div className="flex items-center gap-2 text-ink-500">
+                                    <Icon.Calendar width={14} height={14} />
+                                    <span className="text-sm">{formatDateTime(t.transaction_date)}</span>
+                                  </div>
+                                  <p className="text-lg font-bold text-primary-700">
+                                    {formatCurrency(t.total_amount)}
+                                  </p>
+                                </div>
+
+                                {/* Items to pay & PhilHealth reference */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                  {t.vitamins && t.vitamins.length > 0 && (
+                                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-3">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 inline-flex items-center justify-center">
+                                          <Icon.Receipt width={14} height={14} />
+                                        </div>
+                                        <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Items to Pay</p>
+                                      </div>
+                                      <ul className="space-y-1.5">
+                                        {t.vitamins.map((v) => (
+                                          <li key={v.id} className="flex items-center justify-between text-sm">
+                                            <span className="text-ink-700 truncate pr-2" title={v.label}>{v.label}</span>
+                                            <span className="font-medium text-emerald-700 whitespace-nowrap">{formatCurrency(v.price)}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center justify-between">
+                                        <span className="text-xs font-bold text-emerald-800">Total to pay</span>
+                                        <span className="text-sm font-bold text-emerald-700">{formatCurrency(t.total_amount)}</span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {t.packages && t.packages.length > 0 && (
+                                    <div className="rounded-lg border border-ink-200 bg-ink-50/50 p-3">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-6 h-6 rounded-full bg-ink-200 text-ink-600 inline-flex items-center justify-center">
+                                          <Icon.Heart width={14} height={14} />
+                                        </div>
+                                        <p className="text-xs font-bold text-ink-600 uppercase tracking-wider">PhilHealth Reference</p>
+                                      </div>
+                                      <ul className="space-y-1.5">
+                                        {t.packages.map((p) => (
+                                          <li key={p.code} className="flex items-center justify-between text-sm">
+                                            <span className="text-ink-700 truncate pr-2" title={p.label}>{p.code}</span>
+                                            <span className="font-medium text-ink-600 whitespace-nowrap">{formatCurrency(p.amount)}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      {t.philhealth_total > 0 && (
+                                        <div className="mt-2 pt-2 border-t border-ink-200 flex items-center justify-between">
+                                          <span className="text-xs font-bold text-ink-600">PhilHealth total</span>
+                                          <span className="text-sm font-bold text-ink-700">{formatCurrency(t.philhealth_total)}</span>
+                                        </div>
+                                      )}
+                                      <p className="text-[10px] text-ink-400 mt-1.5 italic">Not charged at the clinic</p>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Recommendations */}
+                                {t.recommendations && (
+                                  <div className="flex items-start gap-2 text-sm text-ink-600 bg-amber-50/50 border border-amber-100 rounded-lg px-3 py-2">
+                                    <Icon.FileText width={14} height={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                                    <span>{t.recommendations}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {canManage && (
+                                <button
+                                  onClick={() => handleDelete(t.id)}
+                                  disabled={deletingId === t.id}
+                                  className="text-ink-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors flex-shrink-0"
+                                  aria-label="Delete transaction"
+                                >
+                                  {deletingId === t.id ? <Spinner size="sm" /> : <Icon.Trash width={16} height={16} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Show all / Show less toggle */}
+                      {g.transactions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedPatients((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(g.patient.id)) next.delete(g.patient.id);
+                              else next.add(g.patient.id);
+                              return next;
+                            });
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 px-5 py-2.5 text-xs font-medium text-primary-700 hover:text-primary-800 hover:bg-primary-50 transition-colors border-t border-ink-100"
+                        >
+                          {isExpanded ? (
+                            <>
+                              <Icon.Chevron width={14} height={14} className="rotate-90" />
+                              Show less
+                            </>
+                          ) : (
+                            <>
+                              <Icon.Chevron width={14} height={14} className="-rotate-90" />
+                              Show all {g.transactions.length} transactions
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
             </>
           )}
         </div>

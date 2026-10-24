@@ -213,50 +213,103 @@ export function Dashboard() {
               </Link>
             </div>
 
-            {/* Today's Queue */}
-            {queue.length > 0 && (
-              <div className="bg-white rounded-lg border border-ink-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-ink-800">Today's Queue</h2>
-                    <p className="text-xs text-ink-500">
-                      {queue.filter((q) => q.status === 'waiting').length} waiting · {queue.filter((q) => q.status === 'serving').length} serving
-                    </p>
-                  </div>
-                  <Link to="/consultations" className="text-xs font-medium text-primary-700 hover:text-primary-800">
-                    View all
-                  </Link>
-                </div>
-                <div className="space-y-2">
-                  {queue.slice(0, 5).map((q) => (
-                    <Link
-                      key={q.id}
-                      to={`/patients/${q.patient_id}`}
-                      className="flex items-center gap-3 p-2.5 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
-                    >
-                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-                        q.status === 'serving'
-                          ? 'bg-amber-100 text-amber-700'
-                          : q.status === 'done'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-primary-100 text-primary-700'
-                      }`}>
-                        #{String(q.queue_number).padStart(2, '0')}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-ink-900 truncate">
-                          {q.first_name} {q.last_name}
-                        </p>
-                        <p className="text-xs text-ink-500 capitalize">{q.status}</p>
+            {/* Quick actions + Today's queue — visible immediately */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Quick actions */}
+              <Card>
+                <CardHeader
+                  title="Quick actions"
+                  subtitle="Common workflows to get you started."
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Link to="/patients?action=add" className="block">
+                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
+                      <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center mb-3">
+                        <Icon.Plus />
                       </div>
-                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap">
-                        Serve →
-                      </span>
-                    </Link>
-                  ))}
+                      <p className="font-medium text-ink-900">Add patient</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Register a new patient</p>
+                    </div>
+                  </Link>
+                  <Link to="/patients?action=consult" className="block">
+                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 inline-flex items-center justify-center mb-3">
+                        <Icon.Stethoscope />
+                      </div>
+                      <p className="font-medium text-ink-900">New consultation</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Record a visit</p>
+                    </div>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDischargeOpen(true)}
+                    className="block w-full text-left"
+                  >
+                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
+                      <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 inline-flex items-center justify-center mb-3">
+                        <Icon.Clipboard />
+                      </div>
+                      <p className="font-medium text-ink-900">Quick discharge</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Update pregnancy status</p>
+                    </div>
+                  </button>
                 </div>
+              </Card>
+
+              {/* Today's queue */}
+              <div className="bg-white rounded-lg border border-ink-200 p-4">
+                {(() => {
+                  const activeQueue = queue.filter((q) => q.status === 'waiting' || q.status === 'serving');
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h2 className="text-sm font-semibold text-ink-800">Today's Queue</h2>
+                          <p className="text-xs text-ink-500">
+                            {activeQueue.filter((q) => q.status === 'waiting').length} waiting · {activeQueue.filter((q) => q.status === 'serving').length} serving
+                          </p>
+                        </div>
+                        <Link to="/consultations" className="text-xs font-medium text-primary-700 hover:text-primary-800">
+                          View all
+                        </Link>
+                      </div>
+                      {activeQueue.length === 0 ? (
+                        <div className="text-sm text-ink-500 py-6 text-center">
+                          No patients in queue today.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {activeQueue.slice(0, 5).map((q) => (
+                            <Link
+                              key={q.id}
+                              to={`/patients/${q.patient_id}`}
+                              className="flex items-center gap-3 p-2.5 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
+                            >
+                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+                                q.status === 'serving'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-primary-100 text-primary-700'
+                              }`}>
+                                #{String(q.queue_number).padStart(2, '0')}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-ink-900 truncate">
+                                  {q.first_name} {q.last_name}
+                                </p>
+                                <p className="text-xs text-ink-500 capitalize">{q.status}</p>
+                              </div>
+                              <span className="text-xs text-primary-600 font-medium whitespace-nowrap">
+                                Serve →
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
-            )}
+            </div>
 
             {/* Recently accessed — consultations carousel */}
             <div className="bg-white rounded-lg border border-ink-200 p-4">
@@ -347,75 +400,34 @@ export function Dashboard() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <Card className="lg:col-span-2">
-                <CardHeader
-                  title="Quick actions"
-                  subtitle="Common workflows to get you started."
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <Link to="/patients?action=add" className="block">
-                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
-                      <div className="w-9 h-9 rounded-lg bg-primary-100 text-primary-600 inline-flex items-center justify-center mb-3">
-                        <Icon.Plus />
-                      </div>
-                      <p className="font-medium text-ink-900">Add patient</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Register a new patient</p>
-                    </div>
-                  </Link>
-                  <Link to="/patients?action=consult" className="block">
-                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 inline-flex items-center justify-center mb-3">
-                        <Icon.Stethoscope />
-                      </div>
-                      <p className="font-medium text-ink-900">New consultation</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Record a visit</p>
-                    </div>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setQuickDischargeOpen(true)}
-                    className="block w-full text-left"
-                  >
-                    <div className="rounded-xl border border-ink-100 p-4 hover:border-primary-300 hover:bg-primary-50/40 transition-colors">
-                      <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 inline-flex items-center justify-center mb-3">
-                        <Icon.Clipboard />
-                      </div>
-                      <p className="font-medium text-ink-900">Quick discharge</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Update pregnancy status</p>
-                    </div>
-                  </button>
+            {/* Daily report */}
+            <Card className="flex flex-col">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-100 text-primary-600 inline-flex items-center justify-center">
+                  <Icon.FileText />
                 </div>
-              </Card>
-
-              <Card className="lg:col-span-1 flex flex-col">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-primary-100 text-primary-600 inline-flex items-center justify-center">
-                    <Icon.FileText />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-ink-500">Daily Report</p>
-                    <p className="font-display text-lg font-bold text-ink-900">
-                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </p>
-                  </div>
+                <div>
+                  <p className="text-sm font-medium text-ink-500">Daily Report</p>
+                  <p className="font-display text-lg font-bold text-ink-900">
+                    {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </p>
                 </div>
-                <p className="text-sm text-ink-600 flex-1">
-                  Summarize today's consultations into a structured report.
-                </p>
-                <Button
-                  onClick={() => {
-                    setReportModal({ open: true, date: todayISO() });
-                    setGenerated(null);
-                  }}
-                  className="mt-4 w-full"
-                  size="md"
-                >
-                  <Icon.FileText width={16} height={16} />
-                  Generate report
-                </Button>
-              </Card>
-            </div>
+              </div>
+              <p className="text-sm text-ink-600 flex-1">
+                Summarize today's consultations into a structured report.
+              </p>
+              <Button
+                onClick={() => {
+                  setReportModal({ open: true, date: todayISO() });
+                  setGenerated(null);
+                }}
+                className="mt-4 w-full"
+                size="md"
+              >
+                <Icon.FileText width={16} height={16} />
+                Generate report
+              </Button>
+            </Card>
 
           </>
         )}

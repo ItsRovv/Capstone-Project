@@ -14,12 +14,12 @@ function decryptConsultation(data) {
 class Consultation {
   // Create a new consultation
   static async create(consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, ai_summary_used } = encryptConsultation(consultationData);
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
-      INSERT INTO consultations (patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, ai_summary_used)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO consultations (patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const values = [patient_id, doctor_id ?? null, visit_date ?? new Date(), raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, ai_summary_used ?? false];
+    const values = [patient_id, doctor_id ?? null, visit_date ?? new Date(), raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, ai_summary_used ?? false];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -97,13 +97,13 @@ class Consultation {
 
   // Update consultation by ID
   static async update(id, consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, ai_summary_used } = encryptConsultation(consultationData);
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
       UPDATE consultations
-      SET patient_id = ?, doctor_id = ?, visit_date = ?, raw_notes = ?, structured_notes = ?, chief_complaint = ?, diagnosis = ?, prescription = ?, subjective = ?, objective = ?, assessment = ?, plan = ?, ai_summary_used = ?
+      SET patient_id = ?, doctor_id = ?, visit_date = ?, raw_notes = ?, structured_notes = ?, chief_complaint = ?, diagnosis = ?, prescription = ?, subjective = ?, objective = ?, assessment = ?, plan = ?, delivery_location = ?, ai_summary_used = ?
       WHERE id = ?
     `;
-    const values = [patient_id, doctor_id ?? null, visit_date ?? null, raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, ai_summary_used ?? false, id];
+    const values = [patient_id, doctor_id ?? null, visit_date ?? null, raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, ai_summary_used ?? false, id];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
   }

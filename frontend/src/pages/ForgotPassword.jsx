@@ -7,7 +7,7 @@ import { Input } from '../components/UI/Input';
 import { JLMCLogo } from '../components/JLMCLogo';
 import { apiError } from '../services/api';
 
-export function ForgotPassword() {
+export function ForgotPassword() {    `       ~`
   const toast = useToast();
   const navigate = useNavigate();
 

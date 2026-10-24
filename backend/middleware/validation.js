@@ -90,10 +90,11 @@ const consultationSchema = Joi.object({
   objective: Joi.string().trim().max(2000).allow(null, ''),
   assessment: Joi.string().trim().max(2000).allow(null, ''),
   plan: Joi.string().trim().max(2000).allow(null, ''),
+  delivery_location: Joi.string().trim().valid('jlmc').allow(null, ''),
   ai_summary_used: Joi.boolean()
 }).unknown(false);
 
-const CONSULTATION_SANITIZE_FIELDS = ['raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription', 'subjective', 'objective', 'assessment', 'plan'];
+const CONSULTATION_SANITIZE_FIELDS = ['raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription', 'subjective', 'objective', 'assessment', 'plan', 'delivery_location'];
 
 // ── Consultation Transaction validation schema (PhilHealth packages + vitamins + recs) ──
 const transactionPackageSchema = Joi.object({

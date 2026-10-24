@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS consultations (
   objective TEXT,                        -- S.O.A.P. — exam findings, vitals, measurements
   assessment TEXT,                       -- S.O.A.P. — clinical assessment/diagnosis
   plan TEXT,                             -- S.O.A.P. — treatment/follow-up plan
+  delivery_location VARCHAR(50),          -- Where patient plans to deliver (e.g., 'jlmc', 'other')
   ai_summary_used BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -111,6 +112,7 @@ ALTER TABLE consultations ADD COLUMN IF NOT EXISTS subjective TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS objective TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS assessment TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS plan TEXT;
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS delivery_location VARCHAR(50);
 
 -- ── consultation_transactions ────────────────────────────────────────────────
 -- Records PhilHealth package charges and the doctor's vitamin/medicine

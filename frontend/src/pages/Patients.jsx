@@ -48,7 +48,7 @@ export function Patients() {
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [queueSet, setQueueSet] = useState(new Set());
+  const [queueMap, setQueueMap] = useState(new Map());
   const [addingQueue, setAddingQueue] = useState(null);
 
   const LIMIT = 50;
@@ -63,8 +63,8 @@ export function Patients() {
       ]);
       setPatients(res.data || []);
       setTotal(res.total || 0);
-      const qSet = new Set((queueRes || []).map((qe) => qe.patient_id));
-      setQueueSet(qSet);
+      const qMap = new Map((queueRes || []).map((qe) => [qe.patient_id, qe]));
+      setQueueMap(qMap);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load patients'));
     } finally {
@@ -77,7 +77,11 @@ export function Patients() {
     try {
       const result = await queueService.add(patientId);
       toast.success(`Added to queue #${String(result.queue_number).padStart(2, '0')}`);
-      setQueueSet((prev) => new Set(prev).add(patientId));
+      setQueueMap((prev) => {
+        const next = new Map(prev);
+        next.set(patientId, { queue_number: result.queue_number, status: 'waiting' });
+        return next;
+      });
     } catch (err) {
       toast.error(apiError(err, 'Could not add to queue'));
     } finally {
@@ -108,11 +112,21 @@ export function Patients() {
     }
   }, [action]);
 
-  async function handleCreate(payload) {
+  async function handleCreate(payload, options = {}) {
     setSubmitting(true);
     try {
-      await patientService.create(payload);
-      toast.success('Patient added');
+      const result = await patientService.create(payload);
+      if (options.addToQueue && result?.id) {
+        try {
+          const qResult = await queueService.add(result.id);
+          toast.success(`Patient added and queued #${String(qResult.queue_number).padStart(2, '0')}`);
+        } catch (queueErr) {
+          toast.success('Patient added (queue failed — add manually)');
+          console.warn('[patients] Auto-queue failed:', queueErr);
+        }
+      } else {
+        toast.success('Patient added');
+      }
       setModalOpen(false);
       setEditing(null);
       load();
@@ -209,6 +223,7 @@ export function Patients() {
                     <th className="text-left px-6 py-3 font-semibold">Name</th>
                     <th className="text-left px-6 py-3 font-semibold">Age</th>
                     <th className="text-left px-6 py-3 font-semibold">Sex</th>
+                    <th className="text-left px-6 py-3 font-semibold">Status</th>
                     <th className="text-left px-6 py-3 font-semibold hidden md:table-cell">
                       Contact
                     </th>
@@ -240,6 +255,37 @@ export function Patients() {
                         {p.age || ageFromDob(p.date_of_birth) || '—'}
                       </td>
                       <td className="px-6 py-3.5 text-ink-700">{p.sex || '—'}</td>
+                      <td className="px-6 py-3.5">
+                        {queueMap.has(p.id) ? (
+                          (() => {
+                            const q = queueMap.get(p.id);
+                            const isDone = q.status === 'done' || q.status === 'skipped';
+                            const isServing = q.status === 'serving';
+                            return (
+                              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${
+                                isDone
+                                  ? 'bg-sky-50 text-sky-700'
+                                  : isServing
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-emerald-50 text-emerald-700'
+                              }`}>
+                                {isDone ? (
+                                  <><Icon.Check width={12} height={12} /> Completed</>
+                                ) : isServing ? (
+                                  <><Icon.Stethoscope width={12} height={12} /> Serving</>
+                                ) : (
+                                  <><Icon.Clock width={12} height={12} /> In queue</>
+                                )}
+                                {!isDone && (
+                                  <span className="font-bold">#{String(q.queue_number).padStart(2, '0')}</span>
+                                )}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-xs text-ink-400">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-3.5 text-ink-700 hidden md:table-cell">
                         {p.contact_number || '—'}
                       </td>
@@ -248,7 +294,12 @@ export function Patients() {
                       </td>
                       <td className="px-6 py-3.5 text-right">
                         <div className="inline-flex gap-1">
-                          {!isConsultMode && ['admin', 'nurse', 'staff'].includes(user?.role) && !queueSet.has(p.id) && (
+                          {!isConsultMode && ['admin', 'nurse', 'staff'].includes(user?.role) &&
+                            (() => {
+                              const q = queueMap.get(p.id);
+                              const isActive = q && (q.status === 'waiting' || q.status === 'serving');
+                              return !isActive;
+                            })() && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -259,11 +310,6 @@ export function Patients() {
                             >
                               <Icon.Clipboard width={14} height={14} />
                             </Button>
-                          )}
-                          {!isConsultMode && queueSet.has(p.id) && (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
-                              <Icon.Check width={12} height={12} /> In queue
-                            </span>
                           )}
                           <Link to={`/patients/${p.id}`}>
                             <Button variant="ghost" size="sm">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+9*                                                                                                                                                                                          import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
@@ -26,6 +26,27 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
+function SummaryCard({ title, value, icon: IconComponent, accent = 'primary' }) {
+  const styles = {
+    primary: 'bg-primary-50 text-primary-700 border-primary-100',
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    ink: 'bg-ink-50 text-ink-600 border-ink-100'
+  };
+  return (
+    <Card padding="p-4" className="border border-ink-100">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-bold text-ink-400 uppercase tracking-wider">{title}</p>
+          <p className="text-2xl font-bold text-ink-900 mt-1">{value}</p>
+        </div>
+        <div className={`w-10 h-10 rounded-lg border flex items-center justify-center ${styles[accent]}`}>
+          <IconComponent width={20} height={20} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function Reports() {
   const { onOpenMenu } = useOutletContext();
   const toast = useToast();
@@ -36,6 +57,7 @@ export function Reports() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [filter, setFilter] = useState('all');
 
   async function load() {
     setLoading(true);
@@ -72,6 +94,51 @@ export function Reports() {
     setViewing(r);
   }
 
+  const filteredReports = filter === 'all'
+    ? reports
+    : reports.filter((r) => {
+        const d = new Date(r.report_date);
+        const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return yearMonth === filter;
+      });
+
+  function groupReportsByDate(items) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const groups = { Today: [], Yesterday: [], 'This week': [], Older: [] };
+    for (const r of items) {
+      const d = new Date(r.report_date);
+      d.setHours(0, 0, 0, 0);
+      if (d.getTime() === today.getTime()) groups.Today.push(r);
+      else if (d.getTime() === yesterday.getTime()) groups.Yesterday.push(r);
+      else if (d.getTime() > weekAgo.getTime()) groups['This week'].push(r);
+      else groups.Older.push(r);
+    }
+    return groups;
+  }
+
+  const groupedReports = groupReportsByDate(filteredReports);
+
+  const monthOptions = (() => {
+    const map = new Map();
+    for (const r of reports) {
+      const d = new Date(r.report_date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      if (!map.has(key)) map.set(key, { key, label, count: 0 });
+      map.get(key).count += 1;
+    }
+    return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
+  })();
+
+  const todayReports = groupedReports.Today.length;
+  const latestReport = reports[0];
+
   return (
     <div className="h-full flex flex-col">
       <Topbar
@@ -91,53 +158,135 @@ export function Reports() {
       />
 
       <div className="flex-1 overflow-y-auto pb-4 md:pb-8">
-        <div className="max-w-5xl w-full mx-auto px-4 md:px-8">
-          <Card padding="p-0" className="overflow-hidden">
-            {loading ? (
-              <PageLoader />
-            ) : reports.length === 0 ? (
+        <div className="max-w-5xl w-full mx-auto px-4 md:px-8 space-y-4">
+          {loading ? (
+            <PageLoader />
+          ) : reports.length === 0 ? (
+            <Card>
               <EmptyState
-              icon={<Icon.FileText width={36} height={36} />}
-              title="No reports yet"
-              description="Generate a report to get a summary of clinic activity."
-              action={
-                <Button
-                  onClick={() => {
-                    setModal({ open: true, date: todayISO(), type: 'daily' });
-                    setGenerated(null);
-                  }}
-                >
-                  <Icon.FileText width={16} height={16} /> Generate your first report
-                </Button>
-              }
-            />
+                icon={<Icon.FileText width={36} height={36} />}
+                title="No reports yet"
+                description="Generate a report to get a summary of clinic activity."
+                action={
+                  <Button
+                    onClick={() => {
+                      setModal({ open: true, date: todayISO(), type: 'daily' });
+                      setGenerated(null);
+                    }}
+                  >
+                    <Icon.FileText width={16} height={16} /> Generate your first report
+                  </Button>
+                }
+              />
+            </Card>
           ) : (
-            <ul className="divide-y divide-ink-100">
-              {reports.map((r) => (
-                <li
-                  key={r.id}
-                  className="p-5 flex items-center gap-4 hover:bg-ink-50/60 cursor-pointer transition-colors"
-                  onClick={() => openReport(r)}
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <SummaryCard title="Total Reports" value={reports.length} icon={Icon.FileText} accent="primary" />
+                <SummaryCard title="Reports Today" value={todayReports} icon={Icon.Report} accent="emerald" />
+                <SummaryCard
+                  title="Latest Report"
+                  value={latestReport ? formatDate(latestReport.report_date) : '—'}
+                  icon={Icon.Calendar}
+                  accent="ink"
+                />
+              </div>
+
+              {/* Month filter tabs */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setFilter('all')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    filter === 'all'
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'bg-white text-ink-600 border-ink-200 hover:bg-ink-50'
+                  }`}
                 >
-                  <div className="w-12 h-12 rounded-xl bg-primary-50 text-primary-600 inline-flex items-center justify-center flex-shrink-0">
-                    <Icon.Report />
+                  All reports
+                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${filter === 'all' ? 'bg-primary-500 text-white' : 'bg-ink-100 text-ink-600'}`}>
+                    {reports.length}
+                  </span>
+                </button>
+                {monthOptions.map((m) => {
+                  const active = filter === m.key;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => setFilter(m.key)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                        active
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'bg-white text-ink-600 border-ink-200 hover:bg-ink-50'
+                      }`}
+                    >
+                      {m.label}
+                      <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${active ? 'bg-primary-500 text-white' : 'bg-ink-100 text-ink-600'}`}>
+                        {m.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Grouped report list */}
+              <div className="space-y-4">
+                {Object.entries(groupedReports).map(([groupName, items]) =>
+                  items.length > 0 ? (
+                    <div key={groupName}>
+                      <h3 className="text-xs font-bold text-ink-400 uppercase tracking-wider mb-2 px-1">{groupName}</h3>
+                      <Card padding="p-0" className="overflow-hidden border border-ink-100">
+                        <ul className="divide-y divide-ink-100">
+                          {items.map((r) => (
+                            <li
+                              key={r.id}
+                              className="px-5 py-4 hover:bg-ink-50/50 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div className="w-10 h-10 rounded-lg bg-primary-50 text-primary-600 inline-flex items-center justify-center flex-shrink-0">
+                                    <Icon.Report width={18} height={18} />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="font-semibold text-ink-900">{formatDate(r.report_date)}</p>
+                                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                        r.report_type === 'daily'
+                                          ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                                          : r.report_type === 'weekly'
+                                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                          : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                      }`}>
+                                        {r.report_type}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-ink-500 mt-0.5">
+                                      {r.total_patients || 0} patient{r.total_patients === 1 ? '' : 's'} · Generated {formatDate(r.created_at)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <Button size="sm" variant="secondary" onClick={() => openReport(r)}>
+                                  View
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </Card>
+                    </div>
+                  ) : null
+                )}
+              </div>
+
+              {filteredReports.length === 0 && (
+                <Card>
+                  <div className="p-8 text-center text-ink-500">
+                    <p>No {filter === 'all' ? '' : filter} reports found.</p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-ink-900">
-                      Report for {formatDate(r.report_date)}
-                    </p>
-                    <p className="text-xs text-ink-500 capitalize">
-                      {r.report_type} · {r.total_patients || 0} patient
-                      {r.total_patients === 1 ? '' : 's'}
-                      {' · generated '}{formatDate(r.created_at)}
-                    </p>
-                  </div>
-                  <Icon.Chevron className="text-ink-400" />
-                </li>
-              ))}
-            </ul>
+                </Card>
+              )}
+            </>
           )}
-          </Card>
         </div>
       </div>
 

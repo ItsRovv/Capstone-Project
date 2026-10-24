@@ -43,7 +43,8 @@ export function ConsultationForm({
     plan: initial?.plan || '',
     diagnosis: initial?.diagnosis || '',
     prescription: initial?.prescription || '',
-    followUp: initial?.followUp || ''
+    followUp: initial?.followUp || '',
+    deliveryLocation: initial?.delivery_location || ''
   });
 
   const update = (k) => (e) => setStructured((s) => ({ ...s, [k]: e.target.value }));
@@ -118,6 +119,7 @@ export function ConsultationForm({
       plan: structured.plan || null,
       diagnosis: structured.diagnosis || null,
       prescription: structured.prescription || null,
+      delivery_location: structured.deliveryLocation === 'jlmc' ? 'jlmc' : null,
       ai_summary_used: false
     };
     onSubmit(payload);
@@ -227,6 +229,22 @@ export function ConsultationForm({
             className="focus:border-primary-400 focus:ring-primary-200"
           />
         </div>
+      </div>
+
+      {/* Delivery location */}
+      <div className="rounded-lg border border-ink-200 p-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={structured.deliveryLocation === 'jlmc'}
+            onChange={(e) => setStructured((s) => ({ ...s, deliveryLocation: e.target.checked ? 'jlmc' : '' }))}
+            className="w-5 h-5 mt-0.5 accent-primary-600"
+          />
+          <div>
+            <p className="text-sm font-medium text-ink-900">Plan to deliver at JLMC</p>
+            <p className="text-xs text-ink-500">Check this if the patient will give birth at Jean Lying-In Maternity Clinic for pregnancy tracking.</p>
+          </div>
+        </label>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

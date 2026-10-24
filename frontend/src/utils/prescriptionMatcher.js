@@ -31,7 +31,7 @@ export function matchPrescriptionToVitamins(prescriptionText) {
 
   for (const line of lines) {
     // Remove leading numbering like "1. " or "1) " or "Rx:"
-    const cleaned = line.replace(/^(\d+[\.\)]\s*|rx[:\s]*|[-•*]\s*)/i, '').trim().toLowerCase();
+    const cleaned = line.replace(/^(\d+[.)]\s*|rx[:\s]*|[-•*]\s*)/i, '').trim().toLowerCase();
 
     for (const [vitaminId, keywords] of Object.entries(KEYWORD_MAP)) {
       if (matchedIds.has(vitaminId)) continue; // avoid duplicates

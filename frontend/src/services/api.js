@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1',
+  baseURL: import.meta.env.PROD ? '/api/v1' : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'),
   timeout: 120000,
   // Send the httpOnly auth cookie on every same-origin (and credentialed cross-origin) request.
   // The browser handles the cookie automatically — no JS access required.

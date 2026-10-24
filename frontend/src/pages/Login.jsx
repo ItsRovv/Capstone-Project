@@ -5,9 +5,9 @@ import { useToast } from '../components/UI/Toast';
 import { Button } from '../components/UI/Button';
 import { Input } from '../components/UI/Input';
 import { JLMCLogo } from '../components/JLMCLogo';
-import { apiError } from '../services/api';
+import api, { apiError } from '../services/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE = api.defaults.baseURL;
 
 function GoogleIcon({ className }) {
   return (

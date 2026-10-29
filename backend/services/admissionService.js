@@ -73,6 +73,32 @@ function buildTransactionPayload({ items, packageOption, packageAmount }) {
   };
 }
 
+
+// Front-desk staff see who is admitted, the status and the billing items, but not clinical content.
+const CLINICAL_ADMISSION_FIELDS = [
+  'chief_complaint', 'admitting_diagnosis', 'bp', 'pulse', 'resp_rate', 'temperature',
+  'labor_notes', 'risk_flags', 'notes', 'consent_by'
+];
+
+function redactAdmission(a) {
+  if (!a) return a;
+  const out = { ...a };
+  for (const f of CLINICAL_ADMISSION_FIELDS) delete out[f];
+  return out;
+}
+
+function redactBundle(bundle) {
+  return {
+    ...bundle,
+    admission: redactAdmission(bundle.admission),
+    delivery: bundle.delivery && { id: bundle.delivery.id, delivered_at: bundle.delivery.delivered_at, babies: bundle.delivery.newborns?.length ?? 0 },
+    discharge: bundle.discharge && { id: bundle.discharge.id, discharged_at: bundle.discharge.discharged_at, disposition: bundle.discharge.disposition },
+    referral: bundle.referral && { id: bundle.referral.id, facility: bundle.referral.facility, referred_at: bundle.referral.referred_at },
+    followups: (bundle.followups || []).map(({ notes, ...rest }) => rest),
+    warnings: []
+  };
+}
+
 module.exports = {
   ACTIVE_STATUSES,
   TRANSITIONS,
@@ -83,5 +109,8 @@ module.exports = {
   checkMinStay,
   parseOffsets,
   followupDueDates,
-  buildTransactionPayload
+  buildTransactionPayload,
+  CLINICAL_ADMISSION_FIELDS,
+  redactAdmission,
+  redactBundle
 };

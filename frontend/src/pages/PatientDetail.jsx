@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useOutletContext, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card, CardHeader } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -10,6 +10,10 @@ import { useToast } from '../components/UI/Toast';
 import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
 import { pregnancyService } from '../services/pregnancyService';
+import { admissionService } from '../services/admissionService';
+import { StatusChip } from '../components/admission/StatusChip';
+import { AdmitModal } from '../components/admission/AdmitModal';
+import { canRecordClinical, isActiveStatus, timeAgo, useClinicOptions } from '../lib/admission';
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 import { ConsultationForm } from '../components/ConsultationForm';
@@ -53,6 +57,9 @@ export function PatientDetail() {
   const [patient, setPatient] = useState(null);
   const [consultations, setConsultations] = useState([]);
   const [pregnancies, setPregnancies] = useState([]);
+  const [admissions, setAdmissions] = useState([]);
+  const [admitOpen, setAdmitOpen] = useState(false);
+  const { byGroup } = useClinicOptions();
   const [loading, setLoading] = useState(true);
   const initialTab = searchParams.get('tab') || 'overview';
   const [tab, setTab] = useState(initialTab);
@@ -70,14 +77,16 @@ export function PatientDetail() {
   async function load() {
     setLoading(true);
     try {
-      const [p, c, pr] = await Promise.all([
+      const [p, c, pr, ad] = await Promise.all([
         patientService.get(id),
         consultationService.listForPatient(id).catch(() => []),
-        pregnancyService.listForPatient(id).catch(() => [])
+        pregnancyService.listForPatient(id).catch(() => []),
+        admissionService.forPatient(id).catch(() => [])
       ]);
       setPatient(p);
       setConsultations(c);
       setPregnancies(pr);
+      setAdmissions(ad);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load patient'));
     } finally {
@@ -106,8 +115,9 @@ export function PatientDetail() {
   async function handleNewConsult(payload) {
     setSubmitting(true);
     try {
-      await consultationService.create({ ...payload, patient_id: Number(id) });
+      const created = await consultationService.create({ ...payload, patient_id: Number(id) });
       toast.success('Consultation recorded');
+      if (created?.pregnancy_created) toast.info('Added to Pregnancy Tracking: she plans to deliver at JLMC.');
       setNewConsultOpen(false);
       load();
     } catch (err) {
@@ -189,6 +199,9 @@ export function PatientDetail() {
   }
 
   const age = patient.age || ageFromDob(patient.date_of_birth);
+  const showAdmissions = patient.sex?.toLowerCase() !== 'male';
+  const canAdmit = canRecordClinical(user?.role);
+  const activeAdmission = admissions.find((x) => isActiveStatus(x.status));
 
   return (
     <div className="h-full flex flex-col">
@@ -198,6 +211,16 @@ export function PatientDetail() {
         onMenuClick={onOpenMenu}
         right={
           <div className="flex gap-2">
+            {canAdmit && showAdmissions && !activeAdmission && (
+              <Button variant="secondary" onClick={() => setAdmitOpen(true)}>
+                <Icon.Heart width={16} height={16} /> <span className="hidden sm:inline">Admit</span>
+              </Button>
+            )}
+            {activeAdmission && (
+              <Link to={`/admissions/${activeAdmission.id}`}>
+                <Button variant="secondary"><Icon.Heart width={16} height={16} /> <span className="hidden sm:inline">Open admission</span></Button>
+              </Link>
+            )}
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               <Icon.Edit width={16} height={16} /> Edit
             </Button>
@@ -219,7 +242,7 @@ export function PatientDetail() {
         </Card>
 
         <div className="flex gap-2 border-b border-ink-100">
-          {['overview', ...(isStaff ? [] : ['consultations'])].map((t) => (
+          {['overview', ...(isStaff ? [] : ['consultations']), ...(showAdmissions ? ['admissions'] : [])].map((t) => (
             <button
               key={t}
               onClick={() => {
@@ -275,6 +298,38 @@ export function PatientDetail() {
               )}
             </div>
           </div>
+        )}
+
+        {tab === 'admissions' && showAdmissions && (
+          <Card padding="p-0" className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-ink-100">
+              <p className="font-semibold text-ink-900">
+                {admissions.length} stay{admissions.length === 1 ? '' : 's'} at the clinic
+              </p>
+              {canAdmit && !activeAdmission && (
+                <Button onClick={() => setAdmitOpen(true)}>
+                  <Icon.Plus width={16} height={16} /> Admit patient
+                </Button>
+              )}
+            </div>
+            {admissions.length === 0 ? (
+              <p className="px-6 py-10 text-sm text-ink-500 text-center">Not admitted before.</p>
+            ) : (
+              <ul className="divide-y divide-ink-100">
+                {admissions.map((a) => (
+                  <li key={a.id}>
+                    <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 hover:bg-ink-50/60">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-ink-900">{formatDateTime(a.admitted_at)}</p>
+                        <p className="text-xs text-ink-500 line-clamp-1">{a.chief_complaint || (isActiveStatus(a.status) ? `admitted ${timeAgo(a.admitted_at)}` : 'No reason recorded')}</p>
+                      </div>
+                      <StatusChip status={a.status} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         )}
 
         {tab === 'consultations' && (
@@ -363,6 +418,13 @@ export function PatientDetail() {
           submitting={submitting}
         />
       </Modal>
+
+      <AdmitModal
+        open={admitOpen}
+        onClose={() => { setAdmitOpen(false); load(); }}
+        patient={patient}
+        byGroup={byGroup}
+      />
 
       <Modal
         open={newPregnancyOpen}

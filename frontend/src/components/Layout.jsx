@@ -8,12 +8,14 @@ export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-cream">
-      <Header onOpenMenu={() => setMobileOpen(true)} />
+    <div className="h-screen flex flex-col overflow-hidden bg-cream print:h-auto print:overflow-visible">
+      <div className="print:hidden">
+        <Header onOpenMenu={() => setMobileOpen(true)} />
+      </div>
 
-      <div className="flex-1 min-h-0 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden print:block print:overflow-visible">
         {/* Desktop sidebar */}
-        <div className="hidden md:block flex-shrink-0 h-full overflow-hidden">
+        <div className="hidden md:block flex-shrink-0 h-full overflow-hidden print:hidden">
           <Sidebar />
         </div>
 
@@ -31,7 +33,7 @@ export function Layout() {
           </div>
         )}
 
-        <div className="flex-1 min-w-0 h-full overflow-y-auto">
+        <div className="flex-1 min-w-0 h-full overflow-y-auto print:h-auto print:overflow-visible">
           <DbStatusBanner />
           <Outlet context={{ onOpenMenu: () => setMobileOpen(true) }} />
         </div>

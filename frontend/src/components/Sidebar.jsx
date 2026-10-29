@@ -5,24 +5,27 @@ import { queueService } from '../services/queueService';
 import { Icon } from './Icon';
 
 const STAFF_NAV = [
-  { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
-  { to: '/patients', label: 'Patients', icon: Icon.Users },
-  { to: '/consultations', label: 'Daily Queue', icon: Icon.Stethoscope },
-  { to: '/consultation-transactions', label: 'Transactions', icon: Icon.FileText },
-  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
+  { to: '/', label: 'Dashboard', end: true },
+  { to: '/patients', label: 'Patients' },
+  { to: '/consultations', label: 'Daily Queue' },
+  { to: '/consultation-transactions', label: 'Transactions' },
+  { to: '/admissions', label: 'Admissions' },
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
 ];
 
 const DOCTOR_NAV = [
-  { to: '/', label: 'Dashboard', icon: Icon.Dashboard, end: true },
-  { to: '/patients', label: 'Patients', icon: Icon.Users },
-  { to: '/doctor/consultations', label: 'Consultation', icon: Icon.Stethoscope },
-  { to: '/consultation-transactions', label: 'Transactions', icon: Icon.FileText },
-  { to: '/reports', label: 'Reports', icon: Icon.Report },
-  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking', icon: Icon.Clipboard }
+  { to: '/', label: 'Dashboard', end: true },
+  { to: '/patients', label: 'Patients' },
+  { to: '/doctor/consultations', label: 'Consultation' },
+  { to: '/consultation-transactions', label: 'Transactions' },
+  { to: '/admissions', label: 'Admissions' },
+  { to: '/reports', label: 'Reports' },
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
 ];
 
 const ADMIN_NAV = [
-  { to: '/admin/users', label: 'Manage Users', icon: Icon.User }
+  { to: '/admin/settings', label: 'Clinic Settings' },
+  { to: '/admin/users', label: 'Manage Users' }
 ];
 
 function getNavItems(role) {
@@ -58,12 +61,11 @@ export function Sidebar({ onClose }) {
         </div>
       )}
 
-      <nav className="flex-1 px-2.5 py-4 space-y-0.5">
+      <nav className="flex-1 px-2.5 py-3">
         {navItems.map((item) => {
-          const IconComp = item.icon;
           return (
+            <div key={item.to} className="py-1 border-b border-primary-800 last:border-b-0">
             <NavLink
-              key={item.to}
               to={item.to}
               end={item.end}
               onClick={onClose}
@@ -76,7 +78,6 @@ export function Sidebar({ onClose }) {
                  }`
               }
             >
-              <IconComp width={18} height={18} />
               <span className="flex-1">{item.label}</span>
               {item.to === '/consultations' && queueCount > 0 && (
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
@@ -84,6 +85,7 @@ export function Sidebar({ onClose }) {
                 </span>
               )}
             </NavLink>
+            </div>
           );
         })}
       </nav>
@@ -93,7 +95,6 @@ export function Sidebar({ onClose }) {
           onClick={logout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-primary-100/80 hover:bg-primary-800 hover:text-white transition-colors"
         >
-          <Icon.Logout width={18} height={18} />
           <span>Sign out</span>
         </button>
       </div>

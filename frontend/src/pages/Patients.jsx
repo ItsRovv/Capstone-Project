@@ -11,6 +11,10 @@ import { useToast } from '../components/UI/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { patientService } from '../services/patientService';
 import { queueService } from '../services/queueService';
+import { admissionService } from '../services/admissionService';
+import { StatusChip } from '../components/admission/StatusChip';
+import { AdmitModal } from '../components/admission/AdmitModal';
+import { canRecordClinical, useClinicOptions } from '../lib/admission';
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 
@@ -50,6 +54,10 @@ export function Patients() {
   const [deleting, setDeleting] = useState(false);
   const [queueMap, setQueueMap] = useState(new Map());
   const [addingQueue, setAddingQueue] = useState(null);
+  const [admitMap, setAdmitMap] = useState(new Map());
+  const [admitTarget, setAdmitTarget] = useState(null);
+  const { byGroup } = useClinicOptions();
+  const canAdmit = canRecordClinical(user?.role);
 
   const LIMIT = 50;
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -57,14 +65,16 @@ export function Patients() {
   async function load(q = search, p = page) {
     setLoading(true);
     try {
-      const [res, queueRes] = await Promise.all([
+      const [res, queueRes, admittedRes] = await Promise.all([
         patientService.list(q, { page: p, limit: LIMIT }),
-        queueService.listToday().catch(() => [])
+        queueService.listToday().catch(() => []),
+        admissionService.current().catch(() => [])
       ]);
       setPatients(res.data || []);
       setTotal(res.total || 0);
       const qMap = new Map((queueRes || []).map((qe) => [qe.patient_id, qe]));
       setQueueMap(qMap);
+      setAdmitMap(new Map((admittedRes || []).map((a) => [a.patient_id, a])));
     } catch (err) {
       toast.error(apiError(err, 'Failed to load patients'));
     } finally {
@@ -153,6 +163,8 @@ export function Patients() {
   }
 
   function renderStatus(p) {
+    // Being admitted is the more important state, so it wins over the queue badge.
+    if (admitMap.has(p.id)) return <StatusChip status={admitMap.get(p.id).status} className="!text-xs !px-2 !py-1 !rounded-md" />;
     if (!queueMap.has(p.id)) return <span className="text-xs text-ink-400">—</span>;
     const q = queueMap.get(p.id);
     const isDone = q.status === 'done' || q.status === 'skipped';
@@ -280,7 +292,7 @@ export function Patients() {
                             </p>
                           </div>
                         </Link>
-                        {queueMap.has(p.id) && <div className="mt-1.5 sm:hidden">{renderStatus(p)}</div>}
+                        {(queueMap.has(p.id) || admitMap.has(p.id)) && <div className="mt-1.5 sm:hidden">{renderStatus(p)}</div>}
                       </td>
                       <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">
                         {p.age || ageFromDob(p.date_of_birth) || '—'}
@@ -311,6 +323,26 @@ export function Patients() {
                             >
                               <Icon.Clipboard width={14} height={14} />
                             </Button>
+                          )}
+                          {!isConsultMode && canAdmit && p.sex !== 'Male' && (
+                            admitMap.has(p.id) ? (
+                              <Link to={`/admissions/${admitMap.get(p.id).id}`} aria-label="Open admission" title="Open admission">
+                                <Button variant="ghost" size="sm" className="text-rose-600 hover:!bg-rose-50">
+                                  <Icon.Heart width={14} height={14} />
+                                </Button>
+                              </Link>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setAdmitTarget(p)}
+                                className="text-rose-600 hover:!text-rose-700 hover:!bg-rose-50"
+                                title="Admit patient"
+                                aria-label="Admit patient"
+                              >
+                                <Icon.Plus width={14} height={14} /><Icon.Heart width={14} height={14} />
+                              </Button>
+                            )
                           )}
                           <Link to={`/patients/${p.id}`}>
                             <Button variant="ghost" size="sm">
@@ -414,6 +446,13 @@ export function Patients() {
           ?
         </p>
       </Modal>
+
+      <AdmitModal
+        open={Boolean(admitTarget)}
+        onClose={() => { setAdmitTarget(null); load(); }}
+        patient={admitTarget}
+        byGroup={byGroup}
+      />
     </div>
   );
 }

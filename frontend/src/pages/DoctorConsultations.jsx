@@ -149,6 +149,7 @@ export function DoctorConsultations() {
         patient_id: currentServing.patient_id
       });
       const consultationId = consultResult?.id || null;
+      if (consultResult?.pregnancy_created) toast.info('Added to Pregnancy Tracking: she plans to deliver at JLMC.');
 
       // 2. Mark queue done
       await queueService.updateStatus(currentServing.id, 'done');

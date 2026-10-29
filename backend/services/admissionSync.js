@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
+const Pregnancy = require('../models/Pregnancy');
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -27,4 +28,17 @@ async function onDelivered(admission, delivery) {
   await PregnancyTrackingForm.update(key, rows);
 }
 
-module.exports = { onDelivered, trackingKey };
+// "Plan to deliver at JLMC" ticked in a consultation: make sure the patient has an
+// ongoing pregnancy record so she shows up in pregnancy tracking. Returns the new
+// pregnancy id, or null when she already had one.
+async function ensurePregnancyForJlmcDelivery(patientId) {
+  const existing = await Pregnancy.findByPatientId(patientId);
+  if (existing.some((p) => p.status === 'Ongoing')) return null;
+  return Pregnancy.create(patientId, {
+    status: 'Ongoing',
+    first_visit_date: new Date().toISOString().slice(0, 10),
+    notes: 'Added automatically: plans to deliver at JLMC (from consultation).'
+  });
+}
+
+module.exports = { onDelivered, trackingKey, ensurePregnancyForJlmcDelivery };

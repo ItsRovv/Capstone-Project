@@ -10,7 +10,9 @@ import { useToast } from '../components/UI/Toast';
 import { Input } from '../components/UI/Input';
 import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
-import { pregnancyService } from '../services/pregnancyService';
+import { admissionService } from '../services/admissionService';
+import { StatusChip } from '../components/admission/StatusChip';
+import { followupState, formatDay, timeAgo } from '../lib/admission';
 import { reportService } from '../services/reportService';
 import { consultationTransactionService } from '../services/consultationTransactionService';
 import { queueService } from '../services/queueService';
@@ -85,19 +87,22 @@ export function Dashboard() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(null);
   const [quickDischargeOpen, setQuickDischargeOpen] = useState(false);
-  const [quickSaving, setQuickSaving] = useState(null);
+  const [admitted, setAdmitted] = useState([]);
+  const [followups, setFollowups] = useState([]);
 
   async function load() {
     setLoading(true);
     try {
-      const [patientsRes, reports, active, todayRes, recent, transactions, queueRes] = await Promise.all([
+      const [patientsRes, reports, active, todayRes, recent, transactions, queueRes, admittedRes, followupRes] = await Promise.all([
         patientService.list('', { page: 1, limit: 50 }),
         reportService.list(),
         patientService.active().catch(() => []),
         consultationService.today().catch(() => ({ count: 0 })),
         consultationService.recent(8).catch(() => []),
         consultationTransactionService.listAll().catch(() => []),
-        queueService.listToday().catch(() => [])
+        queueService.listToday().catch(() => []),
+        admissionService.current().catch(() => []),
+        admissionService.followups('pending').catch(() => [])
       ]);
 
       const patientTotal = patientsRes.total ?? patientsRes.data?.length ?? 0;
@@ -113,6 +118,8 @@ export function Dashboard() {
       setTodayConsults([]);
       setRecentConsultations(recent);
       setQueue(queueRes || []);
+      setAdmitted(admittedRes || []);
+      setFollowups(followupRes || []);
     } catch (err) {
       toast.error(apiError(err, 'Failed to load dashboard'));
     } finally {
@@ -136,19 +143,6 @@ export function Dashboard() {
       toast.error(apiError(err, 'Report generation failed'));
     } finally {
       setGenerating(false);
-    }
-  }
-
-  async function handleQuickDischarge(patientId, pregnancyId, status) {
-    setQuickSaving(pregnancyId);
-    try {
-      await pregnancyService.update(patientId, pregnancyId, { status });
-      toast.success(`Status updated to ${status}`);
-      load();
-    } catch (err) {
-      toast.error(apiError(err, 'Could not update status'));
-    } finally {
-      setQuickSaving(null);
     }
   }
 
@@ -250,7 +244,7 @@ export function Dashboard() {
                         <Icon.Clipboard />
                       </div>
                       <p className="font-medium text-ink-900">Quick discharge</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Update pregnancy status</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Send a patient home</p>
                     </div>
                   </button>
                 </div>
@@ -362,6 +356,68 @@ export function Dashboard() {
               )}
             </div>
 
+            {/* In the clinic now + follow-ups due */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-lg border border-ink-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-ink-800">In the clinic now</h2>
+                    <p className="text-xs text-ink-500">Patients currently admitted</p>
+                  </div>
+                  <Link to="/admissions" className="text-xs font-medium text-primary-700 hover:text-primary-800">View all</Link>
+                </div>
+                {admitted.length === 0 ? (
+                  <div className="text-sm text-ink-500 py-6 text-center">No one is admitted right now.</div>
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {admitted.slice(0, 5).map((a) => (
+                      <li key={a.id}>
+                        <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60 px-2 rounded-lg">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink-900 break-words">{a.first_name} {a.last_name}</p>
+                            <p className="text-xs text-ink-500">admitted {timeAgo(a.admitted_at)}</p>
+                          </div>
+                          <StatusChip status={a.status} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="bg-white rounded-lg border border-ink-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-ink-800">Follow-up visits</h2>
+                    <p className="text-xs text-ink-500">Check-ups after going home</p>
+                  </div>
+                  <Link to="/admissions?tab=followups" className="text-xs font-medium text-primary-700 hover:text-primary-800">View all</Link>
+                </div>
+                {followups.length === 0 ? (
+                  <div className="text-sm text-ink-500 py-6 text-center">No follow-ups waiting.</div>
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {followups.slice(0, 5).map((f) => {
+                      const overdue = followupState(f) === 'overdue';
+                      return (
+                        <li key={f.id}>
+                          <Link to="/admissions?tab=followups" className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60 px-2 rounded-lg">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-ink-900 break-words">{f.first_name} {f.last_name}</p>
+                              <p className="text-xs text-ink-500">due {formatDay(f.due_at)}</p>
+                            </div>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${overdue ? 'bg-red-50 text-red-700' : 'bg-sky-50 text-sky-700'}`}>
+                              {overdue ? 'Overdue' : 'Coming up'}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+
             {/* Today's schedule — active patients grid */}
             <div className="bg-white rounded-lg border border-ink-200 p-4">
               <div className="flex items-center justify-between mb-3">
@@ -440,31 +496,20 @@ export function Dashboard() {
         title="Quick discharge"
         size="md"
       >
-        {activePatients.length === 0 ? (
-          <div className="text-sm text-ink-500 py-8 text-center">
-            No active patients to discharge.
-          </div>
+        {admitted.length === 0 ? (
+          <div className="text-sm text-ink-500 py-8 text-center">No one is admitted right now.</div>
         ) : (
           <ul className="divide-y divide-ink-100">
-            {activePatients.map((p) => (
-              <li key={p.id} className="py-3 flex items-center justify-between gap-4">
+            {admitted.map((a) => (
+              <li key={a.id} className="py-3 flex items-center justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-ink-900 truncate">
-                    {p.first_name} {p.last_name}
-                  </p>
-                  <p className="text-xs text-ink-500 truncate">
-                    {p.trimester || '—'} · {p.weeks || '—'}
-                  </p>
+                  <p className="font-medium text-ink-900 break-words">{a.first_name} {a.last_name}</p>
+                  <p className="text-xs text-ink-500">admitted {timeAgo(a.admitted_at)}</p>
                 </div>
-                <select
-                  value={p.pregnancy_status || p.status || 'Ongoing'}
-                  onChange={(e) => handleQuickDischarge(p.id, p.pregnancy_id || p.id, e.target.value)}
-                  disabled={quickSaving === (p.pregnancy_id || p.id)}
-                  className="text-sm font-medium rounded-lg px-2 py-1 border outline-none focus:ring-2 focus:ring-primary-300 cursor-pointer appearance-none text-emerald-700 bg-emerald-50 border-emerald-200"
-                >
-                  <option value="Ongoing">Ongoing</option>
-                  <option value="Completed">Completed</option>
-                </select>
+                <StatusChip status={a.status} />
+                <Link to={`/admissions/${a.id}?step=discharge`} onClick={() => setQuickDischargeOpen(false)}>
+                  <Button size="sm" variant="secondary">Discharge</Button>
+                </Link>
               </li>
             ))}
           </ul>

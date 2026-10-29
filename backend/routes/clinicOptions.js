@@ -20,12 +20,13 @@ function audit(req, action, recordId, oldData, newData, tableName) {
 
 const bad = (res, error) => res.status(400).json({ message: error.details?.[0]?.message || error.message });
 
-// Everyone on staff can read the lists (forms need them). Only the admin sees hidden ones.
+// Everyone on staff can read the lists (forms need them). Hidden choices are returned only
+// when asked (?all=1) so old records can still show the wording they were saved with.
 router.get('/options', requireStaff, async (req, res) => {
   try {
     const { group } = req.query;
     if (group && !OPTION_GROUPS.includes(group)) return res.status(400).json({ message: 'Unknown list' });
-    const includeInactive = req.query.all === '1' && req.user.role === 'admin';
+    const includeInactive = req.query.all === '1';
     res.json(await ClinicOption.list({ group, includeInactive }));
   } catch (err) { routeError(res, err); }
 });

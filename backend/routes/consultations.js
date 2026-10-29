@@ -11,6 +11,7 @@ const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
 const { requireStaff } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
+const { ensurePregnancyForJlmcDelivery } = require('../services/admissionSync');
 
 // Clinic staff only.
 router.use(auth, requireStaff);
@@ -108,7 +109,28 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
       newData: value,
       ipAddress: req.ip
     });
-    res.status(201).json({ id: consultationId, message: 'Consultation created successfully' });
+
+    // Best-effort: never fail a saved consultation because of this follow-up step.
+    let pregnancyCreated = false;
+    if (value.delivery_location === 'jlmc') {
+      try {
+        const pregnancyId = await ensurePregnancyForJlmcDelivery(value.patient_id);
+        if (pregnancyId) {
+          pregnancyCreated = true;
+          await AuditLog.create({
+            userId: req.user?.id, action: 'CREATE', tableName: 'pregnancies', recordId: pregnancyId,
+            newData: { patient_id: value.patient_id, source: 'consultation_jlmc_delivery' }, ipAddress: req.ip
+          });
+        }
+      } catch (e) {
+        console.warn('[consultations] could not add pregnancy record:', e.message);
+      }
+    }
+    res.status(201).json({
+      id: consultationId,
+      pregnancy_created: pregnancyCreated,
+      message: 'Consultation created successfully'
+    });
   } catch (err) {
     routeError(res, err);
   }

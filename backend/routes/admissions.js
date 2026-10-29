@@ -28,6 +28,7 @@ function audit(req, action, recordId, oldData, newData, tableName = 'admissions'
   }).catch((e) => console.warn('[audit] failed:', e.message));
 }
 
+const isFrontDesk = (req) => req.user?.role === 'staff';
 const bad = (res, error) => res.status(400).json({ message: error.details?.[0]?.message || error.message });
 
 // Loads :id into req.admission. Records of finished stays are locked for non-admins.
@@ -53,7 +54,8 @@ function loadAdmission({ allowLockedFor = [] } = {}) {
 // ── Lists ─────────────────────────────────────────────────────────────────
 router.get('/current', async (req, res) => {
   try {
-    res.json(await Admission.listActive());
+    const rows = await Admission.listActive();
+    res.json(isFrontDesk(req) ? rows.map(svc.redactAdmission) : rows);
   } catch (err) { routeError(res, err); }
 });
 
@@ -84,12 +86,13 @@ router.post('/followups/:id/done', requireClinical, async (req, res) => {
 
 router.get('/patient/:patientId', async (req, res) => {
   try {
-    res.json(await Admission.list({ patientId: req.params.patientId }));
+    const rows = await Admission.list({ patientId: req.params.patientId });
+    res.json(isFrontDesk(req) ? rows.map(svc.redactAdmission) : rows);
   } catch (err) { routeError(res, err); }
 });
 
 // Everything we already know about the patient, so staff do not retype it.
-router.get('/prefill/:patientId', async (req, res) => {
+router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.patientId);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
@@ -123,7 +126,8 @@ router.get('/', async (req, res) => {
   try {
     const { status, month, patient_id: patientId } = req.query;
     if (month && !MONTH_RE.test(month)) return res.status(400).json({ message: 'month must look like 2026-10' });
-    res.json(await Admission.list({ status, month, patientId }));
+    const rows = await Admission.list({ status, month, patientId });
+    res.json(isFrontDesk(req) ? rows.map(svc.redactAdmission) : rows);
   } catch (err) { routeError(res, err); }
 });
 
@@ -171,10 +175,11 @@ router.get('/:id', loadAdmission(), async (req, res) => {
         message: `Only ${stay.hoursStayed} hour(s) since delivery. The usual minimum stay is ${stay.requiredHours} hours.`
       });
     }
-    res.json({
+    const bundle = {
       admission: a, delivery, items, itemsTotal: svc.itemsTotal(items), discharge, followups, referral,
       warnings, locked: !svc.isActiveStatus(a.status)
-    });
+    };
+    res.json(isFrontDesk(req) ? svc.redactBundle(bundle) : bundle);
   } catch (err) { routeError(res, err); }
 });
 

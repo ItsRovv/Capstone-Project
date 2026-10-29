@@ -14,6 +14,9 @@ import { DoctorConsultations } from './pages/DoctorConsultations';
 import { Reports } from './pages/Reports';
 import { PregnancyTrackingForm } from './pages/PregnancyTrackingForm';
 import { ManageUsers } from './pages/ManageUsers';
+import { Admissions } from './pages/Admissions';
+import { AdmissionDetail } from './pages/AdmissionDetail';
+import { ClinicSettings } from './pages/ClinicSettings';
 import { NotFound } from './pages/NotFound';
 
 export default function App() {
@@ -84,6 +87,16 @@ export default function App() {
           }
         />
         <Route path="pregnancy-tracking" element={<PregnancyTrackingForm />} />
+        <Route path="admissions" element={<Admissions />} />
+        <Route path="admissions/:id" element={<AdmissionDetail />} />
+        <Route
+          path="admin/settings"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <ClinicSettings />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="admin/users"
           element={

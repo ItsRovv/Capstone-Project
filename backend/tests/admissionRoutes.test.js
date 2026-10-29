@@ -6,15 +6,21 @@ process.env.JWT_SECRET = 'test-secret';
 jest.mock('../models/Admission');
 jest.mock('../models/ClinicOption');
 jest.mock('../models/Consultation');
+jest.mock('../models/Queue');
 jest.mock('../models/Patient');
 jest.mock('../models/Pregnancy');
 jest.mock('../models/ConsultationTransaction');
 jest.mock('../models/AuditLog');
-jest.mock('../services/admissionSync', () => ({ onDelivered: jest.fn().mockResolvedValue() }));
+jest.mock('../services/admissionSync', () => ({
+  ...jest.requireActual('../services/admissionSync'),
+  onDelivered: jest.fn().mockResolvedValue()
+}));
 
 const Admission = require('../models/Admission');
 const ClinicOption = require('../models/ClinicOption');
 const Patient = require('../models/Patient');
+const Consultation = require('../models/Consultation');
+const Queue = require('../models/Queue');
 const Pregnancy = require('../models/Pregnancy');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
@@ -64,11 +70,11 @@ describe('who can do what', () => {
     expect((await as('admin', 'post', '/clinic/options').send({ option_group: 'item', label: 'Gloves', price: 12 })).status).toBe(201);
   });
 
-  test('hidden list choices are only returned to the administrator', async () => {
+  test('hidden list choices are only returned when asked for, so old records keep their wording', async () => {
     ClinicOption.list.mockResolvedValue([]);
-    await as('nurse', 'get', '/clinic/options?group=item&all=1');
+    await as('nurse', 'get', '/clinic/options?group=item');
     expect(ClinicOption.list).toHaveBeenLastCalledWith({ group: 'item', includeInactive: false });
-    await as('admin', 'get', '/clinic/options?group=item&all=1');
+    await as('nurse', 'get', '/clinic/options?group=item&all=1');
     expect(ClinicOption.list).toHaveBeenLastCalledWith({ group: 'item', includeInactive: true });
   });
 });
@@ -185,5 +191,76 @@ describe('items used -> transactions', () => {
     Admission.findById.mockResolvedValue(stay({ philhealth_package: null }));
     Admission.listItems.mockResolvedValue([]);
     expect((await as('nurse', 'post', '/admissions/10/transaction')).status).toBe(400);
+  });
+});
+
+describe('front-desk privacy', () => {
+  const full = stay({ chief_complaint: 'Contractions', admitting_diagnosis: 'Term in labor', bp: '110/70', labor_notes: 'x', risk_flags: ['diabetes'], notes: 'n' });
+
+  test('staff see status and billing but no clinical content', async () => {
+    Admission.findById.mockResolvedValue(full);
+    Admission.getDelivery.mockResolvedValue({ id: 1, delivered_at: new Date(), complications: 'secret', newborns: [{ notes: 'secret' }] });
+    Admission.listItems.mockResolvedValue([{ id: 1, label: 'Room', unit_price: '500', quantity: '1' }]);
+    Admission.getDischarge.mockResolvedValue(null);
+    Admission.listFollowupsForAdmission.mockResolvedValue([{ id: 1, notes: 'secret', due_at: new Date() }]);
+    Admission.getReferral.mockResolvedValue(null);
+
+    const staff = await as('staff', 'get', '/admissions/10');
+    expect(staff.status).toBe(200);
+    const text = JSON.stringify(staff.body);
+    for (const secret of ['Contractions', 'Term in labor', '110/70', 'secret', 'diabetes']) expect(text).not.toContain(secret);
+    expect(staff.body.admission).toMatchObject({ id: 10, status: 'admitted', first_name: 'Maria' });
+    expect(staff.body.itemsTotal).toBe(500);
+    expect(staff.body.delivery.babies).toBe(1);
+
+    const nurse = await as('nurse', 'get', '/admissions/10');
+    expect(JSON.stringify(nurse.body)).toContain('Term in labor');
+  });
+
+  test('lists hide clinical fields from staff; prefill is clinical-only', async () => {
+    Admission.listActive.mockResolvedValue([full]);
+    const list = await as('staff', 'get', '/admissions/current');
+    expect(list.body[0].chief_complaint).toBeUndefined();
+    expect(list.body[0].first_name).toBe('Maria');
+    expect((await as('staff', 'get', '/admissions/prefill/1')).status).toBe(403);
+  });
+});
+
+describe('consultation: plan to deliver at JLMC', () => {
+  const post = (body, role = 'doctor') => as(role, 'post', '/consultations').send({ patient_id: 1, ...body });
+
+  beforeEach(() => {
+    Patient.findById.mockResolvedValue({ id: 1 });
+    Consultation.create.mockResolvedValue(30);
+    Queue.findByPatientToday.mockResolvedValue(null);
+  });
+
+  test('adds an ongoing pregnancy once, so she shows up in pregnancy tracking', async () => {
+    Pregnancy.findByPatientId.mockResolvedValue([]);
+    Pregnancy.create.mockResolvedValue(9);
+    const res = await post({ delivery_location: 'jlmc' });
+    expect(res.status).toBe(201);
+    expect(res.body.pregnancy_created).toBe(true);
+    expect(Pregnancy.create).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'Ongoing' }));
+  });
+
+  test('does not create a second pregnancy when one is already ongoing', async () => {
+    Pregnancy.findByPatientId.mockResolvedValue([{ id: 2, status: 'Ongoing' }]);
+    const res = await post({ delivery_location: 'jlmc' });
+    expect(res.body.pregnancy_created).toBe(false);
+    expect(Pregnancy.create).not.toHaveBeenCalled();
+  });
+
+  test('does nothing when the box is not ticked', async () => {
+    const res = await post({});
+    expect(res.body.pregnancy_created).toBe(false);
+    expect(Pregnancy.findByPatientId).not.toHaveBeenCalled();
+  });
+
+  test('a failure here never loses the saved consultation', async () => {
+    Pregnancy.findByPatientId.mockRejectedValue(new Error('db hiccup'));
+    const res = await post({ delivery_location: 'jlmc' });
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe(30);
   });
 });

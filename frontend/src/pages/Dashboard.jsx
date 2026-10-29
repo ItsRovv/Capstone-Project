@@ -12,7 +12,7 @@ import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
 import { admissionService } from '../services/admissionService';
 import { StatusChip } from '../components/admission/StatusChip';
-import { followupState, formatDay, timeAgo } from '../lib/admission';
+import { followupState, formatDay, timeAgo, useWard } from '../lib/admission';
 import { reportService } from '../services/reportService';
 import { consultationTransactionService } from '../services/consultationTransactionService';
 import { queueService } from '../services/queueService';
@@ -87,6 +87,7 @@ export function Dashboard() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(null);
   const [quickDischargeOpen, setQuickDischargeOpen] = useState(false);
+  const { ward } = useWard();
   const [admitted, setAdmitted] = useState([]);
   const [followups, setFollowups] = useState([]);
 
@@ -361,8 +362,10 @@ export function Dashboard() {
               <div className="bg-white rounded-lg border border-ink-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h2 className="text-sm font-semibold text-ink-800">In the clinic now</h2>
-                    <p className="text-xs text-ink-500">Patients currently admitted</p>
+                    <h2 className="text-sm font-semibold text-ink-800">In the {(ward?.name || 'ward').toLowerCase()}</h2>
+                    <p className="text-xs text-ink-500">
+                      {ward ? `${ward.totalBeds - ward.freeBeds.length} of ${ward.totalBeds} beds in use` : 'Patients currently admitted'}
+                    </p>
                   </div>
                   <Link to="/admissions" className="text-xs font-medium text-primary-700 hover:text-primary-800">View all</Link>
                 </div>
@@ -375,7 +378,7 @@ export function Dashboard() {
                         <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60 px-2 rounded-lg">
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-ink-900 break-words">{a.first_name} {a.last_name}</p>
-                            <p className="text-xs text-ink-500">admitted {timeAgo(a.admitted_at)}</p>
+                            <p className="text-xs text-ink-500">{a.bed_number ? `Bed ${a.bed_number} · ` : ''}admitted {timeAgo(a.admitted_at)}</p>
                           </div>
                           <StatusChip status={a.status} />
                         </Link>

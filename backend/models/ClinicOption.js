@@ -67,7 +67,7 @@ class ClinicOption {
   }
 
   static async getSettings() {
-    const [rows] = await db.execute('SELECT setting_key, setting_value, description FROM clinic_settings ORDER BY id', []);
+    const [rows] = await db.execute("SELECT setting_key, setting_value, description FROM clinic_settings WHERE setting_key NOT LIKE 'migr\_%' ORDER BY id", []);
     return rows;
   }
 

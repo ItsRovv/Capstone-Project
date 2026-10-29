@@ -14,7 +14,7 @@ import { StepDischarge } from '../components/admission/StepDischarge';
 import { PrintSummary } from '../components/admission/PrintSummary';
 import { admissionService } from '../services/admissionService';
 import { apiError } from '../services/api';
-import { canRecordClinical, formatDateTime, timeAgo, useClinicOptions } from '../lib/admission';
+import { canRecordClinical, formatDateTime, timeAgo, useClinicOptions, useWard } from '../lib/admission';
 
 const STEPS = [
   { key: 'admission', label: 'Admit' },
@@ -39,6 +39,7 @@ export function AdmissionDetail() {
   const { user } = useAuth();
   const toast = useToast();
   const { byGroup, labelFor, loading: optionsLoading } = useClinicOptions();
+  const { ward, reload: reloadWard } = useWard();
 
   const [detail, setDetail] = useState(null);
   const [missing, setMissing] = useState(false);
@@ -116,7 +117,11 @@ export function AdmissionDetail() {
     }
   }
 
-  const saveAdmission = () => run('admission', () => admissionService.update(id, formToPayload(form)), 'Admission details saved');
+  const saveAdmission = async () => {
+    const res = await run('admission', () => admissionService.update(id, formToPayload(form)), 'Admission details saved');
+    reloadWard();
+    return res;
+  };
   const markInLabor = () => run('labor', () => admissionService.markInLabor(id), 'Marked as in labor');
   const saveDelivery = () => {
     if (!draft.delivered_at) return toast.error('Please enter the date and time of birth.');
@@ -128,7 +133,7 @@ export function AdmissionDetail() {
       <div className="print:hidden flex-shrink-0">
         <Topbar
           title={`${admission.first_name} ${admission.last_name}`}
-          subtitle={`Admitted ${formatDateTime(admission.admitted_at)} · ${timeAgo(admission.admitted_at)}`}
+          subtitle={`${admission.bed_number ? `Bed ${admission.bed_number} · ` : ''}Admitted ${formatDateTime(admission.admitted_at)} · ${timeAgo(admission.admitted_at)}`}
           onMenuClick={onOpenMenu}
           right={<StatusChip status={admission.status} className="!text-sm !px-3 !py-1" />}
         />
@@ -185,7 +190,10 @@ export function AdmissionDetail() {
           {step === 'admission' && (
             <Card>
               <h3 className="text-base sm:text-lg font-semibold text-ink-900 mb-4">Admission details</h3>
-              <AdmissionFields form={form} setForm={setForm} byGroup={byGroup} disabled={!canEdit} />
+              <AdmissionFields
+                form={form} setForm={setForm} byGroup={byGroup} disabled={!canEdit}
+                ward={detail.locked ? null : ward} currentAdmissionId={admission.id}
+              />
               {canEdit && (
                 <div className="mt-5 flex justify-end">
                   <Button onClick={saveAdmission} loading={saving === 'admission'}>Save changes</Button>
@@ -205,7 +213,7 @@ export function AdmissionDetail() {
           )}
           {step === 'items' && (
             <StepItems
-              admission={admission} items={items} itemsTotal={detail.itemsTotal} byGroup={byGroup}
+              admission={admission} items={items} itemsTotal={detail.itemsTotal} bed={detail.bed} grandTotal={detail.grandTotal} byGroup={byGroup}
               canEdit={canEditItems} onChanged={() => load()}
             />
           )}

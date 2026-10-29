@@ -4,6 +4,7 @@ const data = (r) => r.data;
 
 export const admissionService = {
   current: () => api.get('/admissions/current').then(data),
+  ward: () => api.get('/admissions/ward').then(data),
   list: (params = {}) => api.get('/admissions', { params }).then(data),
   forPatient: (patientId) => api.get(`/admissions/patient/${patientId}`).then(data),
   prefill: (patientId) => api.get(`/admissions/prefill/${patientId}`).then(data),

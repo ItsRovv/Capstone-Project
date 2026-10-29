@@ -7,11 +7,11 @@ import { Icon } from '../Icon';
 import { useToast } from '../UI/Toast';
 import { admissionService } from '../../services/admissionService';
 import { apiError } from '../../services/api';
-import { formatDateTime, peso } from '../../lib/admission';
+import { formatDateTime, nightsText, peso } from '../../lib/admission';
 
 const CATEGORY_LABELS = { medicine: 'Medicines', supply: 'Supplies', service: 'Services and fees' };
 
-export function StepItems({ admission, items, itemsTotal, byGroup, canEdit, onChanged }) {
+export function StepItems({ admission, items, itemsTotal, bed, grandTotal, byGroup, canEdit, onChanged }) {
   const toast = useToast();
   const [qty, setQty] = useState('1');
   const [busy, setBusy] = useState(false);
@@ -138,8 +138,19 @@ export function StepItems({ admission, items, itemsTotal, byGroup, canEdit, onCh
         <div className="px-4 sm:px-6 py-4 border-b border-ink-100">
           <h3 className="text-base sm:text-lg font-semibold text-ink-900">Items used in this stay</h3>
         </div>
+        {bed?.number && (
+          <div className="px-4 sm:px-6 py-3 border-b border-ink-100 flex items-center gap-3 bg-primary-50/40">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-ink-900">Bed {bed.number} · {nightsText(bed.nights)}</p>
+              <p className={`text-xs ${bed.priceSet ? 'text-ink-500' : 'text-amber-700'}`}>
+                {bed.priceSet ? `${peso(bed.pricePerNight)} per night, added automatically` : 'No bed price set. Ask the clinic administrator to set it in Clinic Settings.'}
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-ink-900 whitespace-nowrap">{peso(bed?.amount)}</p>
+          </div>
+        )}
         {items.length === 0 ? (
-          <p className="px-4 sm:px-6 py-8 text-sm text-ink-500 text-center">Nothing recorded yet.</p>
+          <p className="px-4 sm:px-6 py-8 text-sm text-ink-500 text-center">No items recorded yet.</p>
         ) : (
           <ul className="divide-y divide-ink-100">
             {items.map((it) => (
@@ -165,7 +176,7 @@ export function StepItems({ admission, items, itemsTotal, byGroup, canEdit, onCh
         )}
         <div className="px-4 sm:px-6 py-4 bg-ink-50/60 border-t border-ink-100 flex items-center justify-between">
           <span className="text-sm font-semibold text-ink-700">Total to pay</span>
-          <span className="text-lg font-bold text-primary-700">{peso(itemsTotal)}</span>
+          <span className="text-lg font-bold text-primary-700">{peso(grandTotal ?? itemsTotal)}</span>
         </div>
       </Card>
 

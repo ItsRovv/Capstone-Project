@@ -36,7 +36,7 @@ function ChecklistItem({ ok, label, detail }) {
 
 export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onChanged, onPrint }) {
   const toast = useToast();
-  const { admission, delivery, items, itemsTotal, discharge, followups, referral } = detail;
+  const { admission, delivery, items, grandTotal, bed, discharge, followups, referral } = detail;
   const reasons = byGroup.discharge_reason || [];
 
   const [form, setForm] = useState({ disposition: '', final_diagnosis: '', instructions: '', override_reason: '' });
@@ -164,7 +164,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
           <ChecklistItem ok={admission.consent_signed} label={admission.consent_signed ? 'Informed consent recorded' : 'Informed consent not recorded yet'} detail={admission.consent_signed ? `Signed by ${admission.consent_by || 'patient'}` : 'You can still discharge.'} />
           <ChecklistItem ok={Boolean(delivery)} label={delivery ? `Delivery recorded (${formatDateTime(delivery.delivered_at)})` : 'Delivery not recorded'} detail={!delivery ? 'Skip this if the patient is going home without giving birth.' : undefined} />
           {delivery && <ChecklistItem ok={babies > 0} label={babies > 0 ? `${babies} baby record${babies === 1 ? '' : 's'} saved` : 'Baby details not saved'} />}
-          <ChecklistItem ok={items.length > 0} label={items.length ? `${items.length} item${items.length === 1 ? '' : 's'} used, total ${peso(itemsTotal)}` : 'No items recorded'} detail="Items can still be added after discharge." />
+          <ChecklistItem ok={items.length > 0} label={items.length ? `${items.length} item${items.length === 1 ? '' : 's'} used` : 'No items recorded'} detail={`Total to pay so far: ${peso(grandTotal)}${bed?.number ? ` (includes Bed ${bed.number}, ${bed.nights} night${bed.nights === 1 ? '' : 's'})` : ''}. Items can still be added after discharge.`} />
         </ul>
 
         <fieldset disabled={!canEdit} className="space-y-4">

@@ -9,7 +9,7 @@ import { AdmissionFields, emptyAdmissionForm, formToPayload } from './AdmissionF
 import { admissionService } from '../../services/admissionService';
 import { patientService } from '../../services/patientService';
 import { apiError } from '../../services/api';
-import { formatDay } from '../../lib/admission';
+import { formatDay, useWard } from '../../lib/admission';
 
 function PatientPicker({ onPick }) {
   const [search, setSearch] = useState('');
@@ -59,7 +59,7 @@ function PatientPicker({ onPick }) {
 /**
  * Admit a patient. Pass `patient` to skip the search step (from a profile or row).
  */
-export function AdmitModal({ open, onClose, patient: initialPatient, byGroup }) {
+export function AdmitModal({ open, onClose, patient: initialPatient, byGroup, initialBed }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [patient, setPatient] = useState(initialPatient || null);
@@ -67,14 +67,23 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup }) 
   const [form, setForm] = useState(emptyAdmissionForm);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { ward, reload: reloadWard } = useWard();
 
   useEffect(() => {
     if (open) {
       setPatient(initialPatient || null);
       setPrefill(null);
       setForm(emptyAdmissionForm);
+      reloadWard();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialPatient]);
+
+  // Pre-select the bed that was clicked, or the first free one.
+  useEffect(() => {
+    if (!open || !ward) return;
+    setForm((f) => (f.bed_number !== '' ? f : { ...f, bed_number: initialBed && ward.freeBeds.includes(initialBed) ? initialBed : ward.freeBeds[0] ?? '' }));
+  }, [open, ward, initialBed]);
 
   useEffect(() => {
     if (!open || !patient) return undefined;
@@ -101,7 +110,11 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup }) 
       navigate(`/admissions/${res.id}`);
     } catch (err) {
       const existing = err?.response?.data?.admissionId;
-      if (existing) {
+      if (err?.response?.data?.code === 'BED_TAKEN') {
+        toast.error(apiError(err));
+        setForm((f) => ({ ...f, bed_number: '' }));
+        reloadWard();
+      } else if (existing) {
         toast.error(apiError(err));
         onClose();
         navigate(`/admissions/${existing}`);
@@ -126,7 +139,7 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup }) 
           <>
             {!initialPatient && <Button variant="ghost" onClick={() => setPatient(null)}>Choose someone else</Button>}
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={submit} loading={saving} disabled={loading || Boolean(alreadyAdmitted)}>Admit patient</Button>
+            <Button onClick={submit} loading={saving} disabled={loading || Boolean(alreadyAdmitted) || !ward || form.bed_number === ''}>Admit patient</Button>
           </>
         )
       }
@@ -158,7 +171,7 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup }) 
               </ul>
             </div>
           )}
-          <AdmissionFields form={form} setForm={setForm} byGroup={byGroup} disabled={Boolean(alreadyAdmitted)} />
+          <AdmissionFields form={form} setForm={setForm} byGroup={byGroup} ward={ward} disabled={Boolean(alreadyAdmitted)} />
         </div>
       )}
     </Modal>

@@ -14,7 +14,7 @@ const dec = (obj, fields) => decryptObject(obj, fields);
 
 const ADMISSION_UPDATABLE = [
   'pregnancy_id', 'admitted_at', 'chief_complaint', 'admitting_diagnosis', 'bp', 'pulse', 'resp_rate',
-  'temperature', 'labor_notes', 'risk_flags', 'consent_signed', 'consent_by', 'philhealth_package', 'notes'
+  'temperature', 'labor_notes', 'risk_flags', 'consent_signed', 'consent_by', 'philhealth_package', 'notes', 'bed_number'
 ];
 
 const clean = (v) => (v === '' || v === undefined ? null : v);
@@ -34,14 +34,14 @@ class Admission {
       `INSERT INTO admissions (
          patient_id, pregnancy_id, admitted_at, admitted_by, chief_complaint, admitting_diagnosis,
          bp, pulse, resp_rate, temperature, labor_notes, risk_flags, consent_signed, consent_by,
-         philhealth_package, notes
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)`,
+         philhealth_package, notes, bed_number, bed_price
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)`,
       [
         d.patient_id, clean(d.pregnancy_id), d.admitted_at ?? new Date(), userId ?? null,
         clean(d.chief_complaint), clean(d.admitting_diagnosis), clean(d.bp), clean(d.pulse),
         clean(d.resp_rate), clean(d.temperature), clean(d.labor_notes),
         JSON.stringify(d.risk_flags ?? []), d.consent_signed ?? false, clean(d.consent_by),
-        clean(d.philhealth_package), clean(d.notes)
+        clean(d.philhealth_package), clean(d.notes), clean(d.bed_number), clean(d.bed_price)
       ]
     );
     return result.insertId;
@@ -84,6 +84,26 @@ class Admission {
       [patientId]
     );
     return rows[0] ? dec(rows[0], ADMISSION_ENC) : null;
+  }
+
+  // The open stay that currently has this bed (optionally ignoring one stay).
+  static async findActiveByBed(bedNumber, excludeId = null) {
+    const [rows] = await db.execute(
+      `SELECT a.id, a.patient_id, p.first_name, p.last_name FROM admissions a
+       JOIN patients p ON p.id = a.patient_id
+       WHERE a.bed_number = ? AND a.status IN ('admitted', 'in_labor', 'delivered') AND a.id <> ?
+       LIMIT 1`,
+      [bedNumber, excludeId ?? 0]
+    );
+    return rows[0] || null;
+  }
+
+  static async highestActiveBed() {
+    const [rows] = await db.execute(
+      "SELECT COALESCE(MAX(bed_number), 0) AS highest FROM admissions WHERE status IN ('admitted', 'in_labor', 'delivered')",
+      []
+    );
+    return Number(rows[0]?.highest || 0);
   }
 
   static async update(id, data) {
@@ -262,7 +282,7 @@ class Admission {
       values.push(month);
     }
     const [rows] = await db.execute(
-      `SELECT a.id, a.status, a.admitted_at, p.first_name, p.last_name, p.age,
+      `SELECT a.id, a.status, a.admitted_at, a.bed_number, p.first_name, p.last_name, p.age,
               d.delivered_at, d.delivery_type,
               (SELECT COUNT(*) FROM newborns n WHERE n.delivery_id = d.id) AS babies,
               dc.discharged_at, dc.disposition,

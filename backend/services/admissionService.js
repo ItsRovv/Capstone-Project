@@ -52,8 +52,37 @@ function followupDueDates(dischargedAt, offsetsHours) {
   return offsetsHours.map((h) => new Date(base + h * 3600000));
 }
 
+// Calendar nights in Philippine time (UTC+8): arriving 11 pm and leaving 7 am
+// is 1 night; staying 2 midnights is 2 nights. Never less than 1.
+const PH_OFFSET_MS = 8 * 3600000;
+const phDay = (d) => Math.floor((new Date(d).getTime() + PH_OFFSET_MS) / 86400000);
+
+function countNights(start, end) {
+  return Math.max(1, phDay(end) - phDay(start));
+}
+
+// Automatic bed charge: price per night was saved on the stay when it began.
+function bedCharge({ bedNumber, pricePerNight, start, end }) {
+  const price = pricePerNight === null || pricePerNight === undefined || pricePerNight === '' ? null : Number(pricePerNight);
+  const nights = countNights(start, end);
+  return {
+    number: bedNumber ?? null,
+    nights,
+    pricePerNight: price,
+    priceSet: price !== null,
+    amount: bedNumber && price !== null ? round2(price * nights) : 0
+  };
+}
+
+// Lowest free bed number, or null when the ward is full.
+function firstFreeBed(totalBeds, takenBeds) {
+  const taken = new Set(takenBeds.map(Number));
+  for (let n = 1; n <= totalBeds; n++) if (!taken.has(n)) return n;
+  return null;
+}
+
 // Split items into clinic-charged lines and PhilHealth package reference for Transactions.
-function buildTransactionPayload({ items, packageOption, packageAmount }) {
+function buildTransactionPayload({ items, packageOption, packageAmount, bed }) {
   const vitamins = items
     .filter((it) => lineTotal(it) > 0 || it.label)
     .map((it) => ({
@@ -65,10 +94,18 @@ function buildTransactionPayload({ items, packageOption, packageAmount }) {
   const packages = packageOption
     ? [{ code: packageOption.code.toUpperCase().slice(0, 30), label: packageOption.label, amount: round2(packageAmount || 0) }]
     : [];
+  if (bed && bed.amount > 0) {
+    vitamins.unshift({
+      id: 'bed_charge',
+      label: `Bed ${bed.number} × ${bed.nights} night${bed.nights === 1 ? '' : 's'}`,
+      price: bed.amount,
+      custom: true
+    });
+  }
   return {
     vitamins,
     packages,
-    total_amount: itemsTotal(items),
+    total_amount: round2(itemsTotal(items) + (bed ? bed.amount : 0)),
     philhealth_total: packages.reduce((s, p) => s + p.amount, 0)
   };
 }
@@ -106,6 +143,9 @@ module.exports = {
   isActiveStatus,
   lineTotal,
   itemsTotal,
+  countNights,
+  bedCharge,
+  firstFreeBed,
   checkMinStay,
   parseOffsets,
   followupDueDates,

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ClinicOption = require('../models/ClinicOption');
+const Admission = require('../models/Admission');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
@@ -83,6 +84,13 @@ router.put('/settings', requireRole('admin'), async (req, res) => {
       const { error, value } = validateSetting(key, raw);
       if (error) return bad(res, error);
       clean.push([key, value]);
+    }
+    const newBeds = clean.find(([key]) => key === 'ward_beds');
+    if (newBeds) {
+      const highest = await Admission.highestActiveBed();
+      if (Number(newBeds[1]) < highest) {
+        return res.status(409).json({ message: `Bed ${highest} is in use. Discharge or move that patient before reducing the number of beds.` });
+      }
     }
     const old = await ClinicOption.getSettingsMap();
     for (const [key, value] of clean) await ClinicOption.setSetting(key, value);

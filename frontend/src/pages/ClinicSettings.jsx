@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -121,7 +121,10 @@ function AddRow({ list, onAdded }) {
 function RulesCard({ settings, onSaved }) {
   const toast = useToast();
   const days = String(settings.followup_offsets_hours || '').split(',').map((h) => Number(h) / 24).filter((d) => Number.isFinite(d) && d > 0).join(', ');
-  const [form, setForm] = useState({ min_stay_hours: settings.min_stay_hours || '24', days, require_consent: settings.require_consent !== 'false' });
+  const [form, setForm] = useState({
+    min_stay_hours: settings.min_stay_hours || '24', days, require_consent: settings.require_consent !== 'false',
+    ward_name: settings.ward_name || 'Ward', ward_beds: settings.ward_beds || '3', bed_price: settings.bed_price_per_night ?? ''
+  });
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -129,12 +132,18 @@ function RulesCard({ settings, onSaved }) {
     if (dayList.some((d) => !Number.isFinite(d) || d <= 0 || !Number.isInteger(d))) {
       return toast.error('Follow-up days must be whole numbers like 3, 7');
     }
+    if (!form.ward_name.trim()) return toast.error('Please give the ward a name.');
+    if (!Number.isInteger(Number(form.ward_beds)) || Number(form.ward_beds) < 1) return toast.error('The number of beds must be 1 or more.');
+    if (form.bed_price.trim() !== '' && !(Number(form.bed_price) >= 0)) return toast.error('The bed price must be a number.');
     setBusy(true);
     try {
       await clinicService.saveSettings({
         min_stay_hours: Number(form.min_stay_hours),
         followup_offsets_hours: dayList.map((d) => d * 24).join(','),
-        require_consent: form.require_consent
+        require_consent: form.require_consent,
+        ward_name: form.ward_name.trim(),
+        ward_beds: Number(form.ward_beds),
+        bed_price_per_night: form.bed_price.trim() === '' ? '' : Number(form.bed_price)
       });
       toast.success('Rules saved');
       await onSaved();
@@ -146,6 +155,17 @@ function RulesCard({ settings, onSaved }) {
   }
 
   return (
+    <div className="space-y-4">
+    <Card>
+      <h3 className="text-base sm:text-lg font-semibold text-ink-900">Ward and beds</h3>
+      <p className="text-sm text-ink-500 mb-4">The room where admitted patients stay. Each patient is given a bed.</p>
+      <div className="grid sm:grid-cols-3 gap-4">
+        <Input label="Name of the room" hint="Example: Ward" value={form.ward_name} onChange={(e) => setForm((f) => ({ ...f, ward_name: e.target.value }))} />
+        <Input label="Number of beds" inputMode="numeric" hint="You cannot go below a bed that is in use." value={form.ward_beds} onChange={(e) => setForm((f) => ({ ...f, ward_beds: e.target.value }))} />
+        <Input label="Price per bed per night (₱)" inputMode="decimal" placeholder="Not set" hint="Added to the bill automatically. A price change applies to new stays only." value={form.bed_price} onChange={(e) => setForm((f) => ({ ...f, bed_price: e.target.value }))} />
+      </div>
+      <div className="mt-5 flex justify-end"><Button onClick={save} loading={busy}>Save</Button></div>
+    </Card>
     <Card>
       <h3 className="text-base sm:text-lg font-semibold text-ink-900">Clinic rules</h3>
       <p className="text-sm text-ink-500 mb-4">These are reminders for staff. They never block care.</p>
@@ -159,13 +179,15 @@ function RulesCard({ settings, onSaved }) {
       </label>
       <div className="mt-5 flex justify-end"><Button onClick={save} loading={busy}>Save rules</Button></div>
     </Card>
+    </div>
   );
 }
 
 export function ClinicSettings() {
   const { onOpenMenu } = useOutletContext();
   const { options, settings, loading, reload } = useClinicOptions();
-  const [tab, setTab] = useState('lists');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get('tab') === 'rules' ? 'rules' : 'lists');
 
   return (
     <div className="h-full flex flex-col">
@@ -173,7 +195,7 @@ export function ClinicSettings() {
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
         <div className="max-w-4xl w-full mx-auto px-4 md:px-8 space-y-4">
           <div className="flex gap-1 border-b border-ink-100">
-            {[['lists', 'Lists and prices'], ['rules', 'Rules']].map(([key, label]) => (
+            {[['lists', 'Lists and prices'], ['rules', 'Ward and rules']].map(([key, label]) => (
               <button key={key} type="button" onClick={() => setTab(key)} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === key ? 'border-primary-500 text-primary-700' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>{label}</button>
             ))}
           </div>

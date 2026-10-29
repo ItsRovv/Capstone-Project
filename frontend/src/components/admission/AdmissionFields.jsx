@@ -1,6 +1,8 @@
 import { Input, Textarea, Select } from '../UI/Input';
+import { BedPicker } from './BedPicker';
 
 export const emptyAdmissionForm = {
+  bed_number: '',
   chief_complaint: '',
   admitting_diagnosis: '',
   bp: '',
@@ -17,6 +19,7 @@ export const emptyAdmissionForm = {
 
 export function admissionToForm(a = {}) {
   return {
+    bed_number: a.bed_number ?? '',
     chief_complaint: a.chief_complaint || '',
     admitting_diagnosis: a.admitting_diagnosis || '',
     bp: a.bp || '',
@@ -37,6 +40,7 @@ export function formToPayload(form) {
   const text = (v) => (String(v ?? '').trim() === '' ? null : String(v).trim());
   const num = (v) => (String(v ?? '').trim() === '' ? null : Number(v));
   return {
+    bed_number: String(form.bed_number ?? '').trim() === '' ? null : Number(form.bed_number),
     chief_complaint: text(form.chief_complaint),
     admitting_diagnosis: text(form.admitting_diagnosis),
     bp: text(form.bp),
@@ -52,7 +56,7 @@ export function formToPayload(form) {
   };
 }
 
-export function AdmissionFields({ form, setForm, byGroup, disabled = false }) {
+export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmissionId, disabled = false }) {
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const toggleFlag = (code) =>
     setForm((f) => ({
@@ -64,6 +68,14 @@ export function AdmissionFields({ form, setForm, byGroup, disabled = false }) {
 
   return (
     <fieldset disabled={disabled} className="space-y-5 disabled:opacity-80">
+      <BedPicker
+        ward={ward}
+        value={form.bed_number}
+        currentAdmissionId={currentAdmissionId}
+        disabled={disabled}
+        onChange={(n) => setForm((f) => ({ ...f, bed_number: n }))}
+      />
+
       <Textarea
         label="Why did the patient come in?"
         rows={2}

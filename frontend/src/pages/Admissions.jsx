@@ -15,10 +15,10 @@ import { AdmitModal } from '../components/admission/AdmitModal';
 import { FollowupDoneModal } from '../components/admission/FollowupDoneModal';
 import { admissionService } from '../services/admissionService';
 import { apiError } from '../services/api';
-import { canRecordClinical, followupState, formatDateTime, formatDay, monthKey, timeAgo, useClinicOptions } from '../lib/admission';
+import { canRecordClinical, followupState, formatDateTime, formatDay, monthKey, timeAgo, useClinicOptions, useWard } from '../lib/admission';
 
 const TABS = [
-  { key: 'now', label: 'In the clinic now' },
+  { key: 'now', label: 'Ward' },
   { key: 'followups', label: 'Follow-ups' },
   { key: 'logbook', label: 'Logbook' }
 ];
@@ -32,42 +32,66 @@ function lastMonths(count = 12) {
   });
 }
 
-function NowTab({ onAdmit, canRecord }) {
-  const toast = useToast();
-  const [rows, setRows] = useState(null);
-  useEffect(() => {
-    admissionService.current().then(setRows).catch((err) => { toast.error(apiError(err, 'Could not load admissions')); setRows([]); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  if (!rows) return <PageLoader />;
-  if (rows.length === 0) {
-    return (
-      <Card>
-        <EmptyState
-          icon={<Icon.Users width={40} height={40} />}
-          title="No one is admitted right now"
-          description="When a patient is admitted, she will show up here."
-          action={canRecord ? <Button onClick={onAdmit}><Icon.Plus width={16} height={16} /> Admit a patient</Button> : undefined}
-        />
-      </Card>
-    );
-  }
+function WardTab({ ward, loading, onAdmit, canRecord }) {
+  if (loading) return <PageLoader />;
+  if (!ward) return <Card><EmptyState icon={<Icon.Users width={40} height={40} />} title="Could not load the ward" description="Please refresh the page." /></Card>;
+  const used = ward.totalBeds - ward.freeBeds.length;
+  const wardName = ward.name.toLowerCase();
   return (
-    <div className="grid sm:grid-cols-2 gap-3">
-      {rows.map((a) => (
-        <Link key={a.id} to={`/admissions/${a.id}`} className="block">
-          <Card hover padding="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-semibold text-ink-900 break-words">{a.first_name} {a.last_name}</p>
-                <p className="text-xs text-ink-500 mt-0.5">{a.age ? `${a.age} y/o · ` : ''}admitted {timeAgo(a.admitted_at)}</p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-ink-700">
+          <span className="font-semibold text-ink-900">{used} of {ward.totalBeds}</span> beds in use in the {wardName}
+        </p>
+        {ward.bedPrice === null && (
+          <Link to="/admin/settings?tab=rules" className="text-xs font-medium text-amber-700 hover:underline">Bed price per night is not set</Link>
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {ward.beds.map((b) => {
+          const a = b.admission;
+          if (!a) {
+            return (
+              <div key={b.number} className="rounded-lg border-2 border-dashed border-ink-200 bg-white/60 p-4 flex flex-col">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Bed {b.number}</p>
+                <p className="text-lg font-semibold text-emerald-700 mt-1">Free</p>
+                {canRecord && (
+                  <Button size="sm" variant="secondary" className="mt-3 self-start" onClick={() => onAdmit(b.number)}>Admit here</Button>
+                )}
               </div>
-              <StatusChip status={a.status} />
-            </div>
-            {a.chief_complaint && <p className="text-sm text-ink-600 mt-2 line-clamp-2">{a.chief_complaint}</p>}
-          </Card>
-        </Link>
-      ))}
+            );
+          }
+          return (
+            <Link key={b.number} to={`/admissions/${a.id}`} className="block">
+              <Card hover padding="p-4" className="h-full">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Bed {b.number}</p>
+                  <StatusChip status={a.status} />
+                </div>
+                <p className="font-semibold text-ink-900 mt-1 break-words">{a.first_name} {a.last_name}</p>
+                <p className="text-xs text-ink-500 mt-0.5">{a.age ? `${a.age} y/o · ` : ''}admitted {timeAgo(a.admitted_at)}</p>
+                {a.chief_complaint && <p className="text-sm text-ink-600 mt-2 line-clamp-2">{a.chief_complaint}</p>}
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+      {ward.unassigned.length > 0 && (
+        <Card>
+          <h3 className="text-sm font-semibold text-ink-800">Admitted without a bed</h3>
+          <p className="text-xs text-ink-500 mb-2">Open the stay and pick a bed in the first step.</p>
+          <ul className="divide-y divide-ink-100">
+            {ward.unassigned.map((a) => (
+              <li key={a.id}>
+                <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 py-2.5">
+                  <span className="text-sm font-medium text-ink-900 break-words">{a.first_name} {a.last_name}</span>
+                  <StatusChip status={a.status} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </div>
   );
 }
@@ -173,7 +197,7 @@ function LogbookTab({ labelFor }) {
                       <tr key={r.id} className="hover:bg-ink-50/60">
                         <td className="px-3 sm:px-5 py-3">
                           <Link to={`/admissions/${r.id}`} className="font-medium text-ink-900 hover:text-primary-700 break-words">{r.first_name} {r.last_name}</Link>
-                          <p className="text-xs text-ink-500 md:hidden">{formatDay(r.admitted_at)}</p>
+                          <p className="text-xs text-ink-500">{r.bed_number ? `Bed ${r.bed_number}` : ''}<span className="md:hidden">{r.bed_number ? ' · ' : ''}{formatDay(r.admitted_at)}</span></p>
                         </td>
                         <td className="px-3 sm:px-5 py-3 text-ink-600 hidden md:table-cell whitespace-nowrap">{formatDateTime(r.admitted_at)}</td>
                         <td className="px-3 sm:px-5 py-3 text-ink-600 hidden lg:table-cell">{r.delivered_at ? `${formatDay(r.delivered_at)} · ${labelFor('delivery_type', r.delivery_type)}` : '—'}</td>
@@ -202,7 +226,9 @@ export function Admissions() {
   const [params, setParams] = useSearchParams();
   const tab = TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'now';
   const [admitOpen, setAdmitOpen] = useState(false);
+  const [admitBed, setAdmitBed] = useState(null);
   const { byGroup, labelFor } = useClinicOptions();
+  const { ward, loading: wardLoading, reload: reloadWard } = useWard();
   const canRecord = canRecordClinical(user?.role);
 
   return (
@@ -213,7 +239,7 @@ export function Admissions() {
         onMenuClick={onOpenMenu}
         right={
           canRecord ? (
-            <Button onClick={() => setAdmitOpen(true)}>
+            <Button onClick={() => { setAdmitBed(null); setAdmitOpen(true); }}>
               <Icon.Plus width={16} height={16} /> <span className="sm:hidden">Admit</span><span className="hidden sm:inline">Admit patient</span>
             </Button>
           ) : undefined
@@ -231,16 +257,16 @@ export function Admissions() {
                   tab === t.key ? 'border-primary-500 text-primary-700' : 'border-transparent text-ink-500 hover:text-ink-800'
                 }`}
               >
-                {t.label}
+                {t.key === 'now' ? ward?.name || t.label : t.label}
               </button>
             ))}
           </div>
-          {tab === 'now' && <NowTab onAdmit={() => setAdmitOpen(true)} canRecord={canRecord} />}
+          {tab === 'now' && <WardTab ward={ward} loading={wardLoading} canRecord={canRecord} onAdmit={(bed) => { setAdmitBed(bed); setAdmitOpen(true); }} />}
           {tab === 'followups' && <FollowupsTab canRecord={canRecord} />}
           {tab === 'logbook' && <LogbookTab labelFor={labelFor} />}
         </div>
       </div>
-      <AdmitModal open={admitOpen} onClose={() => setAdmitOpen(false)} byGroup={byGroup} />
+      <AdmitModal open={admitOpen} onClose={() => { setAdmitOpen(false); reloadWard(); }} byGroup={byGroup} initialBed={admitBed} />
     </div>
   );
 }

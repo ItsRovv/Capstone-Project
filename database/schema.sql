@@ -384,6 +384,12 @@ CREATE TABLE IF NOT EXISTS referrals (
 ALTER TABLE consultation_transactions
   ADD COLUMN IF NOT EXISTS admission_id BIGINT REFERENCES admissions(id) ON DELETE SET NULL;
 
+-- Ward with a fixed number of beds: each open stay occupies one bed, charged per night.
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS bed_number INT CHECK (bed_number >= 1);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS bed_price NUMERIC(10, 2);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_admissions_active_bed ON admissions (bed_number)
+  WHERE bed_number IS NOT NULL AND status IN ('admitted', 'in_labor', 'delivered');
+
 DROP TRIGGER IF EXISTS trg_admissions_updated_at ON admissions;
 CREATE TRIGGER trg_admissions_updated_at BEFORE UPDATE ON admissions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -429,7 +435,6 @@ INSERT INTO clinic_options (option_group, code, label, category, sort_order) VAL
   ('newborn_care', 'breastfeeding', 'Breastfeeding started', NULL, 4),
   ('package', 'mcp', 'PhilHealth Maternity Care Package', 'philhealth', 1),
   ('package', 'nsd', 'PhilHealth Normal Delivery Package', 'philhealth', 2),
-  ('item', 'room', 'Room / bed (per day)', 'service', 1),
   ('item', 'birthing_fee', 'Birthing room and delivery fee', 'service', 2),
   ('item', 'iv_fluids', 'IV fluids', 'medicine', 3),
   ('item', 'oxytocin', 'Oxytocin injection', 'medicine', 4),
@@ -444,8 +449,22 @@ ON CONFLICT (option_group, code) DO NOTHING;
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
   ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),
   ('followup_offsets_hours', '72,168', 'Postpartum follow-up visits, hours after discharge (72 = 3 days, 168 = 7 days)'),
-  ('require_consent', 'true', 'Remind staff when informed consent is not yet recorded')
+  ('require_consent', 'true', 'Remind staff when informed consent is not yet recorded'),
+  ('ward_name', 'Ward', 'What the clinic calls the room with the beds'),
+  ('ward_beds', '3', 'Number of beds in the ward'),
+  ('bed_price_per_night', '', 'Charge per bed per night (leave empty until the price is set)')
 ON CONFLICT (setting_key) DO NOTHING;
+
+-- One-time: the bed is now charged automatically per night, so hide the old
+-- per-day "Room / bed" starter item (it would double-charge). Runs once only.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM clinic_settings WHERE setting_key = 'migr_bed_charge_v1') THEN
+    UPDATE clinic_options SET active = FALSE WHERE option_group = 'item' AND code = 'room' AND price IS NULL;
+    INSERT INTO clinic_settings (setting_key, setting_value, description)
+    VALUES ('migr_bed_charge_v1', 'done', 'Internal marker');
+  END IF;
+END $$;
 
 -- ── Row Level Security (backend-only access) ─────────────────────────────────
 -- The Express backend handles authentication and authorization. RLS is enabled

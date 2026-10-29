@@ -34,7 +34,11 @@ const stay = (over = {}) => ({ id: 10, patient_id: 1, status: 'admitted', first_
 beforeEach(() => {
   jest.resetAllMocks();
   AuditLog.create.mockResolvedValue(1);
-  ClinicOption.getSettingsMap.mockResolvedValue({ min_stay_hours: '24', followup_offsets_hours: '72,168', require_consent: 'true' });
+  ClinicOption.getSettingsMap.mockResolvedValue({
+    min_stay_hours: '24', followup_offsets_hours: '72,168', require_consent: 'true',
+    ward_name: 'Ward', ward_beds: '3', bed_price_per_night: '500'
+  });
+  Admission.listActive.mockResolvedValue([]);
 });
 
 describe('who can do what', () => {
@@ -53,7 +57,7 @@ describe('who can do what', () => {
     Admission.create.mockResolvedValue(10);
     const res = await as(role, 'post', '/admissions').send({ patient_id: 1, bp: '110/70' });
     expect(res.status).toBe(201);
-    expect(Admission.create).toHaveBeenCalledWith(expect.objectContaining({ patient_id: 1, pregnancy_id: 3 }), 5);
+    expect(Admission.create).toHaveBeenCalledWith(expect.objectContaining({ patient_id: 1, pregnancy_id: 3, bed_number: 1, bed_price: 500 }), 5);
     expect(AuditLog.create).toHaveBeenCalled();
   });
 
@@ -262,5 +266,139 @@ describe('consultation: plan to deliver at JLMC', () => {
     const res = await post({ delivery_location: 'jlmc' });
     expect(res.status).toBe(201);
     expect(res.body.id).toBe(30);
+  });
+});
+
+describe('ward with 3 beds', () => {
+  const patient = () => Patient.findById.mockResolvedValue({ id: 1, first_name: 'Maria', last_name: 'Santos' });
+  const occupied = (...beds) => beds.map((n) => ({ id: 100 + n, patient_id: 50 + n, first_name: `P${n}`, last_name: 'Occupant', bed_number: n, status: 'admitted', admitted_at: new Date() }));
+
+  beforeEach(() => {
+    patient();
+    Admission.findActiveByPatient.mockResolvedValue(null);
+    Pregnancy.findByPatientId.mockResolvedValue([]);
+    Admission.create.mockResolvedValue(10);
+  });
+
+  test('gives the lowest free bed when none is chosen', async () => {
+    Admission.listActive.mockResolvedValue(occupied(1, 3));
+    const res = await as('nurse', 'post', '/admissions').send({ patient_id: 1 });
+    expect(res.status).toBe(201);
+    expect(res.body.bed_number).toBe(2);
+  });
+
+  test('keeps the price per night that applied on the day she was admitted', async () => {
+    await as('nurse', 'post', '/admissions').send({ patient_id: 1, bed_number: 3 });
+    expect(Admission.create).toHaveBeenCalledWith(expect.objectContaining({ bed_number: 3, bed_price: 500 }), 5);
+  });
+
+  test('refuses a bed that is taken and says who is in it', async () => {
+    Admission.listActive.mockResolvedValue(occupied(2));
+    const res = await as('nurse', 'post', '/admissions').send({ patient_id: 1, bed_number: 2 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('BED_TAKEN');
+    expect(res.body.message).toMatch(/P2 Occupant/);
+    expect(Admission.create).not.toHaveBeenCalled();
+  });
+
+  test('refuses a fourth patient when the ward is full', async () => {
+    Admission.listActive.mockResolvedValue(occupied(1, 2, 3));
+    const res = await as('nurse', 'post', '/admissions').send({ patient_id: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('WARD_FULL');
+    expect(res.body.message).toMatch(/3 of 3 beds/);
+  });
+
+  test('refuses a bed number that does not exist', async () => {
+    const res = await as('nurse', 'post', '/admissions').send({ patient_id: 1, bed_number: 4 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/no Bed 4/);
+  });
+
+  test('two nurses grabbing the same bed at once: the database guard becomes a friendly message', async () => {
+    Admission.create.mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
+    const res = await as('nurse', 'post', '/admissions').send({ patient_id: 1, bed_number: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/just taken/);
+  });
+
+  test('ward board lists every bed, free or taken, and hides the complaint from front desk', async () => {
+    Admission.listActive.mockResolvedValue([{ ...occupied(2)[0], chief_complaint: 'Contractions' }]);
+    const clinical = await as('nurse', 'get', '/admissions/ward');
+    expect(clinical.body.totalBeds).toBe(3);
+    expect(clinical.body.freeBeds).toEqual([1, 3]);
+    expect(clinical.body.beds[1].admission.chief_complaint).toBe('Contractions');
+    const desk = await as('staff', 'get', '/admissions/ward');
+    expect(desk.status).toBe(200);
+    expect(desk.body.beds[1].admission.first_name).toBe('P2');
+    expect(desk.body.beds[1].admission.chief_complaint).toBeUndefined();
+  });
+
+  test('moving to another bed checks it is free; the same bed is a no-op', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'admitted', bed_number: 1 }));
+    Admission.update.mockResolvedValue(true);
+    Admission.findActiveByBed.mockResolvedValue({ id: 99, first_name: 'Liza', last_name: 'Reyes' });
+    const busy = await as('nurse', 'put', '/admissions/10').send({ bed_number: 2 });
+    expect(busy.status).toBe(409);
+    expect(busy.body.message).toMatch(/Liza Reyes/);
+
+    Admission.findActiveByBed.mockResolvedValue(null);
+    expect((await as('nurse', 'put', '/admissions/10').send({ bed_number: 2 })).status).toBe(200);
+    expect(Admission.update).toHaveBeenLastCalledWith('10', expect.objectContaining({ bed_number: 2 }));
+
+    Admission.update.mockClear();
+    await as('nurse', 'put', '/admissions/10').send({ bed_number: 1, notes: 'x' });
+    expect(Admission.update.mock.calls[0][1].bed_number).toBeUndefined();
+  });
+
+  test('the bed cannot be changed once the stay is closed', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'discharged', bed_number: 1 }));
+    Admission.update.mockResolvedValue(true);
+    await as('admin', 'put', '/admissions/10').send({ bed_number: 2, notes: 'late' });
+    expect(Admission.update.mock.calls[0][1].bed_number).toBeUndefined();
+  });
+
+  test('stay details include the bed charge per night and a grand total', async () => {
+    const admittedAt = new Date(Date.now() - 50 * 3600000);
+    Admission.findById.mockResolvedValue(stay({ status: 'admitted', bed_number: 2, bed_price: '500.00', admitted_at: admittedAt }));
+    Admission.getDelivery.mockResolvedValue(null);
+    Admission.listItems.mockResolvedValue([{ id: 1, label: 'IV fluids', unit_price: '120.00', quantity: '2.00' }]);
+    Admission.getDischarge.mockResolvedValue(null);
+    Admission.listFollowupsForAdmission.mockResolvedValue([]);
+    Admission.getReferral.mockResolvedValue(null);
+    const res = await as('nurse', 'get', '/admissions/10');
+    expect(res.body.bed.number).toBe(2);
+    expect(res.body.bed.nights).toBeGreaterThanOrEqual(2);
+    expect(res.body.bed.amount).toBe(res.body.bed.nights * 500);
+    expect(res.body.itemsTotal).toBe(240);
+    expect(res.body.grandTotal).toBe(240 + res.body.bed.amount);
+    expect(res.body.wardName).toBe('Ward');
+  });
+
+  test('sending to Transactions adds the bed as its own line', async () => {
+    const admittedAt = new Date(Date.now() - 50 * 3600000);
+    Admission.findById.mockResolvedValue(stay({ status: 'admitted', bed_number: 2, bed_price: '500.00', admitted_at: admittedAt, philhealth_package: null }));
+    Admission.listItems.mockResolvedValue([]);
+    Admission.getDischarge.mockResolvedValue(null);
+    Admission.getReferral.mockResolvedValue(null);
+    ConsultationTransaction.findByAdmissionId.mockResolvedValue([]);
+    ConsultationTransaction.create.mockResolvedValue(77);
+    const res = await as('nurse', 'post', '/admissions/10/transaction');
+    expect(res.status).toBe(201);
+    const sent = ConsultationTransaction.create.mock.calls[0][0];
+    expect(sent.vitamins[0]).toMatchObject({ id: 'bed_charge', custom: true });
+    expect(sent.vitamins[0].label).toMatch(/^Bed 2 × \d+ nights?$/);
+    expect(sent.total_amount).toBe(sent.vitamins[0].price);
+  });
+
+  test('settings: cannot reduce beds below one that is in use', async () => {
+    Admission.highestActiveBed.mockResolvedValue(3);
+    const blocked = await as('admin', 'put', '/clinic/settings').send({ ward_beds: 2 });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.message).toMatch(/Bed 3 is in use/);
+    Admission.highestActiveBed.mockResolvedValue(2);
+    ClinicOption.setSetting.mockResolvedValue(true);
+    ClinicOption.getSettingsMap.mockResolvedValue({ ward_beds: '3' });
+    expect((await as('admin', 'put', '/clinic/settings').send({ ward_beds: 2 })).status).toBe(200);
   });
 });

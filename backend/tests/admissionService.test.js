@@ -134,3 +134,50 @@ describe('validation', () => {
     expect(validateClinicOption({ option_group: 'item', label: 'x', price: -5 }).error).toBeDefined();
   });
 });
+
+describe('ward beds and nightly charge', () => {
+  test('counts calendar nights in Philippine time, never less than one', () => {
+    expect(svc.countNights('2026-10-24T15:00:00Z', '2026-10-24T22:00:00Z')).toBe(1);
+    expect(svc.countNights('2026-10-24T14:00:00Z', '2026-10-26T01:00:00Z')).toBe(2);
+    expect(svc.countNights('2026-10-24T01:00:00Z', '2026-10-24T02:00:00Z')).toBe(1);
+    expect(svc.countNights('2026-10-24T01:00:00Z', '2026-10-27T01:00:00Z')).toBe(3);
+  });
+
+  test('bed charge is price x nights, and zero when no price is set', () => {
+    const base = { bedNumber: 2, start: '2026-10-24T14:00:00Z', end: '2026-10-26T01:00:00Z' };
+    expect(svc.bedCharge({ ...base, pricePerNight: '500' })).toMatchObject({ number: 2, nights: 2, amount: 1000, priceSet: true });
+    expect(svc.bedCharge({ ...base, pricePerNight: null })).toMatchObject({ amount: 0, priceSet: false });
+    expect(svc.bedCharge({ ...base, pricePerNight: '' }).priceSet).toBe(false);
+    expect(svc.bedCharge({ ...base, bedNumber: null, pricePerNight: 500 }).amount).toBe(0);
+  });
+
+  test('picks the lowest free bed, or null when full', () => {
+    expect(svc.firstFreeBed(3, [])).toBe(1);
+    expect(svc.firstFreeBed(3, [1, 3])).toBe(2);
+    expect(svc.firstFreeBed(3, [1, 2, 3])).toBeNull();
+    expect(svc.firstFreeBed(3, ['1', '2'])).toBe(3);
+  });
+
+  test('the bed becomes the first line of the bill and is part of the total', () => {
+    const payload = svc.buildTransactionPayload({
+      items: [{ id: 2, option_id: 5, label: 'IV fluids', unit_price: 120, quantity: 2 }],
+      bed: { number: 2, nights: 2, amount: 1000 }
+    });
+    expect(payload.vitamins[0]).toEqual({ id: 'bed_charge', label: 'Bed 2 × 2 nights', price: 1000, custom: true });
+    expect(payload.total_amount).toBe(1240);
+    const one = svc.buildTransactionPayload({ items: [], bed: { number: 1, nights: 1, amount: 500 } });
+    expect(one.vitamins[0].label).toBe('Bed 1 × 1 night');
+  });
+
+  test('ward settings are validated', () => {
+    expect(validateSetting('ward_beds', 3).error).toBeUndefined();
+    expect(validateSetting('ward_beds', 0).error).toBeDefined();
+    expect(validateSetting('ward_name', 'Ward').error).toBeUndefined();
+    expect(validateSetting('ward_name', '').error).toBeDefined();
+    expect(validateSetting('bed_price_per_night', '').error).toBeUndefined();
+    expect(validateSetting('bed_price_per_night', 500).error).toBeUndefined();
+    expect(validateSetting('bed_price_per_night', -1).error).toBeDefined();
+    expect(validateAdmission({ patient_id: 1, bed_number: 2 }).error).toBeUndefined();
+    expect(validateAdmission({ patient_id: 1, bed_number: 0 }).error).toBeDefined();
+  });
+});

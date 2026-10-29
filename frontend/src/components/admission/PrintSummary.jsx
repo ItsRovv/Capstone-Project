@@ -1,5 +1,5 @@
 import { JLMCLogo } from '../JLMCLogo';
-import { formatDateTime, peso } from '../../lib/admission';
+import { formatDateTime, nightsText, peso } from '../../lib/admission';
 
 function Line({ label, value }) {
   if (!value) return null;
@@ -22,7 +22,7 @@ function Section({ title, children }) {
 
 // Shown only when printing. Plain black and white so it copies well.
 export function PrintSummary({ detail, labelFor }) {
-  const { admission: a, delivery, items, itemsTotal, discharge, referral, followups } = detail;
+  const { admission: a, delivery, items, grandTotal, bed, discharge, referral, followups } = detail;
   const vitals = [a.bp && `BP ${a.bp}`, a.pulse && `Pulse ${a.pulse}`, a.resp_rate && `Resp ${a.resp_rate}`, a.temperature && `Temp ${a.temperature}°C`].filter(Boolean).join('   ');
   const risks = (a.risk_flags || []).map((c) => labelFor('risk_flag', c)).join(', ');
 
@@ -39,6 +39,7 @@ export function PrintSummary({ detail, labelFor }) {
       <Section title="Patient">
         <Line label="Name" value={`${a.first_name} ${a.last_name}`} />
         <Line label="Age" value={a.age ? `${a.age} years old` : null} />
+        <Line label="Bed" value={a.bed_number ? `${detail.wardName || 'Ward'}, Bed ${a.bed_number}` : null} />
         <Line label="Admitted" value={formatDateTime(a.admitted_at)} />
         <Line label="Admitted by" value={a.admitted_by_name} />
       </Section>
@@ -69,10 +70,16 @@ export function PrintSummary({ detail, labelFor }) {
         </Section>
       )}
 
-      {items.length > 0 && (
-        <Section title="Items used">
+      {(items.length > 0 || bed?.amount > 0) && (
+        <Section title="Charges">
           <table className="w-full text-[13px]">
             <tbody>
+              {bed?.amount > 0 && (
+                <tr className="border-b border-gray-300">
+                  <td className="py-1">Bed {bed.number} × {nightsText(bed.nights)} ({peso(bed.pricePerNight)} per night)</td>
+                  <td className="py-1 text-right">{peso(bed.amount)}</td>
+                </tr>
+              )}
               {items.map((it) => (
                 <tr key={it.id} className="border-b border-gray-300">
                   <td className="py-1">{it.label} × {Number(it.quantity)}</td>
@@ -81,7 +88,7 @@ export function PrintSummary({ detail, labelFor }) {
               ))}
               <tr>
                 <td className="pt-2 font-bold">Total to pay</td>
-                <td className="pt-2 text-right font-bold">{peso(itemsTotal)}</td>
+                <td className="pt-2 text-right font-bold">{peso(grandTotal)}</td>
               </tr>
             </tbody>
           </table>

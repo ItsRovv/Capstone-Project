@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { clinicService } from '../services/admissionService';
+import { admissionService, clinicService } from '../services/admissionService';
 
 // Plain-language names for every stage of a stay.
 export const STATUS_META = {
@@ -62,6 +62,26 @@ export function followupState(f, now = Date.now()) {
 export function monthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
+
+/**
+ * The ward at a glance: which beds are taken, by whom, and which are free.
+ */
+export function useWard() {
+  const [ward, setWard] = useState(null);
+  const [error, setError] = useState(null);
+  const reload = useCallback(async () => {
+    try {
+      setWard(await admissionService.ward());
+      setError(null);
+    } catch (err) {
+      setError(err);
+    }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+  return { ward, error, reload, loading: !ward && !error };
+}
+
+export const nightsText = (n) => `${n} night${n === 1 ? '' : 's'}`;
 
 /**
  * Loads the clinic's editable lists and rules once. Forms use this so a change

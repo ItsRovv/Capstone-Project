@@ -170,7 +170,8 @@ const admissionSchema = Joi.object({
   consent_signed: Joi.boolean(),
   consent_by: shortText(150),
   philhealth_package: shortText(60),
-  notes: shortText(3000)
+  notes: shortText(3000),
+  bed_number: Joi.number().integer().min(1).max(50).allow(null, '')
 }).unknown(false);
 
 const admissionUpdateSchema = admissionSchema.fork(['patient_id'], (f) => f.forbidden());
@@ -233,7 +234,10 @@ const clinicOptionUpdateSchema = clinicOptionSchema.fork(['option_group', 'label
 const SETTING_RULES = {
   min_stay_hours: Joi.number().integer().min(0).max(240).required(),
   followup_offsets_hours: Joi.string().trim().pattern(/^\d+(\s*,\s*\d+){0,5}$/).max(40).required(),
-  require_consent: Joi.boolean().required()
+  require_consent: Joi.boolean().required(),
+  ward_name: Joi.string().trim().min(1).max(40).required(),
+  ward_beds: Joi.number().integer().min(1).max(50).required(),
+  bed_price_per_night: Joi.alternatives(Joi.number().min(0).max(100000), Joi.string().valid('')).required()
 };
 
 const ADMISSION_TEXT = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'consent_by', 'notes', 'bp', 'philhealth_package'];

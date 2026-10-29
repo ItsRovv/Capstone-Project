@@ -31,6 +31,38 @@ function audit(req, action, recordId, oldData, newData, tableName = 'admissions'
 const isFrontDesk = (req) => req.user?.role === 'staff';
 const bad = (res, error) => res.status(400).json({ message: error.details?.[0]?.message || error.message });
 
+const WARD_FIELDS = ['id', 'patient_id', 'first_name', 'last_name', 'age', 'status', 'admitted_at'];
+const pick = (obj, keys) => Object.fromEntries(keys.map((k) => [k, obj[k]]));
+const priceOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+
+// Which beds are taken by whom, so screens can show the ward at a glance.
+// The reason for the stay is clinical, so front-desk staff do not get it.
+async function wardInfo({ withComplaint = false } = {}) {
+  const [settings, active] = await Promise.all([ClinicOption.getSettingsMap(), Admission.listActive()]);
+  const totalBeds = Number(settings.ward_beds) || 3;
+  const fields = withComplaint ? [...WARD_FIELDS, 'chief_complaint'] : WARD_FIELDS;
+  const beds = Array.from({ length: totalBeds }, (_, i) => {
+    const found = active.find((a) => a.bed_number === i + 1);
+    return { number: i + 1, admission: found ? pick(found, fields) : null };
+  });
+  return {
+    name: settings.ward_name || 'Ward',
+    totalBeds,
+    bedPrice: priceOrNull(settings.bed_price_per_night),
+    freeBeds: beds.filter((b) => !b.admission).map((b) => b.number),
+    beds,
+    unassigned: active.filter((a) => !a.bed_number || a.bed_number > totalBeds).map((a) => pick(a, fields))
+  };
+}
+
+// Charge for the bed so far (or for the whole stay once it has ended).
+function stayBed(admission, discharge, referral) {
+  const end = discharge?.discharged_at || referral?.referred_at || new Date();
+  return svc.bedCharge({
+    bedNumber: admission.bed_number, pricePerNight: admission.bed_price, start: admission.admitted_at, end
+  });
+}
+
 // Loads :id into req.admission. Records of finished stays are locked for non-admins.
 function loadAdmission({ allowLockedFor = [] } = {}) {
   return async (req, res, next) => {
@@ -56,6 +88,12 @@ router.get('/current', async (req, res) => {
   try {
     const rows = await Admission.listActive();
     res.json(isFrontDesk(req) ? rows.map(svc.redactAdmission) : rows);
+  } catch (err) { routeError(res, err); }
+});
+
+router.get('/ward', async (req, res) => {
+  try {
+    res.json(await wardInfo({ withComplaint: !isFrontDesk(req) }));
   } catch (err) { routeError(res, err); }
 });
 
@@ -149,9 +187,36 @@ router.post('/', requireClinical, async (req, res) => {
       const pregnancies = await Pregnancy.findByPatientId(value.patient_id);
       value.pregnancy_id = pregnancies.find((p) => p.status === 'Ongoing')?.id ?? null;
     }
-    const id = await Admission.create(value, req.user.id);
+    const ward = await wardInfo();
+    if (value.bed_number === '' || value.bed_number === null || value.bed_number === undefined) {
+      value.bed_number = ward.freeBeds[0] ?? null;
+      if (!value.bed_number) {
+        return res.status(409).json({
+          code: 'WARD_FULL',
+          message: `The ${ward.name.toLowerCase()} is full (${ward.totalBeds} of ${ward.totalBeds} beds in use). Discharge a patient first.`
+        });
+      }
+    } else {
+      value.bed_number = Number(value.bed_number);
+      const bedInfo = ward.beds.find((b) => b.number === value.bed_number);
+      if (!bedInfo) return res.status(400).json({ message: `There is no Bed ${value.bed_number}. The ${ward.name.toLowerCase()} has ${ward.totalBeds} beds.` });
+      if (bedInfo.admission) {
+        return res.status(409).json({
+          code: 'BED_TAKEN',
+          message: `Bed ${value.bed_number} is taken by ${bedInfo.admission.first_name} ${bedInfo.admission.last_name}. Please choose another bed.`
+        });
+      }
+    }
+    value.bed_price = ward.bedPrice;
+    let id;
+    try {
+      id = await Admission.create(value, req.user.id);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ code: 'BED_TAKEN', message: 'That bed was just taken. Please choose another bed.' });
+      throw err;
+    }
     await audit(req, 'CREATE', id, undefined, value);
-    res.status(201).json({ id, message: 'Patient admitted' });
+    res.status(201).json({ id, bed_number: value.bed_number, message: 'Patient admitted' });
   } catch (err) { routeError(res, err); }
 });
 
@@ -175,9 +240,12 @@ router.get('/:id', loadAdmission(), async (req, res) => {
         message: `Only ${stay.hoursStayed} hour(s) since delivery. The usual minimum stay is ${stay.requiredHours} hours.`
       });
     }
+    const bed = stayBed(a, discharge, referral);
+    const itemsSum = svc.itemsTotal(items);
     const bundle = {
-      admission: a, delivery, items, itemsTotal: svc.itemsTotal(items), discharge, followups, referral,
-      warnings, locked: !svc.isActiveStatus(a.status)
+      admission: a, delivery, items, itemsTotal: itemsSum, bed, wardName: settings.ward_name || 'Ward',
+      grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
+      discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status)
     };
     res.json(isFrontDesk(req) ? svc.redactBundle(bundle) : bundle);
   } catch (err) { routeError(res, err); }
@@ -187,7 +255,28 @@ router.put('/:id', requireClinical, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateAdmissionUpdate(req.body);
     if (error) return bad(res, error);
-    await Admission.update(req.params.id, value);
+    if (value.bed_number !== undefined) {
+      const wantsMove = value.bed_number !== '' && value.bed_number !== null && Number(value.bed_number) !== req.admission.bed_number;
+      if (!svc.isActiveStatus(req.admission.status) || !wantsMove) {
+        delete value.bed_number;
+      } else {
+        value.bed_number = Number(value.bed_number);
+        const ward = await wardInfo();
+        if (value.bed_number > ward.totalBeds) {
+          return res.status(400).json({ message: `There is no Bed ${value.bed_number}. The ${ward.name.toLowerCase()} has ${ward.totalBeds} beds.` });
+        }
+        const holder = await Admission.findActiveByBed(value.bed_number, req.admission.id);
+        if (holder) {
+          return res.status(409).json({ code: 'BED_TAKEN', message: `Bed ${value.bed_number} is taken by ${holder.first_name} ${holder.last_name}.` });
+        }
+      }
+    }
+    try {
+      await Admission.update(req.params.id, value);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ code: 'BED_TAKEN', message: 'That bed was just taken. Please choose another bed.' });
+      throw err;
+    }
     await audit(req, 'UPDATE', Number(req.params.id), req.admission, value);
     res.json({ message: 'Admission updated' });
   } catch (err) { routeError(res, err); }
@@ -261,9 +350,10 @@ router.delete('/:id/items/:itemId', requireClinical, loadAdmission({ allowLocked
 router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
   try {
     const a = req.admission;
-    const items = await Admission.listItems(a.id);
-    if (!items.length && !a.philhealth_package) {
-      return res.status(400).json({ message: 'Add at least one item used (or choose a PhilHealth package) first.' });
+    const [items, discharge, referral] = await Promise.all([Admission.listItems(a.id), Admission.getDischarge(a.id), Admission.getReferral(a.id)]);
+    const bed = stayBed(a, discharge, referral);
+    if (!items.length && !a.philhealth_package && bed.amount <= 0) {
+      return res.status(400).json({ message: 'Add at least one item used (or choose a PhilHealth package, or set the bed price) first.' });
     }
     let packageOption = null;
     let packageAmount = 0;
@@ -271,7 +361,7 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
       packageOption = await ClinicOption.findByGroupCode('package', a.philhealth_package);
       packageAmount = packageOption?.price === null || packageOption?.price === undefined ? 0 : Number(packageOption.price);
     }
-    const payload = svc.buildTransactionPayload({ items, packageOption, packageAmount });
+    const payload = svc.buildTransactionPayload({ items, packageOption, packageAmount, bed });
 
     const existing = (await ConsultationTransaction.findByAdmissionId(a.id))[0];
     let transactionId;

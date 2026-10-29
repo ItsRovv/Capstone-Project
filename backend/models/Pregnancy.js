@@ -89,7 +89,7 @@ class Pregnancy {
 
   // Find all active pregnancies (status not discharged/delivered)
   static async findActive() {
-    const query = `SELECT * FROM pregnancies WHERE status NOT IN ('delivered', 'discharged') ORDER BY created_at DESC`;
+    const query = `SELECT * FROM pregnancies WHERE COALESCE(LOWER(status), '') NOT IN ('delivered', 'discharged', 'completed') ORDER BY created_at DESC`;
     const [rows] = await db.execute(query, []);
     return rows;
   }

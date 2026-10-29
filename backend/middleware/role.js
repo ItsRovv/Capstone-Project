@@ -26,6 +26,13 @@ const STAFF_ROLES = ['admin', 'doctor', 'nurse', 'staff'];
  */
 const requireStaff = requireRole(...STAFF_ROLES);
 
+// Clinical roles: whoever is on duty (midwife/nurse, doctor) or the administrator.
+// Front-desk staff can view admissions but not create or change them.
+const CLINICAL_ROLES = ['admin', 'doctor', 'nurse'];
+const requireClinical = requireRole(...CLINICAL_ROLES);
+
 module.exports = requireRole;
 module.exports.requireStaff = requireStaff;
+module.exports.requireClinical = requireClinical;
+module.exports.CLINICAL_ROLES = CLINICAL_ROLES;
 module.exports.STAFF_ROLES = STAFF_ROLES;

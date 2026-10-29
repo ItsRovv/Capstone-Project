@@ -263,6 +263,190 @@ CREATE TRIGGER trg_queue_entries_updated_at BEFORE UPDATE ON queue_entries
 CREATE INDEX IF NOT EXISTS idx_queue_entries_date ON queue_entries (entry_date, status, queue_number);
 CREATE INDEX IF NOT EXISTS idx_queue_entries_patient ON queue_entries (patient_id, entry_date DESC);
 
+-- ── Admission, delivery & discharge ───────────────────────────────────────────
+-- Clinic-editable lists (discharge reasons, risk checklist, items used, packages).
+-- Seeded below with ON CONFLICT DO NOTHING so admin edits are never overwritten.
+CREATE TABLE IF NOT EXISTS clinic_options (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  option_group VARCHAR(40) NOT NULL,
+  code VARCHAR(60) NOT NULL,
+  label VARCHAR(150) NOT NULL,
+  price NUMERIC(10, 2),
+  category VARCHAR(40),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (option_group, code)
+);
+
+CREATE TABLE IF NOT EXISTS clinic_settings (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  setting_key VARCHAR(60) NOT NULL UNIQUE,
+  setting_value TEXT NOT NULL,
+  description VARCHAR(255),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS admissions (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  pregnancy_id BIGINT REFERENCES pregnancies(id) ON DELETE SET NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'admitted'
+    CHECK (status IN ('admitted', 'in_labor', 'delivered', 'discharged', 'referred')),
+  admitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  admitted_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  chief_complaint TEXT,
+  admitting_diagnosis TEXT,
+  bp VARCHAR(20),
+  pulse INT,
+  resp_rate INT,
+  temperature NUMERIC(4, 1),
+  labor_notes TEXT,
+  risk_flags JSONB NOT NULL DEFAULT '[]',
+  consent_signed BOOLEAN NOT NULL DEFAULT FALSE,
+  consent_by VARCHAR(150),
+  philhealth_package VARCHAR(60),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS deliveries (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL UNIQUE REFERENCES admissions(id) ON DELETE CASCADE,
+  delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  delivery_type VARCHAR(60),
+  attendant TEXT,
+  complications TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS newborns (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  delivery_id BIGINT NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+  sex VARCHAR(10) CHECK (sex IN ('Male', 'Female', 'Other')),
+  weight_grams INT,
+  apgar_1 INT CHECK (apgar_1 BETWEEN 0 AND 10),
+  apgar_5 INT CHECK (apgar_5 BETWEEN 0 AND 10),
+  essential_care JSONB NOT NULL DEFAULT '[]',
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS admission_items (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  option_id BIGINT REFERENCES clinic_options(id) ON DELETE SET NULL,
+  label VARCHAR(150) NOT NULL,
+  unit_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  quantity NUMERIC(8, 2) NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  given_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  given_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS discharges (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL UNIQUE REFERENCES admissions(id) ON DELETE CASCADE,
+  discharged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  disposition VARCHAR(60) NOT NULL,
+  final_diagnosis TEXT,
+  instructions TEXT,
+  override_reason TEXT,
+  discharged_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS postpartum_followups (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  due_at TIMESTAMPTZ NOT NULL,
+  done_at TIMESTAMPTZ,
+  done_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS referrals (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL UNIQUE REFERENCES admissions(id) ON DELETE CASCADE,
+  facility VARCHAR(200) NOT NULL,
+  reason TEXT,
+  referred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  transport VARCHAR(100),
+  notes TEXT,
+  referred_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE consultation_transactions
+  ADD COLUMN IF NOT EXISTS admission_id BIGINT REFERENCES admissions(id) ON DELETE SET NULL;
+
+DROP TRIGGER IF EXISTS trg_admissions_updated_at ON admissions;
+CREATE TRIGGER trg_admissions_updated_at BEFORE UPDATE ON admissions
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_deliveries_updated_at ON deliveries;
+CREATE TRIGGER trg_deliveries_updated_at BEFORE UPDATE ON deliveries
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_clinic_options_updated_at ON clinic_options;
+CREATE TRIGGER trg_clinic_options_updated_at BEFORE UPDATE ON clinic_options
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_admissions_patient ON admissions (patient_id, admitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admissions_status ON admissions (status, admitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admission_items_admission ON admission_items (admission_id);
+CREATE INDEX IF NOT EXISTS idx_followups_due ON postpartum_followups (due_at) WHERE done_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_consultation_transactions_admission ON consultation_transactions (admission_id);
+
+-- Starter lists. Prices are intentionally NULL: the clinic administrator sets
+-- real prices in Settings. ON CONFLICT DO NOTHING keeps admin edits on restart.
+INSERT INTO clinic_options (option_group, code, label, category, sort_order) VALUES
+  ('discharge_reason', 'improved', 'Improved - went home well', NULL, 1),
+  ('discharge_reason', 'transferred', 'Transferred to another facility', NULL, 2),
+  ('discharge_reason', 'hama', 'Went home against medical advice', NULL, 3),
+  ('discharge_reason', 'absconded', 'Left without notice', NULL, 4),
+  ('discharge_reason', 'expired', 'Passed away', NULL, 5),
+  ('delivery_type', 'nsd', 'Normal delivery', NULL, 1),
+  ('delivery_type', 'assisted', 'Assisted delivery', NULL, 2),
+  ('delivery_type', 'other', 'Other', NULL, 3),
+  ('risk_flag', 'multiple_pregnancy', 'Twins or more', NULL, 1),
+  ('risk_flag', 'placenta_previa', 'Placenta covering the cervix (placenta previa)', NULL, 2),
+  ('risk_flag', 'previous_cs', 'Previous cesarean section', NULL, 3),
+  ('risk_flag', 'preeclampsia_history', 'Past pre-eclampsia or eclampsia', NULL, 4),
+  ('risk_flag', 'stillbirth_history', 'Past stillbirth or 3 or more miscarriages', NULL, 5),
+  ('risk_flag', 'hypertension', 'High blood pressure', NULL, 6),
+  ('risk_flag', 'diabetes', 'Diabetes', NULL, 7),
+  ('risk_flag', 'heart_disease', 'Heart disease', NULL, 8),
+  ('risk_flag', 'severe_anemia', 'Severe anemia', NULL, 9),
+  ('risk_flag', 'bleeding', 'Heavy bleeding', NULL, 10),
+  ('newborn_care', 'drying', 'Dried and wrapped right away', NULL, 1),
+  ('newborn_care', 'skin_to_skin', 'Skin-to-skin with mother', NULL, 2),
+  ('newborn_care', 'cord_care', 'Cord clamped and cared for', NULL, 3),
+  ('newborn_care', 'breastfeeding', 'Breastfeeding started', NULL, 4),
+  ('package', 'mcp', 'PhilHealth Maternity Care Package', 'philhealth', 1),
+  ('package', 'nsd', 'PhilHealth Normal Delivery Package', 'philhealth', 2),
+  ('item', 'room', 'Room / bed (per day)', 'service', 1),
+  ('item', 'birthing_fee', 'Birthing room and delivery fee', 'service', 2),
+  ('item', 'iv_fluids', 'IV fluids', 'medicine', 3),
+  ('item', 'oxytocin', 'Oxytocin injection', 'medicine', 4),
+  ('item', 'antibiotic', 'Antibiotic', 'medicine', 5),
+  ('item', 'pain_reliever', 'Pain reliever', 'medicine', 6),
+  ('item', 'suture_set', 'Suture / stitching set', 'supply', 7),
+  ('item', 'newborn_vitamin_k', 'Newborn vitamin K injection', 'medicine', 8),
+  ('item', 'newborn_vaccines', 'Newborn vaccines (BCG, Hepatitis B)', 'medicine', 9),
+  ('item', 'newborn_screening', 'Newborn screening', 'service', 10)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
+  ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),
+  ('followup_offsets_hours', '72,168', 'Postpartum follow-up visits, hours after discharge (72 = 3 days, 168 = 7 days)'),
+  ('require_consent', 'true', 'Remind staff when informed consent is not yet recorded')
+ON CONFLICT (setting_key) DO NOTHING;
+
 -- ── Row Level Security (backend-only access) ─────────────────────────────────
 -- The Express backend handles authentication and authorization. RLS is enabled
 -- to satisfy Supabase security posture requirements; policies allow the backend
@@ -303,3 +487,33 @@ CREATE POLICY "App full access" ON public.queue_entries FOR ALL USING (true) WIT
 
 DROP POLICY IF EXISTS "App full access" ON public.audit_logs;
 CREATE POLICY "App full access" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- ── RLS for admission, delivery & discharge tables ───────────────────────────
+ALTER TABLE IF EXISTS public.clinic_options ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.clinic_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.newborns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admission_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.discharges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.postpartum_followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.referrals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "App full access" ON public.clinic_options;
+CREATE POLICY "App full access" ON public.clinic_options FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.clinic_settings;
+CREATE POLICY "App full access" ON public.clinic_settings FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admissions;
+CREATE POLICY "App full access" ON public.admissions FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.deliveries;
+CREATE POLICY "App full access" ON public.deliveries FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.newborns;
+CREATE POLICY "App full access" ON public.newborns FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admission_items;
+CREATE POLICY "App full access" ON public.admission_items FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.discharges;
+CREATE POLICY "App full access" ON public.discharges FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.postpartum_followups;
+CREATE POLICY "App full access" ON public.postpartum_followups FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.referrals;
+CREATE POLICY "App full access" ON public.referrals FOR ALL USING (true) WITH CHECK (true);

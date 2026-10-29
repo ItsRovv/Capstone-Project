@@ -150,8 +150,132 @@ function validateConsultationTransaction(data) {
   return result;
 }
 
+
+// ── Admission, delivery & discharge ─────────────────────────────────────────
+const shortText = (max) => Joi.string().trim().max(max).allow(null, '');
+const optionCode = Joi.string().trim().max(60);
+
+const admissionSchema = Joi.object({
+  patient_id: Joi.number().integer().positive().required(),
+  pregnancy_id: Joi.number().integer().positive().allow(null, ''),
+  admitted_at: Joi.date(),
+  chief_complaint: shortText(1000),
+  admitting_diagnosis: shortText(1000),
+  bp: shortText(20),
+  pulse: Joi.number().integer().min(20).max(250).allow(null, ''),
+  resp_rate: Joi.number().integer().min(5).max(80).allow(null, ''),
+  temperature: Joi.number().min(30).max(45).allow(null, ''),
+  labor_notes: shortText(3000),
+  risk_flags: Joi.array().items(optionCode).max(40).default([]),
+  consent_signed: Joi.boolean(),
+  consent_by: shortText(150),
+  philhealth_package: shortText(60),
+  notes: shortText(3000)
+}).unknown(false);
+
+const admissionUpdateSchema = admissionSchema.fork(['patient_id'], (f) => f.forbidden());
+
+const newbornSchema = Joi.object({
+  sex: Joi.string().valid('Male', 'Female', 'Other').allow(null, ''),
+  weight_grams: Joi.number().integer().min(200).max(8000).allow(null, ''),
+  apgar_1: Joi.number().integer().min(0).max(10).allow(null, ''),
+  apgar_5: Joi.number().integer().min(0).max(10).allow(null, ''),
+  essential_care: Joi.array().items(optionCode).max(30).default([]),
+  notes: shortText(2000)
+}).unknown(false);
+
+const deliverySchema = Joi.object({
+  delivered_at: Joi.date(),
+  delivery_type: shortText(60),
+  attendant: shortText(300),
+  complications: shortText(2000),
+  newborns: Joi.array().items(newbornSchema).max(6).default([])
+}).unknown(false);
+
+const admissionItemSchema = Joi.object({
+  option_id: Joi.number().integer().positive().allow(null, ''),
+  label: Joi.string().trim().max(150),
+  unit_price: Joi.number().min(0).max(1000000),
+  quantity: Joi.number().greater(0).max(1000).default(1),
+  given_at: Joi.date()
+}).or('option_id', 'label').unknown(false);
+
+const dischargeSchema = Joi.object({
+  disposition: Joi.string().trim().max(60).required(),
+  discharged_at: Joi.date(),
+  final_diagnosis: shortText(1000),
+  instructions: shortText(3000),
+  override_reason: shortText(500)
+}).unknown(false);
+
+const referralSchema = Joi.object({
+  facility: Joi.string().trim().min(1).max(200).required(),
+  reason: shortText(2000),
+  referred_at: Joi.date(),
+  transport: shortText(100),
+  notes: shortText(2000)
+}).unknown(false);
+
+const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item'];
+
+const clinicOptionSchema = Joi.object({
+  option_group: Joi.string().valid(...OPTION_GROUPS).required(),
+  code: Joi.string().trim().lowercase().pattern(/^[a-z0-9_]+$/).max(60),
+  label: Joi.string().trim().min(1).max(150).required(),
+  price: Joi.number().min(0).max(1000000).allow(null, ''),
+  category: shortText(40),
+  active: Joi.boolean(),
+  sort_order: Joi.number().integer().min(0).max(10000)
+}).unknown(false);
+
+const clinicOptionUpdateSchema = clinicOptionSchema.fork(['option_group', 'label'], (f) => f.optional());
+
+const SETTING_RULES = {
+  min_stay_hours: Joi.number().integer().min(0).max(240).required(),
+  followup_offsets_hours: Joi.string().trim().pattern(/^\d+(\s*,\s*\d+){0,5}$/).max(40).required(),
+  require_consent: Joi.boolean().required()
+};
+
+const ADMISSION_TEXT = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'consent_by', 'notes', 'bp', 'philhealth_package'];
+
+function runValidation(schema, data, sanitizeFields = []) {
+  const result = schema.validate(data);
+  if (result.error) return result;
+  result.value = sanitizeObject(result.value, sanitizeFields);
+  return result;
+}
+
+function validateAdmission(data) { return runValidation(admissionSchema, data, ADMISSION_TEXT); }
+function validateAdmissionUpdate(data) { return runValidation(admissionUpdateSchema, data, ADMISSION_TEXT); }
+function validateDelivery(data) {
+  const result = runValidation(deliverySchema, data, ['delivery_type', 'attendant', 'complications']);
+  if (!result.error) result.value.newborns = result.value.newborns.map((n) => sanitizeObject(n, ['notes']));
+  return result;
+}
+function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label']); }
+function validateDischarge(data) { return runValidation(dischargeSchema, data, ['disposition', 'final_diagnosis', 'instructions', 'override_reason']); }
+function validateReferral(data) { return runValidation(referralSchema, data, ['facility', 'reason', 'transport', 'notes']); }
+function validateClinicOption(data) { return runValidation(clinicOptionSchema, data, ['label', 'category']); }
+function validateClinicOptionUpdate(data) { return runValidation(clinicOptionUpdateSchema, data, ['label', 'category']); }
+function validateSetting(key, value) {
+  const rule = SETTING_RULES[key];
+  if (!rule) return { error: new Error(`Unknown setting: ${key}`) };
+  return rule.validate(value);
+}
+
 module.exports = {
   validatePatient,
   validateConsultation,
-  validateConsultationTransaction
+  validateConsultationTransaction,
+  validateAdmission,
+  validateAdmissionUpdate,
+  validateDelivery,
+  validateAdmissionItem,
+  validateDischarge,
+  validateReferral,
+  validateClinicOption,
+  validateClinicOptionUpdate,
+  validateSetting,
+  OPTION_GROUPS,
+  SETTING_RULES
 };

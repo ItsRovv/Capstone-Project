@@ -24,14 +24,15 @@ function parsePackages(row) {
 class ConsultationTransaction {
   // Create a new transaction
   static async create(data) {
-    const { patient_id, consultation_id, created_by, transaction_date, packages, vitamins, recommendations, total_amount, philhealth_total } = encryptTransaction(data);
+    const { patient_id, consultation_id, admission_id, created_by, transaction_date, packages, vitamins, recommendations, total_amount, philhealth_total } = encryptTransaction(data);
     const query = `
-      INSERT INTO consultation_transactions (patient_id, consultation_id, created_by, transaction_date, packages, vitamins, recommendations, total_amount, philhealth_total)
-      VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
+      INSERT INTO consultation_transactions (patient_id, consultation_id, admission_id, created_by, transaction_date, packages, vitamins, recommendations, total_amount, philhealth_total)
+      VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
     `;
     const values = [
       patient_id,
       consultation_id ?? null,
+      admission_id ?? null,
       created_by ?? null,
       transaction_date ?? new Date(),
       JSON.stringify(packages ?? []),
@@ -62,6 +63,13 @@ class ConsultationTransaction {
   static async findByPatientId(patientId) {
     const query = 'SELECT * FROM consultation_transactions WHERE patient_id = ? ORDER BY transaction_date DESC';
     const [rows] = await db.execute(query, [patientId]);
+    return rows.map((r) => decryptTransaction(parsePackages(r)));
+  }
+
+  // Find the transaction created from an admission's items used
+  static async findByAdmissionId(admissionId) {
+    const query = 'SELECT * FROM consultation_transactions WHERE admission_id = ? ORDER BY transaction_date DESC';
+    const [rows] = await db.execute(query, [admissionId]);
     return rows.map((r) => decryptTransaction(parsePackages(r)));
   }
 

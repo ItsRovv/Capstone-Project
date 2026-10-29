@@ -1,0 +1,93 @@
+const express = require('express');
+const router = express.Router();
+const ClinicOption = require('../models/ClinicOption');
+const AuditLog = require('../models/AuditLog');
+const auth = require('../middleware/auth');
+const requireRole = require('../middleware/role');
+const { requireStaff } = require('../middleware/role');
+const {
+  validateClinicOption, validateClinicOptionUpdate, validateSetting, OPTION_GROUPS
+} = require('../middleware/validation');
+const { routeError } = require('../utils/routeError');
+
+router.use(auth);
+
+function audit(req, action, recordId, oldData, newData, tableName) {
+  return AuditLog.create({
+    userId: req.user?.id, action, tableName, recordId, oldData, newData, ipAddress: req.ip
+  }).catch((e) => console.warn('[audit] failed:', e.message));
+}
+
+const bad = (res, error) => res.status(400).json({ message: error.details?.[0]?.message || error.message });
+
+// Everyone on staff can read the lists (forms need them). Only the admin sees hidden ones.
+router.get('/options', requireStaff, async (req, res) => {
+  try {
+    const { group } = req.query;
+    if (group && !OPTION_GROUPS.includes(group)) return res.status(400).json({ message: 'Unknown list' });
+    const includeInactive = req.query.all === '1' && req.user.role === 'admin';
+    res.json(await ClinicOption.list({ group, includeInactive }));
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/options', requireRole('admin'), async (req, res) => {
+  try {
+    const { error, value } = validateClinicOption(req.body);
+    if (error) return bad(res, error);
+    const id = await ClinicOption.create(value).catch((err) => {
+      if (err.code === '23505') return null;
+      throw err;
+    });
+    if (id === null) return res.status(409).json({ message: 'That choice already exists in this list.' });
+    await audit(req, 'CREATE', id, undefined, value, 'clinic_options');
+    res.status(201).json({ id, message: 'Added' });
+  } catch (err) { routeError(res, err); }
+});
+
+router.put('/options/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const { error, value } = validateClinicOptionUpdate(req.body);
+    if (error) return bad(res, error);
+    const old = await ClinicOption.findById(req.params.id);
+    if (!old) return res.status(404).json({ message: 'Not found' });
+    await ClinicOption.update(req.params.id, value);
+    await audit(req, 'UPDATE', Number(req.params.id), old, value, 'clinic_options');
+    res.json({ message: 'Saved' });
+  } catch (err) { routeError(res, err); }
+});
+
+// "Delete" only hides the choice, so old records that used it stay readable.
+router.delete('/options/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const old = await ClinicOption.findById(req.params.id);
+    if (!old) return res.status(404).json({ message: 'Not found' });
+    await ClinicOption.deactivate(req.params.id);
+    await audit(req, 'DELETE', Number(req.params.id), old, undefined, 'clinic_options');
+    res.json({ message: 'Hidden from the lists' });
+  } catch (err) { routeError(res, err); }
+});
+
+router.get('/settings', requireStaff, async (req, res) => {
+  try {
+    res.json(await ClinicOption.getSettings());
+  } catch (err) { routeError(res, err); }
+});
+
+router.put('/settings', requireRole('admin'), async (req, res) => {
+  try {
+    const entries = Object.entries(req.body || {});
+    if (!entries.length) return res.status(400).json({ message: 'Nothing to save' });
+    const clean = [];
+    for (const [key, raw] of entries) {
+      const { error, value } = validateSetting(key, raw);
+      if (error) return bad(res, error);
+      clean.push([key, value]);
+    }
+    const old = await ClinicOption.getSettingsMap();
+    for (const [key, value] of clean) await ClinicOption.setSetting(key, value);
+    await audit(req, 'UPDATE', undefined, old, Object.fromEntries(clean), 'clinic_settings');
+    res.json({ message: 'Settings saved' });
+  } catch (err) { routeError(res, err); }
+});
+
+module.exports = router;

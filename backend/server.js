@@ -17,6 +17,8 @@ const automationRoutes = require('./routes/automation');
 const pregnancyRoutes = require('./routes/pregnancies');
 const pregnancyTrackingRoutes = require('./routes/pregnancyTracking');
 const queueRoutes = require('./routes/queue');
+const admissionRoutes = require('./routes/admissions');
+const clinicOptionRoutes = require('./routes/clinicOptions');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { csrfProtection } = require('./middleware/csrf');
 const { mapErrorToClientMessage } = require('./utils/dbErrorMapper');
@@ -194,6 +196,8 @@ mountV1('/consultation-transactions', consultationTransactionRoutes);
 mountV1('/reports', reportRoutes);
 mountV1('/summary', summaryRoutes);
 mountV1('/queue', queueRoutes);
+mountV1('/admissions', admissionRoutes);
+mountV1('/clinic', clinicOptionRoutes);
 // n8n / external automation (token-protected via x-automation-token header).
 mountV1('/automation', automationRoutes);
 

@@ -399,6 +399,7 @@ export function PatientDetail() {
 
       {/* Consultation detail modal */}
       <ConsultationDetailModal
+        key={viewConsult?.id || 'none'}
         consultation={viewConsult}
         onClose={() => setViewConsult(null)}
       />
@@ -652,16 +653,31 @@ function MedicalInfoCard({ patient }) {
   );
 }
 
+function OverviewRow({ label, value, mono = false }) {
+  if (!value) return null;
+  return (
+    <div className="px-4 py-3">
+      <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">{label}</p>
+      <p className={`text-sm text-ink-800 whitespace-pre-wrap ${mono ? 'font-mono' : ''}`}>{value}</p>
+    </div>
+  );
+}
+
 function ConsultationDetailModal({ consultation, onClose }) {
   if (!consultation) return null;
   const c = consultation;
   const editable = c.visit_date && Date.now() - new Date(c.visit_date).getTime() < ONE_WEEK_MS;
+  const hasSOAP = c.subjective || c.objective || c.assessment || c.plan;
+  const reasonForVisit = c.chief_complaint || c.subjective;
+  const hasOverview =
+    reasonForVisit || c.objective || c.diagnosis || c.assessment || c.plan ||
+    c.prescription || c.followUp || (!hasSOAP && c.structured_notes);
 
   return (
     <Modal
       open={Boolean(consultation)}
       onClose={onClose}
-      title="Consultation Details"
+      title="Consultation Overview"
       size="lg"
     >
       <div className="space-y-4 max-h-[70vh] overflow-y-auto">
@@ -671,74 +687,21 @@ function ConsultationDetailModal({ consultation, onClose }) {
           <SoapBadge consultation={c} />
         </div>
 
-        {/* Chief complaint */}
-        {c.chief_complaint && (
-          <div className="rounded-lg bg-ink-50 border border-ink-100 px-4 py-3">
-            <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Chief Complaint</p>
-            <p className="text-sm font-medium text-ink-900">{c.chief_complaint}</p>
+        {/* Overview — the key takeaways of the visit at a glance */}
+        {hasOverview ? (
+          <div className="rounded-xl border border-ink-200 divide-y divide-ink-100">
+            <OverviewRow label="Reason for visit" value={reasonForVisit} />
+            <OverviewRow label="Reported symptoms" value={c.chief_complaint ? c.subjective : null} />
+            <OverviewRow label="Examination findings" value={c.objective} />
+            <OverviewRow label="Diagnosis" value={c.diagnosis} />
+            <OverviewRow label="Assessment" value={c.assessment} />
+            <OverviewRow label="Plan" value={c.plan} />
+            <OverviewRow label="Prescription" value={c.prescription} mono />
+            <OverviewRow label="Follow-up" value={c.followUp} />
+            {!hasSOAP && <OverviewRow label="Notes" value={c.structured_notes} />}
           </div>
-        )}
-
-        {/* SOAP Notes — 2x2 grid */}
-        {(c.subjective || c.objective || c.assessment || c.plan) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {c.subjective && (
-              <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
-                <p className="text-xs font-bold text-sky-700 uppercase tracking-wide mb-1">S — Subjective</p>
-                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.subjective}</p>
-              </div>
-            )}
-            {c.objective && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
-                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-1">O — Objective</p>
-                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.objective}</p>
-              </div>
-            )}
-            {c.assessment && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">A — Assessment</p>
-                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.assessment}</p>
-              </div>
-            )}
-            {c.plan && (
-              <div className="rounded-lg border border-primary-200 bg-primary-50/50 p-3">
-                <p className="text-xs font-bold text-primary-700 uppercase tracking-wide mb-1">P — Plan</p>
-                <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.plan}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Diagnosis + Follow-up */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {c.diagnosis && (
-            <div>
-              <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Diagnosis</p>
-              <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.diagnosis}</p>
-            </div>
-          )}
-          {c.followUp && (
-            <div>
-              <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Follow-up</p>
-              <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.followUp}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Prescription */}
-        {c.prescription && (
-          <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3">
-            <p className="text-xs font-bold text-teal-700 uppercase tracking-wide mb-1">Prescription</p>
-            <p className="text-sm text-ink-700 whitespace-pre-wrap font-mono">{c.prescription}</p>
-          </div>
-        )}
-
-        {/* Legacy structured notes (if no SOAP fields) */}
-        {!c.subjective && !c.objective && !c.assessment && !c.plan && c.structured_notes && (
-          <div className="rounded-lg border border-ink-200 p-3">
-            <p className="text-xs font-bold text-ink-500 uppercase tracking-wide mb-1">Notes</p>
-            <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.structured_notes}</p>
-          </div>
+        ) : (
+          <p className="text-sm text-ink-500 text-center py-6">No details recorded for this visit.</p>
         )}
       </div>
 

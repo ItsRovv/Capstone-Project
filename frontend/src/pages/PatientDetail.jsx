@@ -672,7 +672,6 @@ function OverviewRow({ label, value, mono = false }) {
 }
 
 function ConsultationDetailModal({ consultation, onClose }) {
-  const [showFull, setShowFull] = useState(false);
   if (!consultation) return null;
   const c = consultation;
   const editable = c.visit_date && Date.now() - new Date(c.visit_date).getTime() < ONE_WEEK_MS;
@@ -681,7 +680,6 @@ function ConsultationDetailModal({ consultation, onClose }) {
   const hasOverview =
     reasonForVisit || c.objective || c.diagnosis || c.assessment || c.plan ||
     c.prescription || c.followUp || (!hasSOAP && c.structured_notes);
-  const hasFullRecord = hasSOAP || c.chief_complaint || c.structured_notes;
 
   return (
     <Modal
@@ -711,73 +709,6 @@ function ConsultationDetailModal({ consultation, onClose }) {
           </div>
         ) : (
           <p className="text-sm text-ink-500 text-center py-6">No details recorded for this visit.</p>
-        )}
-
-        {/* Full record — raw notes, collapsed by default */}
-        {hasFullRecord && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowFull((v) => !v)}
-              className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
-            >
-              <Icon.Chevron
-                width={14}
-                height={14}
-                className={`transition-transform ${showFull ? 'rotate-90' : ''}`}
-              />
-              {showFull ? 'Hide full record' : 'View full record'}
-            </button>
-            {showFull && (
-              <div className="mt-3 space-y-4">
-                {/* Chief complaint */}
-                {c.chief_complaint && (
-                  <div className="rounded-lg bg-ink-50 border border-ink-100 px-4 py-3">
-                    <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Chief Complaint</p>
-                    <p className="text-sm font-medium text-ink-900">{c.chief_complaint}</p>
-                  </div>
-                )}
-
-                {/* SOAP Notes — 2x2 grid */}
-                {hasSOAP && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {c.subjective && (
-                      <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
-                        <p className="text-xs font-bold text-sky-700 uppercase tracking-wide mb-1">S — Subjective</p>
-                        <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.subjective}</p>
-                      </div>
-                    )}
-                    {c.objective && (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
-                        <p className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-1">O — Objective</p>
-                        <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.objective}</p>
-                      </div>
-                    )}
-                    {c.assessment && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-                        <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">A — Assessment</p>
-                        <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.assessment}</p>
-                      </div>
-                    )}
-                    {c.plan && (
-                      <div className="rounded-lg border border-primary-200 bg-primary-50/50 p-3">
-                        <p className="text-xs font-bold text-primary-700 uppercase tracking-wide mb-1">P — Plan</p>
-                        <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.plan}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Legacy structured notes (if no SOAP fields) */}
-                {!hasSOAP && c.structured_notes && (
-                  <div className="rounded-lg border border-ink-200 p-3">
-                    <p className="text-xs font-bold text-ink-500 uppercase tracking-wide mb-1">Notes</p>
-                    <p className="text-sm text-ink-700 whitespace-pre-wrap">{c.structured_notes}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         )}
       </div>
 

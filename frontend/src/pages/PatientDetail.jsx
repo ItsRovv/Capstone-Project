@@ -679,7 +679,7 @@ function ConsultationDetailModal({ consultation, onClose }) {
   const hasSOAP = c.subjective || c.objective || c.assessment || c.plan;
   const reasonForVisit = c.chief_complaint || firstLine(c.subjective);
   const hasOverview =
-    reasonForVisit || c.diagnosis || c.assessment || c.plan ||
+    reasonForVisit || c.objective || c.diagnosis || c.assessment || c.plan ||
     c.prescription || c.followUp || (!hasSOAP && c.structured_notes);
   const hasFullRecord = hasSOAP || c.chief_complaint || c.structured_notes;
 
@@ -701,6 +701,7 @@ function ConsultationDetailModal({ consultation, onClose }) {
         {hasOverview ? (
           <div className="rounded-xl border border-ink-200 divide-y divide-ink-100">
             <OverviewRow label="Reason for visit" value={reasonForVisit} />
+            <OverviewRow label="Examination findings" value={c.objective} />
             <OverviewRow label="Diagnosis" value={c.diagnosis} />
             <OverviewRow label="Assessment" value={c.assessment} />
             <OverviewRow label="Plan" value={c.plan} />

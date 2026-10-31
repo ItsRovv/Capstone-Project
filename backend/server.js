@@ -160,6 +160,15 @@ app.get('/', (req, res) => {
 const v1Prefix = '/api/v1';
 const legacyPrefix = '/api';
 
+// API data is user-specific and time-sensitive — never let browsers or edge
+// caches (e.g. Vercel's CDN in front of Render) store responses.
+const noStoreApi = (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+};
+app.use(v1Prefix, noStoreApi);
+app.use(legacyPrefix, noStoreApi);
+
 function mountV1(path, ...handlers) {
   app.use(`${v1Prefix}${path}`, ...handlers);
   app.use(`${legacyPrefix}${path}`, ...handlers);

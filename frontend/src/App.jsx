@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute, PublicOnly } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
+import { CLINIC_APP_ROLES, STAFF_ROLES } from './lib/roles';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { ForgotPassword } from './pages/ForgotPassword';
@@ -60,15 +61,15 @@ export default function App() {
       <Route
         path="/"
         element={
-          <ProtectedRoute roles={['admin', 'doctor', 'nurse', 'staff']}>
+          <ProtectedRoute roles={CLINIC_APP_ROLES}>
             <Layout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
-        <Route path="patients" element={<Patients />} />
-        <Route path="patients/:id" element={<PatientDetail />} />
-        <Route path="consultations" element={<Consultations />} />
+        <Route index element={<ProtectedRoute roles={STAFF_ROLES}><Dashboard /></ProtectedRoute>} />
+        <Route path="patients" element={<ProtectedRoute roles={STAFF_ROLES}><Patients /></ProtectedRoute>} />
+        <Route path="patients/:id" element={<ProtectedRoute roles={STAFF_ROLES}><PatientDetail /></ProtectedRoute>} />
+        <Route path="consultations" element={<ProtectedRoute roles={STAFF_ROLES}><Consultations /></ProtectedRoute>} />
         <Route
           path="doctor/consultations"
           element={
@@ -86,7 +87,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="pregnancy-tracking" element={<PregnancyTrackingForm />} />
+        <Route path="pregnancy-tracking" element={<ProtectedRoute roles={STAFF_ROLES}><PregnancyTrackingForm /></ProtectedRoute>} />
         <Route path="admissions" element={<Admissions />} />
         <Route path="admissions/:id" element={<AdmissionDetail />} />
         <Route

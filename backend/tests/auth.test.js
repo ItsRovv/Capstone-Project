@@ -1,6 +1,12 @@
 // Mock the User and AuditLog models so these tests never touch a real database.
+// The mailer is mocked too: without this, logging in an unverified Gmail user
+// sends a real OTP email whenever SMTP is configured in .env.
 jest.mock('../models/User');
 jest.mock('../models/AuditLog');
+jest.mock('../utils/mailer', () => ({
+  sendMail: jest.fn().mockResolvedValue({ sent: true, messageId: 'test' }),
+  isConfigured: jest.fn().mockReturnValue(true)
+}));
 
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
@@ -43,14 +49,14 @@ describe('login', () => {
   });
 
   test('401 when user not found', async () => {
-    User.findByEmail.mockResolvedValue(undefined);
+    User.findByEmailOrUsername.mockResolvedValue(undefined);
     const res = mockRes();
     await login({ body: { email: 'x@y.com', password: 'secret' } }, res, jest.fn());
     expect(res.statusCode).toBe(401);
   });
 
   test('returns token on valid credentials', async () => {
-    User.findByEmail.mockResolvedValue({
+    User.findByEmailOrUsername.mockResolvedValue({
       id: 1,
       name: 'Admin',
       email: 'a@b.com',
@@ -69,18 +75,20 @@ describe('login', () => {
   });
 
   test('403 EMAIL_NOT_VERIFIED when the account is unverified', async () => {
-    User.findByEmail.mockResolvedValue({
+    // OTP verification only applies to Gmail logins — other accounts auto-verify
+    User.findByEmailOrUsername.mockResolvedValue({
       id: 2,
       name: 'New',
-      email: 'new@b.com',
+      email: 'new@gmail.com',
       role: 'staff',
       password_hash: 'hash',
       locked_until: null,
       email_verified: 0
     });
     User.comparePassword.mockResolvedValue(true);
+    User.setOtp = jest.fn().mockResolvedValue();
     const res = mockRes();
-    await login({ body: { email: 'new@b.com', password: 'secret' } }, res, jest.fn());
+    await login({ body: { email: 'new@gmail.com', password: 'secret' } }, res, jest.fn());
     expect(res.statusCode).toBe(403);
     expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
   });

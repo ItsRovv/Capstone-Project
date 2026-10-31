@@ -14,7 +14,7 @@ export const ACTIVE_STATUSES = ['admitted', 'in_labor', 'delivered'];
 export const isActiveStatus = (s) => ACTIVE_STATUSES.includes(s);
 
 // Who may admit, deliver, discharge. Front-desk staff only view.
-export const CLINICAL_ROLES = ['admin', 'doctor', 'nurse'];
+export const CLINICAL_ROLES = ['admin', 'doctor', 'nurse', 'midwife'];
 export const canRecordClinical = (role) => CLINICAL_ROLES.includes(role);
 
 export const peso = (n) =>
@@ -83,6 +83,42 @@ export function useWard() {
 
 export const nightsText = (n) => `${n} night${n === 1 ? '' : 's'}`;
 
+// The Admission and Discharge module's own fixed lists. They used to be editable in
+// Clinic Settings; they belong to this module now (same items, same order).
+export const MODULE_LISTS = {
+  discharge_reason: [
+    { code: 'improved', label: 'Improved - went home well' },
+    { code: 'transferred', label: 'Transferred to another facility' },
+    { code: 'hama', label: 'Went home against medical advice' },
+    { code: 'absconded', label: 'Left without notice' },
+    { code: 'expired', label: 'Passed away' },
+    { code: 'well_baby', label: 'Well baby - discharged with mother' }
+  ],
+  delivery_type: [
+    { code: 'nsd', label: 'Normal delivery' },
+    { code: 'assisted', label: 'Assisted delivery' },
+    { code: 'other', label: 'Other' }
+  ],
+  risk_flag: [
+    { code: 'multiple_pregnancy', label: 'Twins or more' },
+    { code: 'placenta_previa', label: 'Placenta covering the cervix (placenta previa)' },
+    { code: 'previous_cs', label: 'Previous cesarean section' },
+    { code: 'preeclampsia_history', label: 'Past pre-eclampsia or eclampsia' },
+    { code: 'stillbirth_history', label: 'Past stillbirth or 3 or more miscarriages' },
+    { code: 'hypertension', label: 'High blood pressure' },
+    { code: 'diabetes', label: 'Diabetes' },
+    { code: 'heart_disease', label: 'Heart disease' },
+    { code: 'severe_anemia', label: 'Severe anemia' },
+    { code: 'bleeding', label: 'Heavy bleeding' }
+  ],
+  newborn_care: [
+    { code: 'drying', label: 'Dried and wrapped right away' },
+    { code: 'skin_to_skin', label: 'Skin-to-skin with mother' },
+    { code: 'cord_care', label: 'Cord clamped and cared for' },
+    { code: 'breastfeeding', label: 'Breastfeeding started' }
+  ]
+};
+
 /**
  * Loads the clinic's editable lists and rules once. Forms use this so a change
  * made in Settings shows up everywhere without a code change.
@@ -110,15 +146,19 @@ export function useClinicOptions() {
   useEffect(() => { reload(); }, [reload]);
 
   const byGroup = useMemo(() => {
-    // Dropdowns only offer choices that are still switched on.
-    const groups = {};
-    for (const o of options) if (o.active) (groups[o.option_group] ||= []).push(o);
+    // The module's fixed lists first; editable lists (items, packages) from the API.
+    const groups = { ...MODULE_LISTS };
+    for (const o of options) {
+      if (o.active && !MODULE_LISTS[o.option_group]) (groups[o.option_group] ||= []).push(o);
+    }
     return groups;
   }, [options]);
 
   // Shows the clinic's own wording for a saved code, even if the choice was hidden later.
   const labelFor = useCallback(
-    (group, code) => options.find((o) => o.option_group === group && o.code === code)?.label || code || '—',
+    (group, code) => MODULE_LISTS[group]?.find((o) => o.code === code)?.label
+      || options.find((o) => o.option_group === group && o.code === code)?.label
+      || code || '—',
     [options]
   );
 

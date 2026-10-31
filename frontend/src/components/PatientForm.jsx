@@ -843,6 +843,25 @@ function PersonSubForm({ title, person, onChange, useAutocomplete, required }) {
           />
         </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Input label="Birthplace" value={person.birthplace || ''} onChange={onChange('birthplace')} />
+          <Input label="Nationality" value={person.nationality || ''} onChange={onChange('nationality')} placeholder="Filipino" />
+          <Input label="Religion" value={person.religion || ''} onChange={onChange('religion')} />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Input label="Employer (type of business)" value={person.employer || ''} onChange={onChange('employer')} />
+          <Input label="Employer address" value={person.employer_address || ''} onChange={onChange('employer_address')} />
+          <Input label="Employer tel. no." value={person.employer_tel || ''} onChange={onChange('employer_tel')} placeholder="0917-XXX-XXXX" />
+        </div>
+
+        <Input
+          label="PhilHealth PIN (Identification Number)"
+          value={person.philhealth_pin || ''}
+          onChange={onChange('philhealth_pin')}
+          placeholder="XX-XXXXXXXXX-X"
+        />
+
         <Input label="FB Messenger" value={person.fb_messenger || ''} onChange={onChange('fb_messenger')} />
 
         {useAutocomplete ? (

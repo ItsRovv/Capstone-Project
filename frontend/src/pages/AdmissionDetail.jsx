@@ -11,6 +11,10 @@ import { AdmissionFields, admissionToForm, emptyAdmissionForm, formToPayload } f
 import { StepDelivery, StepBaby, deliveryToDraft, draftToPayload } from '../components/admission/StepDelivery';
 import { StepItems } from '../components/admission/StepItems';
 import { StepDischarge } from '../components/admission/StepDischarge';
+import { StepNotes } from '../components/admission/StepNotes';
+import { StepVitals } from '../components/admission/StepVitals';
+import { StepLabor } from '../components/admission/StepLabor';
+import { PatientRecordCard } from '../components/admission/PatientRecordCard';
 import { PrintSummary } from '../components/admission/PrintSummary';
 import { admissionService } from '../services/admissionService';
 import { apiError } from '../services/api';
@@ -18,6 +22,9 @@ import { canRecordClinical, formatDateTime, timeAgo, useClinicOptions, useWard }
 
 const STEPS = [
   { key: 'admission', label: 'Admit' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'vitals', label: 'Vitals' },
+  { key: 'labor', label: 'Labor' },
   { key: 'delivery', label: 'Delivery' },
   { key: 'baby', label: 'Baby' },
   { key: 'items', label: 'Items' },
@@ -27,7 +34,7 @@ const STEPS = [
 function firstStep(detail) {
   const { status } = detail.admission;
   if (status === 'discharged' || status === 'referred') return 'discharge';
-  if (status === 'in_labor') return 'delivery';
+  if (status === 'in_labor') return 'labor';
   if (status === 'delivered') return detail.delivery?.newborns?.length ? 'items' : 'baby';
   return 'admission';
 }
@@ -74,7 +81,7 @@ export function AdmissionDetail() {
       <div className="h-full flex flex-col">
         <Topbar title="Not found" onMenuClick={onOpenMenu} />
         <div className="p-8 text-center text-ink-500">
-          This stay could not be found. <Link to="/admissions" className="text-primary-700 font-medium">Back to Admissions</Link>
+          This stay could not be found. <Link to="/admissions" className="text-primary-700 font-medium">Back to Admission and Discharge</Link>
         </div>
       </div>
     );
@@ -96,6 +103,7 @@ export function AdmissionDetail() {
 
   const done = {
     admission: true,
+    labor: ['in_labor', 'delivered', 'discharged'].includes(admission.status) || Boolean(delivery),
     delivery: Boolean(delivery),
     baby: Boolean(delivery?.newborns?.length),
     items: items.length > 0,
@@ -143,7 +151,9 @@ export function AdmissionDetail() {
         <div className="max-w-4xl w-full mx-auto px-4 md:px-8 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <Link to="/admissions" className="text-primary-700 font-medium hover:underline">← All admissions</Link>
-            <Link to={`/patients/${admission.patient_id}`} className="text-primary-700 font-medium hover:underline">Open patient profile →</Link>
+            {user?.role !== 'midwife' && (
+              <Link to={`/patients/${admission.patient_id}`} className="text-primary-700 font-medium hover:underline">Open patient profile →</Link>
+            )}
           </div>
 
           {warnings.map((w) => (
@@ -163,7 +173,7 @@ export function AdmissionDetail() {
             </div>
           )}
 
-          <nav aria-label="Steps" className="grid grid-cols-5 gap-1 sm:gap-2">
+          <nav aria-label="Steps" className="flex gap-1 sm:gap-2 overflow-x-auto pb-1">
             {STEPS.map((s, i) => {
               const active = step === s.key;
               return (
@@ -172,7 +182,7 @@ export function AdmissionDetail() {
                   type="button"
                   onClick={() => setStep(s.key)}
                   aria-current={active ? 'step' : undefined}
-                  className={`flex flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors ${active ? 'bg-primary-50' : 'hover:bg-ink-100/60'}`}
+                  className={`flex flex-1 min-w-[4.25rem] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors ${active ? 'bg-primary-50' : 'hover:bg-ink-100/60'}`}
                 >
                   <span
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold border-2 ${
@@ -189,7 +199,8 @@ export function AdmissionDetail() {
 
           {step === 'admission' && (
             <Card>
-              <h3 className="text-base sm:text-lg font-semibold text-ink-900 mb-4">Admission details</h3>
+              <h3 className="text-base sm:text-lg font-semibold text-ink-900 mb-4">Admission and Discharge Record</h3>
+              {detail.record && <div className="mb-5"><PatientRecordCard record={detail.record} /></div>}
               <AdmissionFields
                 form={form} setForm={setForm} byGroup={byGroup} disabled={!canEdit}
                 ward={detail.locked ? null : ward} currentAdmissionId={admission.id}
@@ -201,19 +212,33 @@ export function AdmissionDetail() {
               )}
             </Card>
           )}
+          {step === 'notes' && (canRecord ? (
+            <StepNotes admission={admission} canEdit={canEdit} isAdmin={isAdmin} userName={user?.name} />
+          ) : (
+            <Card><p className="text-sm text-ink-600">Midwives' notes are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
+          ))}
+          {step === 'vitals' && (canRecord ? (
+            <StepVitals admission={admission} canEdit={canEdit} />
+          ) : (
+            <Card><p className="text-sm text-ink-600">Vital signs are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
+          ))}
+          {step === 'labor' && (canRecord ? (
+            <StepLabor admission={admission} canEdit={canEdit} onMarkInLabor={markInLabor} markingLabor={saving === 'labor'} />
+          ) : (
+            <Card><p className="text-sm text-ink-600">The labor chart is a clinical record. Midwives, nurses and doctors can read and write it.</p></Card>
+          ))}
           {step === 'delivery' && (
             <StepDelivery
-              draft={draft} setDraft={setDraft} byGroup={byGroup} status={admission.status}
+              draft={draft} setDraft={setDraft} byGroup={byGroup}
               canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery}
-              onMarkInLabor={markInLabor} markingLabor={saving === 'labor'}
             />
           )}
           {step === 'baby' && (
-            <StepBaby draft={draft} setDraft={setDraft} byGroup={byGroup} canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery} />
+            <StepBaby draft={draft} setDraft={setDraft} byGroup={byGroup} canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery} record={detail.record} />
           )}
           {step === 'items' && (
             <StepItems
-              admission={admission} items={items} itemsTotal={detail.itemsTotal} bed={detail.bed} grandTotal={detail.grandTotal} byGroup={byGroup}
+              admission={admission} items={items} itemsTotal={detail.itemsTotal} bed={detail.bed} grandTotal={detail.grandTotal} packages={detail.packages} philhealthTotal={detail.philhealthTotal} byGroup={byGroup}
               canEdit={canEditItems} onChanged={() => load()}
             />
           )}

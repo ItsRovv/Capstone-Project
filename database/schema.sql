@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(100) UNIQUE NOT NULL,
   password_hash VARCHAR(255),
   role VARCHAR(20) NOT NULL DEFAULT 'staff'
-    CHECK (role IN ('admin', 'doctor', 'nurse', 'staff')),
+    CHECK (role IN ('admin', 'doctor', 'nurse', 'midwife', 'staff')),
   -- Social login identifiers (OAuth)
   google_id VARCHAR(255) UNIQUE,
   apple_id VARCHAR(255) UNIQUE,
@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- The admission midwife account only works in Admission and Discharge.
+-- Widen the role check for databases created before the 'midwife' role existed.
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check
+  CHECK (role IN ('admin', 'doctor', 'nurse', 'midwife', 'staff'));
 
 -- ── consultations ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS consultations (
@@ -381,6 +387,83 @@ CREATE TABLE IF NOT EXISTS referrals (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Midwives' Notes: one row per entry. Date and time are set by the server and the author is
+-- the logged-in user, so an entry cannot be backdated or signed by someone else.
+CREATE TABLE IF NOT EXISTS midwife_notes (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  noted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  description TEXT NOT NULL,
+  user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_midwife_notes_admission ON midwife_notes (admission_id, noted_at);
+
+-- Labor chart: progress of labor over time (kept apart from the Midwives' Notes).
+CREATE TABLE IF NOT EXISTS labor_entries (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  contractions VARCHAR(150),
+  cervix_cm INT CHECK (cervix_cm BETWEEN 0 AND 10),
+  fetal_heart_rate INT CHECK (fetal_heart_rate BETWEEN 60 AND 220),
+  membranes VARCHAR(20) CHECK (membranes IN ('intact', 'ruptured', 'unknown')),
+  notes TEXT,
+  recorded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_labor_entries_admission ON labor_entries (admission_id, recorded_at);
+
+-- Baby card: name and measurements (HC head, CC chest, AC abdomen), in centimetres.
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS length_cm NUMERIC(4, 1);
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS head_circumference_cm NUMERIC(4, 1);
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS chest_circumference_cm NUMERIC(4, 1);
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS abdominal_circumference_cm NUMERIC(4, 1);
+
+-- Rest of the paper Admission and Discharge Record: referral, social-service class,
+-- coverage (hospital plan / insurance / Medicare), informant, and ICD code.
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS referred_by VARCHAR(200);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS social_service_class VARCHAR(1) CHECK (social_service_class IN ('A','B','C','D'));
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS hospitalization_plan VARCHAR(200);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS health_insurance_name VARCHAR(200);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS medicare VARCHAR(20) CHECK (medicare IN ('sss','gsis','owwa','indigent','others'));
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS medicare_other VARCHAR(200);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS informant_name VARCHAR(200);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS informant_address VARCHAR(500);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS informant_relationship VARCHAR(100);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS icd_code VARCHAR(30);
+
+-- The "RESULTS" box at the bottom of the paper form (recovered / died / autopsy ...).
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS results JSONB NOT NULL DEFAULT '[]';
+
+-- Pre-discharge checklist (the "within 24 hours and before discharge" column): one row per stay.
+CREATE TABLE IF NOT EXISTS discharge_checklists (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL UNIQUE REFERENCES admissions(id) ON DELETE CASCADE,
+  items JSONB NOT NULL DEFAULT '{}',
+  danger_signs JSONB NOT NULL DEFAULT '[]',
+  updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Vital signs taken during the stay (one row per reading, time set by the server).
+CREATE TABLE IF NOT EXISTS admission_vitals (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  bp_systolic INT,
+  bp_diastolic INT,
+  pulse INT,
+  resp_rate INT,
+  temperature NUMERIC(4, 1),
+  spo2 INT,
+  fetal_heart_rate INT,
+  recorded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admission_vitals_admission ON admission_vitals (admission_id, recorded_at);
+
 ALTER TABLE consultation_transactions
   ADD COLUMN IF NOT EXISTS admission_id BIGINT REFERENCES admissions(id) ON DELETE SET NULL;
 
@@ -389,6 +472,20 @@ ALTER TABLE admissions ADD COLUMN IF NOT EXISTS bed_number INT CHECK (bed_number
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS bed_price NUMERIC(10, 2);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_admissions_active_bed ON admissions (bed_number)
   WHERE bed_number IS NOT NULL AND status IN ('admitted', 'in_labor', 'delivered');
+
+-- Admission and Discharge Record: type of admission (new / old / former OPD patient) and attending physician.
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS admission_type VARCHAR(20);
+ALTER TABLE admissions DROP CONSTRAINT IF EXISTS admissions_admission_type_check;
+ALTER TABLE admissions ADD CONSTRAINT admissions_admission_type_check
+  CHECK (admission_type IS NULL OR admission_type IN ('new', 'old', 'former_opd'));
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS attending_physician VARCHAR(150);
+
+-- A stay can use several PhilHealth packages (for example delivery + newborn).
+-- The older single-package column is moved over once and then left empty.
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS philhealth_packages JSONB NOT NULL DEFAULT '[]';
+UPDATE admissions
+  SET philhealth_packages = jsonb_build_array(philhealth_package), philhealth_package = NULL
+  WHERE philhealth_package IS NOT NULL AND philhealth_packages = '[]'::jsonb;
 
 DROP TRIGGER IF EXISTS trg_admissions_updated_at ON admissions;
 CREATE TRIGGER trg_admissions_updated_at BEFORE UPDATE ON admissions
@@ -410,31 +507,11 @@ CREATE INDEX IF NOT EXISTS idx_consultation_transactions_admission ON consultati
 
 -- Starter lists. Prices are intentionally NULL: the clinic administrator sets
 -- real prices in Settings. ON CONFLICT DO NOTHING keeps admin edits on restart.
+-- The discharge-reason, delivery-type, warning-sign and newborn-care lists are fixed
+-- lists owned by the Admission and Discharge module (backend/services/admissionService.js);
+-- they are intentionally not seeded as editable clinic options.
 INSERT INTO clinic_options (option_group, code, label, category, sort_order) VALUES
-  ('discharge_reason', 'improved', 'Improved - went home well', NULL, 1),
-  ('discharge_reason', 'transferred', 'Transferred to another facility', NULL, 2),
-  ('discharge_reason', 'hama', 'Went home against medical advice', NULL, 3),
-  ('discharge_reason', 'absconded', 'Left without notice', NULL, 4),
-  ('discharge_reason', 'expired', 'Passed away', NULL, 5),
-  ('delivery_type', 'nsd', 'Normal delivery', NULL, 1),
-  ('delivery_type', 'assisted', 'Assisted delivery', NULL, 2),
-  ('delivery_type', 'other', 'Other', NULL, 3),
-  ('risk_flag', 'multiple_pregnancy', 'Twins or more', NULL, 1),
-  ('risk_flag', 'placenta_previa', 'Placenta covering the cervix (placenta previa)', NULL, 2),
-  ('risk_flag', 'previous_cs', 'Previous cesarean section', NULL, 3),
-  ('risk_flag', 'preeclampsia_history', 'Past pre-eclampsia or eclampsia', NULL, 4),
-  ('risk_flag', 'stillbirth_history', 'Past stillbirth or 3 or more miscarriages', NULL, 5),
-  ('risk_flag', 'hypertension', 'High blood pressure', NULL, 6),
-  ('risk_flag', 'diabetes', 'Diabetes', NULL, 7),
-  ('risk_flag', 'heart_disease', 'Heart disease', NULL, 8),
-  ('risk_flag', 'severe_anemia', 'Severe anemia', NULL, 9),
-  ('risk_flag', 'bleeding', 'Heavy bleeding', NULL, 10),
-  ('newborn_care', 'drying', 'Dried and wrapped right away', NULL, 1),
-  ('newborn_care', 'skin_to_skin', 'Skin-to-skin with mother', NULL, 2),
-  ('newborn_care', 'cord_care', 'Cord clamped and cared for', NULL, 3),
-  ('newborn_care', 'breastfeeding', 'Breastfeeding started', NULL, 4),
   ('package', 'mcp', 'PhilHealth Maternity Care Package', 'philhealth', 1),
-  ('package', 'nsd', 'PhilHealth Normal Delivery Package', 'philhealth', 2),
   ('item', 'birthing_fee', 'Birthing room and delivery fee', 'service', 2),
   ('item', 'iv_fluids', 'IV fluids', 'medicine', 3),
   ('item', 'oxytocin', 'Oxytocin injection', 'medicine', 4),
@@ -444,6 +521,12 @@ INSERT INTO clinic_options (option_group, code, label, category, sort_order) VAL
   ('item', 'newborn_vitamin_k', 'Newborn vitamin K injection', 'medicine', 8),
   ('item', 'newborn_vaccines', 'Newborn vaccines (BCG, Hepatitis B)', 'medicine', 9),
   ('item', 'newborn_screening', 'Newborn screening', 'service', 10)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+-- Delivery and newborn packages moved here from the consultation list, with their amounts.
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order) VALUES
+  ('package', 'nsdbf', 'Normal Spontaneous Delivery (Birthing Facility)', 14000, 'philhealth', 2),
+  ('package', '99460', 'Newborn Care Package', 2950, 'philhealth', 3)
 ON CONFLICT (option_group, code) DO NOTHING;
 
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
@@ -463,6 +546,13 @@ BEGIN
     UPDATE clinic_options SET active = FALSE WHERE option_group = 'item' AND code = 'room' AND price IS NULL;
     INSERT INTO clinic_settings (setting_key, setting_value, description)
     VALUES ('migr_bed_charge_v1', 'done', 'Internal marker');
+  END IF;
+
+  -- One-time: the "Normal Delivery Package" starter is replaced by the delivery package above.
+  IF NOT EXISTS (SELECT 1 FROM clinic_settings WHERE setting_key = 'migr_packages_v1') THEN
+    UPDATE clinic_options SET active = FALSE WHERE option_group = 'package' AND code = 'nsd' AND price IS NULL;
+    INSERT INTO clinic_settings (setting_key, setting_value, description)
+    VALUES ('migr_packages_v1', 'done', 'Internal marker');
   END IF;
 END $$;
 
@@ -517,6 +607,10 @@ ALTER TABLE IF EXISTS public.admission_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.discharges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.postpartum_followups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.referrals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.midwife_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admission_vitals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.labor_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.discharge_checklists ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "App full access" ON public.clinic_options;
 CREATE POLICY "App full access" ON public.clinic_options FOR ALL USING (true) WITH CHECK (true);
@@ -536,3 +630,11 @@ DROP POLICY IF EXISTS "App full access" ON public.postpartum_followups;
 CREATE POLICY "App full access" ON public.postpartum_followups FOR ALL USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "App full access" ON public.referrals;
 CREATE POLICY "App full access" ON public.referrals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.midwife_notes;
+CREATE POLICY "App full access" ON public.midwife_notes FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admission_vitals;
+CREATE POLICY "App full access" ON public.admission_vitals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.labor_entries;
+CREATE POLICY "App full access" ON public.labor_entries FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.discharge_checklists;
+CREATE POLICY "App full access" ON public.discharge_checklists FOR ALL USING (true) WITH CHECK (true);

@@ -1,8 +1,26 @@
-import { Input, Textarea, Select } from '../UI/Input';
+import { Input, Select, Textarea } from '../UI/Input';
 import { BedPicker } from './BedPicker';
+
+export const ADMISSION_TYPE_OPTIONS = [
+  { value: 'new', label: 'New patient' },
+  { value: 'old', label: 'Old patient' },
+  { value: 'former_opd', label: 'Former OPD patient' }
+];
 
 export const emptyAdmissionForm = {
   bed_number: '',
+  admission_type: '',
+  attending_physician: '',
+  referred_by: '',
+  icd_code: '',
+  social_service_class: '',
+  hospitalization_plan: '',
+  health_insurance_name: '',
+  medicare: '',
+  medicare_other: '',
+  informant_name: '',
+  informant_address: '',
+  informant_relationship: '',
   chief_complaint: '',
   admitting_diagnosis: '',
   bp: '',
@@ -13,13 +31,24 @@ export const emptyAdmissionForm = {
   risk_flags: [],
   consent_signed: false,
   consent_by: '',
-  philhealth_package: '',
   notes: ''
 };
 
 export function admissionToForm(a = {}) {
   return {
     bed_number: a.bed_number ?? '',
+    admission_type: a.admission_type || '',
+    attending_physician: a.attending_physician || '',
+    referred_by: a.referred_by || '',
+    icd_code: a.icd_code || '',
+    social_service_class: a.social_service_class || '',
+    hospitalization_plan: a.hospitalization_plan || '',
+    health_insurance_name: a.health_insurance_name || '',
+    medicare: a.medicare || '',
+    medicare_other: a.medicare_other || '',
+    informant_name: a.informant_name || '',
+    informant_address: a.informant_address || '',
+    informant_relationship: a.informant_relationship || '',
     chief_complaint: a.chief_complaint || '',
     admitting_diagnosis: a.admitting_diagnosis || '',
     bp: a.bp || '',
@@ -30,7 +59,6 @@ export function admissionToForm(a = {}) {
     risk_flags: Array.isArray(a.risk_flags) ? a.risk_flags : [],
     consent_signed: Boolean(a.consent_signed),
     consent_by: a.consent_by || '',
-    philhealth_package: a.philhealth_package || '',
     notes: a.notes || ''
   };
 }
@@ -41,6 +69,18 @@ export function formToPayload(form) {
   const num = (v) => (String(v ?? '').trim() === '' ? null : Number(v));
   return {
     bed_number: String(form.bed_number ?? '').trim() === '' ? null : Number(form.bed_number),
+    admission_type: text(form.admission_type),
+    attending_physician: text(form.attending_physician),
+    referred_by: text(form.referred_by),
+    icd_code: text(form.icd_code),
+    social_service_class: text(form.social_service_class),
+    hospitalization_plan: text(form.hospitalization_plan),
+    health_insurance_name: text(form.health_insurance_name),
+    medicare: text(form.medicare),
+    medicare_other: form.medicare === 'others' ? text(form.medicare_other) : null,
+    informant_name: text(form.informant_name),
+    informant_address: text(form.informant_address),
+    informant_relationship: text(form.informant_relationship),
     chief_complaint: text(form.chief_complaint),
     admitting_diagnosis: text(form.admitting_diagnosis),
     bp: text(form.bp),
@@ -51,7 +91,6 @@ export function formToPayload(form) {
     risk_flags: form.risk_flags,
     consent_signed: form.consent_signed,
     consent_by: form.consent_signed ? text(form.consent_by) : null,
-    philhealth_package: text(form.philhealth_package),
     notes: text(form.notes)
   };
 }
@@ -64,7 +103,6 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
       risk_flags: f.risk_flags.includes(code) ? f.risk_flags.filter((c) => c !== code) : [...f.risk_flags, code]
     }));
   const flags = byGroup.risk_flag || [];
-  const packages = byGroup.package || [];
 
   return (
     <fieldset disabled={disabled} className="space-y-5 disabled:opacity-80">
@@ -75,6 +113,88 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
         disabled={disabled}
         onChange={(n) => setForm((f) => ({ ...f, bed_number: n }))}
       />
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Select
+          label="Type of admission"
+          hint="Filled in from her records. You can change it."
+          value={form.admission_type}
+          onChange={set('admission_type')}
+        >
+          <option value="">Choose…</option>
+          {ADMISSION_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        <Input
+          label="Attending physician"
+          placeholder="Name of the doctor"
+          value={form.attending_physician}
+          onChange={set('attending_physician')}
+        />
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Input
+          label="Referred by (physician or agency)"
+          value={form.referred_by}
+          onChange={set('referred_by')}
+          placeholder="Leave empty if she came on her own"
+        />
+        <Input label="ICD code" value={form.icd_code} onChange={set('icd_code')} placeholder="e.g. Z34.0" />
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Select
+          label="Social service classification"
+          value={form.social_service_class}
+          onChange={set('social_service_class')}
+        >
+          <option value="">Not classified</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </Select>
+        <Select label="Medicare" value={form.medicare} onChange={set('medicare')}>
+          <option value="">None</option>
+          <option value="sss">SSS</option>
+          <option value="gsis">GSIS</option>
+          <option value="owwa">OWWA</option>
+          <option value="indigent">Indigent</option>
+          <option value="others">Others</option>
+        </Select>
+      </div>
+      {form.medicare === 'others' && (
+        <Input label="Medicare - please specify" value={form.medicare_other} onChange={set('medicare_other')} />
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Input
+          label="Hospitalization plan / company"
+          value={form.hospitalization_plan}
+          onChange={set('hospitalization_plan')}
+        />
+        <Input
+          label="Health insurance name"
+          value={form.health_insurance_name}
+          onChange={set('health_insurance_name')}
+        />
+      </div>
+
+      <div className="rounded-lg border border-ink-200 p-3">
+        <p className="text-sm font-medium text-ink-700 mb-2">Data furnished by (informant)</p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Input label="Name" value={form.informant_name} onChange={set('informant_name')} />
+          <Input
+            label="Relationship to patient"
+            value={form.informant_relationship}
+            onChange={set('informant_relationship')}
+            placeholder="Husband, mother, herself…"
+          />
+          <div className="sm:col-span-2">
+            <Input label="Address of informant" value={form.informant_address} onChange={set('informant_address')} />
+          </div>
+        </div>
+      </div>
 
       <Textarea
         label="Why did the patient come in?"
@@ -150,20 +270,6 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
           <Input label="Signed by" placeholder="Full name" value={form.consent_by} onChange={set('consent_by')} />
         )}
       </div>
-
-      {packages.length > 0 && (
-        <Select
-          label="PhilHealth package"
-          hint="Choose only if the patient will use PhilHealth. You can change it later."
-          value={form.philhealth_package}
-          onChange={set('philhealth_package')}
-        >
-          <option value="">No PhilHealth / not sure yet</option>
-          {packages.map((p) => (
-            <option key={p.code} value={p.code}>{p.label}</option>
-          ))}
-        </Select>
-      )}
 
       <Textarea label="Other notes" rows={2} value={form.notes} onChange={set('notes')} />
     </fieldset>

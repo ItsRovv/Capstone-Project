@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS } = require('../services/admissionService');
 const { sanitizeObject, sanitizeDeep } = require('../utils/sanitizer');
 
 // ── Personal Information (Mommy / Daddy / Emergency contact) — OB patients ──
@@ -9,6 +10,9 @@ const personInfoSchema = Joi.object({
   blood_type: Joi.string().trim().max(5).allow(null, ''),
   civil_status: Joi.string().trim().max(30).allow(null, ''),
   occupation: Joi.string().trim().max(100).allow(null, ''),
+  birthplace: Joi.string().trim().max(150).allow(null, ''),
+  nationality: Joi.string().trim().max(60).allow(null, ''),
+  religion: Joi.string().trim().max(80).allow(null, ''),
   phone: Joi.string().trim().max(30).allow(null, ''),
   fb_messenger: Joi.string().trim().max(150).allow(null, ''),
   address: Joi.string().trim().max(500).allow(null, '')
@@ -169,16 +173,33 @@ const admissionSchema = Joi.object({
   risk_flags: Joi.array().items(optionCode).max(40).default([]),
   consent_signed: Joi.boolean(),
   consent_by: shortText(150),
-  philhealth_package: shortText(60),
+  philhealth_packages: Joi.array().items(optionCode).max(10).default([]),
   notes: shortText(3000),
-  bed_number: Joi.number().integer().min(1).max(50).allow(null, '')
+  bed_number: Joi.number().integer().min(1).max(50).allow(null, ''),
+  admission_type: Joi.string().valid('new', 'old', 'former_opd').allow(null, ''),
+  attending_physician: shortText(150),
+  referred_by: shortText(200),
+  social_service_class: Joi.string().valid('A', 'B', 'C', 'D').allow(null, ''),
+  hospitalization_plan: shortText(200),
+  health_insurance_name: shortText(200),
+  medicare: Joi.string().valid('sss', 'gsis', 'owwa', 'indigent', 'others').allow(null, ''),
+  medicare_other: shortText(200),
+  informant_name: shortText(200),
+  informant_address: shortText(500),
+  informant_relationship: shortText(100),
+  icd_code: shortText(30)
 }).unknown(false);
 
 const admissionUpdateSchema = admissionSchema.fork(['patient_id'], (f) => f.forbidden());
 
 const newbornSchema = Joi.object({
+  name: shortText(150),
   sex: Joi.string().valid('Male', 'Female', 'Other').allow(null, ''),
   weight_grams: Joi.number().integer().min(200).max(8000).allow(null, ''),
+  length_cm: Joi.number().min(20).max(70).allow(null, ''),
+  head_circumference_cm: Joi.number().min(15).max(50).allow(null, ''),
+  chest_circumference_cm: Joi.number().min(15).max(60).allow(null, ''),
+  abdominal_circumference_cm: Joi.number().min(15).max(60).allow(null, ''),
   apgar_1: Joi.number().integer().min(0).max(10).allow(null, ''),
   apgar_5: Joi.number().integer().min(0).max(10).allow(null, ''),
   essential_care: Joi.array().items(optionCode).max(30).default([]),
@@ -206,7 +227,8 @@ const dischargeSchema = Joi.object({
   discharged_at: Joi.date(),
   final_diagnosis: shortText(1000),
   instructions: shortText(3000),
-  override_reason: shortText(500)
+  override_reason: shortText(500),
+  results: Joi.array().items(Joi.string().valid(...DISCHARGE_RESULTS.map((r) => r.code))).unique().max(DISCHARGE_RESULTS.length).default([])
 }).unknown(false);
 
 const referralSchema = Joi.object({
@@ -240,7 +262,38 @@ const SETTING_RULES = {
   bed_price_per_night: Joi.alternatives(Joi.number().min(0).max(100000), Joi.string().valid('')).required()
 };
 
-const ADMISSION_TEXT = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'consent_by', 'notes', 'bp', 'philhealth_package'];
+const ADMISSION_TEXT = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'consent_by', 'notes', 'bp', 'attending_physician',
+  'referred_by', 'hospitalization_plan', 'health_insurance_name', 'medicare_other',
+  'informant_name', 'informant_address', 'informant_relationship', 'icd_code'];
+
+const midwifeNoteSchema = Joi.object({
+  description: Joi.string().trim().min(1).max(3000).required()
+}).unknown(false);
+
+const checklistSchema = Joi.object({
+  items: Joi.object(Object.fromEntries(CHECKLIST_ITEMS.map((i) => [i.code, Joi.boolean()]))).unknown(false).default({}),
+  danger_signs: Joi.array().items(Joi.string().valid(...DANGER_SIGNS.map((d) => d.code))).unique().max(DANGER_SIGNS.length).default([])
+}).unknown(false);
+
+const laborEntrySchema = Joi.object({
+  contractions: shortText(150),
+  cervix_cm: Joi.number().integer().min(0).max(10).allow(null, ''),
+  fetal_heart_rate: Joi.number().integer().min(60).max(220).allow(null, ''),
+  membranes: Joi.string().valid('intact', 'ruptured', 'unknown').allow(null, ''),
+  notes: shortText(2000)
+}).unknown(false);
+
+const vitalsSchema = Joi.object({
+  bp_systolic: Joi.number().integer().min(40).max(300).allow(null, ''),
+  bp_diastolic: Joi.number().integer().min(20).max(200).allow(null, ''),
+  pulse: Joi.number().integer().min(20).max(250).allow(null, ''),
+  resp_rate: Joi.number().integer().min(5).max(80).allow(null, ''),
+  temperature: Joi.number().min(30).max(45).allow(null, ''),
+  spo2: Joi.number().integer().min(50).max(100).allow(null, ''),
+  fetal_heart_rate: Joi.number().integer().min(60).max(220).allow(null, '')
+}).unknown(false);
+
+const packagesSchema = Joi.object({ packages: Joi.array().items(optionCode).max(10).unique().required() }).unknown(false);
 
 function runValidation(schema, data, sanitizeFields = []) {
   const result = schema.validate(data);
@@ -249,11 +302,28 @@ function runValidation(schema, data, sanitizeFields = []) {
   return result;
 }
 
+function validatePackages(data) { return packagesSchema.validate(data); }
+function validateChecklist(data) { return checklistSchema.validate(data); }
+function validateLaborEntry(data) {
+  const result = runValidation(laborEntrySchema, data, ['contractions', 'notes']);
+  if (result.error) return result;
+  const hasValue = Object.values(result.value).some((v) => v !== null && v !== '' && v !== undefined);
+  if (!hasValue) return { error: new Error('Enter at least one labor observation.'), value: result.value };
+  return result;
+}
+function validateVitals(data) {
+  const result = vitalsSchema.validate(data);
+  if (result.error) return result;
+  const hasValue = Object.values(result.value).some((v) => v !== null && v !== '' && v !== undefined);
+  if (!hasValue) return { error: new Error('Enter at least one vital sign.'), value: result.value };
+  return result;
+}
+function validateMidwifeNote(data) { return runValidation(midwifeNoteSchema, data, ['description']); }
 function validateAdmission(data) { return runValidation(admissionSchema, data, ADMISSION_TEXT); }
 function validateAdmissionUpdate(data) { return runValidation(admissionUpdateSchema, data, ADMISSION_TEXT); }
 function validateDelivery(data) {
   const result = runValidation(deliverySchema, data, ['delivery_type', 'attendant', 'complications']);
-  if (!result.error) result.value.newborns = result.value.newborns.map((n) => sanitizeObject(n, ['notes']));
+  if (!result.error) result.value.newborns = result.value.newborns.map((n) => sanitizeObject(n, ['notes', 'name']));
   return result;
 }
 function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label']); }
@@ -280,6 +350,11 @@ module.exports = {
   validateClinicOption,
   validateClinicOptionUpdate,
   validateSetting,
+  validatePackages,
+  validateMidwifeNote,
+  validateVitals,
+  validateLaborEntry,
+  validateChecklist,
   OPTION_GROUPS,
   SETTING_RULES
 };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useOutletContext, Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -54,6 +54,7 @@ export function ConsultationTransactions() {
   const { onOpenMenu } = useOutletContext();
   const toast = useToast();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const canManage = user?.role === 'admin' || user?.role === 'doctor';
   const [grouped, setGrouped] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +95,8 @@ export function ConsultationTransactions() {
           return bLast - aLast;
         });
       setGrouped(groups);
+      const focus = Number(searchParams.get('patient'));
+      if (focus && groups.some((g) => g.patient.id === focus)) setExpandedPatients(new Set([focus]));
     } catch (err) {
       toast.error(apiError(err, 'Failed to load transactions'));
     } finally {
@@ -170,7 +173,7 @@ export function ConsultationTransactions() {
       />
 
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader />
           ) : grouped.length === 0 ? (

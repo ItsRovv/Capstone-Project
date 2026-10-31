@@ -6,6 +6,7 @@ import { Input } from '../UI/Input';
 import { Spinner } from '../UI/Spinner';
 import { useToast } from '../UI/Toast';
 import { AdmissionFields, emptyAdmissionForm, formToPayload } from './AdmissionFields';
+import { PatientRecordCard } from './PatientRecordCard';
 import { admissionService } from '../../services/admissionService';
 import { patientService } from '../../services/patientService';
 import { apiError } from '../../services/api';
@@ -93,7 +94,11 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup, in
       .then((info) => {
         if (cancelled) return;
         setPrefill(info);
-        setForm((f) => ({ ...f, chief_complaint: f.chief_complaint || info.latestConsultation?.chief_complaint || '' }));
+        setForm((f) => ({
+          ...f,
+          chief_complaint: f.chief_complaint || info.latestConsultation?.chief_complaint || '',
+          admission_type: f.admission_type || info.suggestedAdmissionType || ''
+        }));
       })
       .catch((err) => !cancelled && toast.error(apiError(err, 'Could not load the patient details')))
       .finally(() => !cancelled && setLoading(false));
@@ -156,6 +161,7 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup, in
               <Link to={`/admissions/${alreadyAdmitted}`} onClick={onClose} className="font-semibold underline">Open the current stay</Link>
             </div>
           )}
+          {prefill?.record && <PatientRecordCard record={prefill.record} pregnancy={prefill.pregnancy} />}
           {prefill && (prefill.pregnancy || prefill.latestConsultation) && (
             <div className="rounded-lg border border-primary-100 bg-primary-50/50 px-3 py-2.5 text-sm text-ink-700">
               <p className="font-medium text-primary-800 mb-1">Already on file</p>

@@ -11,13 +11,16 @@ import { formatDateTime, nightsText, peso } from '../../lib/admission';
 
 const CATEGORY_LABELS = { medicine: 'Medicines', supply: 'Supplies', service: 'Services and fees' };
 
-export function StepItems({ admission, items, itemsTotal, bed, grandTotal, byGroup, canEdit, onChanged }) {
+export function StepItems({ admission, items, itemsTotal, bed, grandTotal, packages = [], philhealthTotal = 0, byGroup, canEdit, onChanged }) {
   const toast = useToast();
   const [qty, setQty] = useState('1');
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [custom, setCustom] = useState({ open: false, label: '', unit_price: '' });
   const [sent, setSent] = useState(null);
+  const [savingPackages, setSavingPackages] = useState(false);
+  const chosen = (admission.philhealth_packages || []).map(String);
+  const packageOptions = byGroup.package || [];
 
   const catalog = byGroup.item || [];
   const grouped = catalog.reduce((acc, o) => {
@@ -58,6 +61,19 @@ export function StepItems({ admission, items, itemsTotal, bed, grandTotal, byGro
     if (!custom.label.trim()) return;
     await add({ label: custom.label.trim(), unit_price: Number(custom.unit_price) || 0, quantity });
     setCustom({ open: false, label: '', unit_price: '' });
+  }
+
+  async function togglePackage(code) {
+    const next = chosen.includes(code) ? chosen.filter((c) => c !== code) : [...chosen, code];
+    setSavingPackages(true);
+    try {
+      await admissionService.setPackages(admission.id, next);
+      await onChanged();
+    } catch (err) {
+      toast.error(apiError(err, 'Could not save the PhilHealth packages'));
+    } finally {
+      setSavingPackages(false);
+    }
   }
 
   async function sendToTransactions() {
@@ -180,6 +196,56 @@ export function StepItems({ admission, items, itemsTotal, bed, grandTotal, byGro
         </div>
       </Card>
 
+      {(canEdit || packages.length > 0) && (
+        <Card>
+          <h3 className="text-base sm:text-lg font-semibold text-ink-900">PhilHealth packages</h3>
+          <p className="text-sm text-ink-500">
+            Tick the packages used by this stay if the patient is covered. These are not charged at the clinic, they are only recorded for PhilHealth.
+          </p>
+          {canEdit ? (
+            packageOptions.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-500">No packages are set up yet. The clinic administrator can add them in Clinic Settings.</p>
+            ) : (
+              <div className="mt-3 grid gap-2">
+                {packageOptions.map((p) => {
+                  const on = chosen.includes(p.code);
+                  return (
+                    <label
+                      key={p.code}
+                      className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm cursor-pointer transition-colors ${on ? 'border-primary-300 bg-primary-50/60' : 'border-ink-200 bg-white hover:border-primary-200'} ${savingPackages ? 'opacity-70' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600"
+                        checked={on}
+                        disabled={savingPackages}
+                        onChange={() => togglePackage(p.code)}
+                      />
+                      <span className="flex-1 min-w-0 text-ink-800 break-words">{p.label}</span>
+                      <span className={`whitespace-nowrap font-medium ${p.price === null ? 'text-amber-600 text-xs' : 'text-ink-600'}`}>
+                        {p.price === null ? 'No amount set' : peso(p.price)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )
+          ) : packages.length > 0 ? (
+            <ul className="mt-3 divide-y divide-ink-100">
+              {packages.map((p) => (
+                <li key={p.code} className="py-2 flex justify-between gap-3 text-sm"><span>{p.label}</span><span className="font-medium">{peso(p.amount)}</span></li>
+              ))}
+            </ul>
+          ) : null}
+          {packages.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-ink-100 flex items-center justify-between">
+              <span className="text-sm font-semibold text-ink-700">PhilHealth total (reference)</span>
+              <span className="text-base font-bold text-ink-700">{peso(philhealthTotal)}</span>
+            </div>
+          )}
+        </Card>
+      )}
+
       {canEdit && (
         <Card>
           <h3 className="text-base font-semibold text-ink-900">Send to the front desk</h3>
@@ -188,7 +254,7 @@ export function StepItems({ admission, items, itemsTotal, bed, grandTotal, byGro
             You can send again after adding more items. It updates the same transaction.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button onClick={sendToTransactions} loading={sending} disabled={!items.length && !admission.philhealth_package}>
+            <Button onClick={sendToTransactions} loading={sending} disabled={!items.length && !chosen.length && !(bed?.amount > 0)}>
               <Icon.Receipt width={16} height={16} /> Send to Transactions
             </Button>
             {sent && (

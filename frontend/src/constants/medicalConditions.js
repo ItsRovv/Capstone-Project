@@ -52,9 +52,16 @@ export function blankPersonInfo() {
     blood_type: '',
     civil_status: '',
     occupation: '',
+    birthplace: '',
+    nationality: '',
+    religion: '',
     contact_number: '',
     fb_messenger: '',
-    address: ''
+    address: '',
+    employer: '',
+    employer_address: '',
+    employer_tel: '',
+    philhealth_pin: ''
   };
 }
 

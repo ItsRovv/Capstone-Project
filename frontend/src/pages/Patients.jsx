@@ -213,7 +213,7 @@ export function Patients() {
       />
 
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           {isConsultMode && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 inline-flex items-center justify-center flex-shrink-0">
@@ -256,8 +256,8 @@ export function Patients() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-ink-50 text-ink-600 text-xs uppercase tracking-wider">
+              <table className="w-full text-base">
+                <thead className="bg-ink-50 text-ink-600 text-sm uppercase tracking-wider">
                   <tr>
                     <th className="text-left px-3 sm:px-6 py-3 font-semibold">Name</th>
                     <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Age</th>
@@ -284,10 +284,10 @@ export function Patients() {
                             <p className="font-medium text-ink-900 group-hover:text-primary-700 break-words">
                               {p.first_name} {p.last_name}
                             </p>
-                            <p className="text-xs text-ink-500 sm:hidden">
+                            <p className="text-sm text-ink-500 sm:hidden">
                               {[(p.age || ageFromDob(p.date_of_birth)) && `${p.age || ageFromDob(p.date_of_birth)} y/o`, p.sex].filter(Boolean).join(' · ') || '—'}
                             </p>
-                            <p className="text-xs text-ink-500 md:hidden">
+                            <p className="text-sm text-ink-500 md:hidden">
                               {p.contact_number || '—'}
                             </p>
                           </div>
@@ -318,17 +318,18 @@ export function Patients() {
                               size="sm"
                               onClick={() => handleAddToQueue(p.id)}
                               loading={addingQueue === p.id}
-                              className="text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
+                              className="!text-base text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
                               title="Add to queue"
+                              aria-label="Add to queue"
                             >
-                              <Icon.Clipboard width={14} height={14} />
+                              Queue
                             </Button>
                           )}
                           {!isConsultMode && canAdmit && p.sex !== 'Male' && (
                             admitMap.has(p.id) ? (
                               <Link to={`/admissions/${admitMap.get(p.id).id}`} aria-label="Open admission" title="Open admission">
-                                <Button variant="ghost" size="sm" className="text-rose-600 hover:!bg-rose-50">
-                                  <Icon.Heart width={14} height={14} />
+                                <Button variant="ghost" size="sm" className="!text-base text-rose-600 hover:!bg-rose-50">
+                                  Admitted
                                 </Button>
                               </Link>
                             ) : (
@@ -336,16 +337,16 @@ export function Patients() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setAdmitTarget(p)}
-                                className="text-rose-600 hover:!text-rose-700 hover:!bg-rose-50"
+                                className="!text-base text-rose-600 hover:!text-rose-700 hover:!bg-rose-50"
                                 title="Admit patient"
                                 aria-label="Admit patient"
                               >
-                                <Icon.Plus width={14} height={14} /><Icon.Heart width={14} height={14} />
+                                Admit
                               </Button>
                             )
                           )}
                           <Link to={`/patients/${p.id}`}>
-                            <Button variant="ghost" size="sm">
+                            <Button variant="ghost" size="sm" className="!text-base">
                               {isConsultMode ? (
                                 <span className="flex items-center gap-1 text-emerald-700">
                                   <Icon.Stethoscope width={14} height={14} /> Select

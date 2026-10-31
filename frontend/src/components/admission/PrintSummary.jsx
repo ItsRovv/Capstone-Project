@@ -22,7 +22,9 @@ function Section({ title, children }) {
 
 // Shown only when printing. Plain black and white so it copies well.
 export function PrintSummary({ detail, labelFor }) {
-  const { admission: a, delivery, items, grandTotal, bed, discharge, referral, followups } = detail;
+  const { admission: a, record, delivery, items, grandTotal, bed, packages = [], philhealthTotal, discharge, referral, followups } = detail;
+  const medicareLabel = { sss: 'SSS', gsis: 'GSIS', owwa: 'OWWA', indigent: 'Indigent', others: `Others${a.medicare_other ? `: ${a.medicare_other}` : ''}` }[a.medicare];
+  const resultsText = (discharge?.results || []).map((c) => (detail.dischargeResults || []).find((r) => r.code === c)?.label || c).join(', ');
   const vitals = [a.bp && `BP ${a.bp}`, a.pulse && `Pulse ${a.pulse}`, a.resp_rate && `Resp ${a.resp_rate}`, a.temperature && `Temp ${a.temperature}°C`].filter(Boolean).join('   ');
   const risks = (a.risk_flags || []).map((c) => labelFor('risk_flag', c)).join(', ');
 
@@ -38,7 +40,16 @@ export function PrintSummary({ detail, labelFor }) {
 
       <Section title="Patient">
         <Line label="Name" value={`${a.first_name} ${a.last_name}`} />
-        <Line label="Age" value={a.age ? `${a.age} years old` : null} />
+        <Line label="Birth date / Age" value={record?.birth_date ? `${new Date(record.birth_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}${record.age ? `, ${record.age} years old` : ''}` : (a.age ? `${a.age} years old` : null)} />
+        <Line label="Address" value={record?.address} />
+        <Line label="Tel. no." value={record?.contact_number} />
+        <Line label="Civil status / Nationality / Religion" value={[record?.civil_status, record?.nationality, record?.religion].filter(Boolean).join(' / ') || null} />
+        <Line label="Birthplace" value={record?.birthplace} />
+        <Line label="Occupation" value={record?.occupation} />
+        <Line label="Employer" value={[record?.employer, record?.employer_address, record?.employer_tel].filter(Boolean).join(' - ') || null} />
+        <Line label="PhilHealth PIN" value={record?.philhealth_pin} />
+        <Line label="Allergic to" value={record?.allergies} />
+        <Line label="Father's name" value={[record?.father_name, record?.father_address, record?.father_tel].filter(Boolean).join(' - ') || null} />
         <Line label="Bed" value={a.bed_number ? `${detail.wardName || 'Ward'}, Bed ${a.bed_number}` : null} />
         <Line label="Admitted" value={formatDateTime(a.admitted_at)} />
         <Line label="Admitted by" value={a.admitted_by_name} />
@@ -51,7 +62,13 @@ export function PrintSummary({ detail, labelFor }) {
         <Line label="Labor notes" value={a.labor_notes} />
         <Line label="Warning signs" value={risks} />
         <Line label="Informed consent" value={a.consent_signed ? `Signed${a.consent_by ? ` by ${a.consent_by}` : ''}` : 'Not recorded'} />
-        <Line label="PhilHealth package" value={a.philhealth_package ? labelFor('package', a.philhealth_package) : null} />
+        <Line label="Referred by" value={a.referred_by} />
+        <Line label="Social service classification" value={a.social_service_class} />
+        <Line label="Hospitalization plan" value={a.hospitalization_plan} />
+        <Line label="Health insurance" value={a.health_insurance_name} />
+        <Line label="Medicare" value={medicareLabel} />
+        <Line label="ICD code" value={a.icd_code} />
+        <Line label="Data furnished by" value={[a.informant_name, a.informant_relationship, a.informant_address].filter(Boolean).join(' - ') || null} />
       </Section>
 
       {delivery && (
@@ -95,11 +112,19 @@ export function PrintSummary({ detail, labelFor }) {
         </Section>
       )}
 
+      {packages.length > 0 && (
+        <Section title="PhilHealth packages (not charged at the clinic)">
+          {packages.map((p) => <Line key={p.code} label={p.label} value={peso(p.amount)} />)}
+          <Line label="PhilHealth total" value={peso(philhealthTotal)} />
+        </Section>
+      )}
+
       {discharge && (
         <Section title="Discharge">
           <Line label="Discharged" value={formatDateTime(discharge.discharged_at)} />
           <Line label="Reason" value={labelFor('discharge_reason', discharge.disposition)} />
           <Line label="Final diagnosis" value={discharge.final_diagnosis} />
+          <Line label="Results" value={resultsText || null} />
           <Line label="Instructions" value={discharge.instructions} />
           {followups.length > 0 && <Line label="Follow-up visits" value={followups.map((f) => new Date(f.due_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })).join('   ')} />}
         </Section>

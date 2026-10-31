@@ -9,7 +9,7 @@ const STAFF_NAV = [
   { to: '/patients', label: 'Patients' },
   { to: '/consultations', label: 'Daily Queue' },
   { to: '/consultation-transactions', label: 'Transactions' },
-  { to: '/admissions', label: 'Admissions' },
+  { to: '/admissions', label: 'Admission and Discharge' },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
 ];
 
@@ -18,9 +18,13 @@ const DOCTOR_NAV = [
   { to: '/patients', label: 'Patients' },
   { to: '/doctor/consultations', label: 'Consultation' },
   { to: '/consultation-transactions', label: 'Transactions' },
-  { to: '/admissions', label: 'Admissions' },
+  { to: '/admissions', label: 'Admission and Discharge' },
   { to: '/reports', label: 'Reports' },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
+];
+
+const MIDWIFE_NAV = [
+  { to: '/admissions', label: 'Admission and Discharge' }
 ];
 
 const ADMIN_NAV = [
@@ -31,6 +35,7 @@ const ADMIN_NAV = [
 function getNavItems(role) {
   if (role === 'admin') return [...DOCTOR_NAV, ...ADMIN_NAV];
   if (role === 'doctor') return DOCTOR_NAV;
+  if (role === 'midwife') return MIDWIFE_NAV;
   return STAFF_NAV;
 }
 
@@ -40,6 +45,7 @@ export function Sidebar({ onClose }) {
   const navItems = getNavItems(user?.role);
 
   useEffect(() => {
+    if (user?.role === 'midwife') return undefined;
     let cancelled = false;
     queueService.countWaiting().then((res) => {
       if (!cancelled) setQueueCount(res?.count || 0);

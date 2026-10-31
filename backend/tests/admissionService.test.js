@@ -1,7 +1,7 @@
 const svc = require('../services/admissionService');
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
-  validateDischarge, validateReferral, validateClinicOption, validateSetting
+  validateDischarge, validateReferral, validateClinicOption, validateSetting, validateVitals
 } = require('../middleware/validation');
 
 describe('admission status flow', () => {
@@ -36,8 +36,7 @@ describe('items used totals', () => {
   test('builds a transaction: clinic items to pay, PhilHealth as reference only', () => {
     const payload = svc.buildTransactionPayload({
       items: [{ id: 1, option_id: 7, label: 'Room', unit_price: 500, quantity: 2 }, { id: 2, option_id: null, label: 'Gauze', unit_price: 35, quantity: 1 }],
-      packageOption: { code: 'mcp', label: 'PhilHealth Maternity Care Package' },
-      packageAmount: 8000
+      packages: [{ code: 'mcp', label: 'PhilHealth Maternity Care Package', amount: 8000 }]
     });
     expect(payload.total_amount).toBe(1035);
     expect(payload.philhealth_total).toBe(8000);
@@ -179,5 +178,84 @@ describe('ward beds and nightly charge', () => {
     expect(validateSetting('bed_price_per_night', -1).error).toBeDefined();
     expect(validateAdmission({ patient_id: 1, bed_number: 2 }).error).toBeUndefined();
     expect(validateAdmission({ patient_id: 1, bed_number: 0 }).error).toBeDefined();
+  });
+});
+
+describe('Admission and Discharge Record (auto-filled)', () => {
+  const now = new Date('2026-11-10T00:00:00Z');
+
+  test('age is worked out from the birth date, so it stays up to date', () => {
+    expect(svc.ageFromBirthDate('2000-11-11', 20, now)).toBe(25);
+    expect(svc.ageFromBirthDate('2000-11-10', 20, now)).toBe(26);
+    expect(svc.ageFromBirthDate(null, 31, now)).toBe(31);
+    expect(svc.ageFromBirthDate(null, undefined, now)).toBeNull();
+  });
+
+  test('builds the read-only record from the profile, with father and mother names', () => {
+    const record = svc.buildPatientRecord({
+      id: 1, first_name: 'Maria', last_name: 'Cruz', date_of_birth: '1998-05-01', age: 20, sex: 'Female',
+      address: 'Tughan, Juban', contact_number: '0917',
+      personal_info: {
+        mommy: { civil_status: 'Married', nationality: 'Filipino', religion: 'Catholic', birthplace: 'Sorsogon City' },
+        daddy: { first_name: 'Juan', last_name: 'Cruz' }
+      }
+    }, now);
+    expect(record).toMatchObject({
+      patient_id: 1, age: 28, nationality: 'Filipino', religion: 'Catholic', civil_status: 'Married',
+      birthplace: 'Sorsogon City', mother_name: 'Maria Cruz', father_name: 'Juan Cruz'
+    });
+    expect(svc.buildPatientRecord(null)).toBeNull();
+  });
+
+  test('suggests old when she has a previous stay or check-up, new otherwise', () => {
+    expect(svc.suggestAdmissionType({ priorAdmissions: 0, consultations: 0 })).toBe('new');
+    expect(svc.suggestAdmissionType({ priorAdmissions: 1 })).toBe('old');
+    expect(svc.suggestAdmissionType({ consultations: 2 })).toBe('old');
+  });
+
+  test('type of admission only accepts the three known values', () => {
+    expect(validateAdmission({ patient_id: 1, admission_type: 'former_opd' }).error).toBeUndefined();
+    expect(validateAdmission({ patient_id: 1, admission_type: 'walk-in' }).error).toBeDefined();
+  });
+});
+
+describe("Midwives' Notes helpers", () => {
+  test('initials come from the first and last name', () => {
+    expect(svc.initialsOf('Maria Santos')).toBe('MS');
+    expect(svc.initialsOf('Ana Luisa Reyes')).toBe('AR');
+    expect(svc.initialsOf('Cher')).toBe('CH');
+    expect(svc.initialsOf('')).toBe('');
+  });
+
+  test('shift follows the paper sheet in Philippine time', () => {
+    expect(svc.shiftOf('2026-10-31T00:30:00Z')).toBe('morning');
+    expect(svc.shiftOf('2026-10-31T08:30:00Z')).toBe('afternoon');
+    expect(svc.shiftOf('2026-10-31T16:30:00Z')).toBe('evening');
+  });
+});
+
+describe('vital signs early warning', () => {
+  test('a normal reading scores zero', () => {
+    const r = svc.scoreVitals({ bp_systolic: 115, bp_diastolic: 72, pulse: 84, resp_rate: 18, temperature: 36.8, spo2: 98, fetal_heart_rate: 140 });
+    expect(r).toMatchObject({ total: 0, level: 'normal', fetalAlert: false });
+  });
+
+  test('one slightly off sign means watch, one badly off sign means urgent', () => {
+    expect(svc.scoreVitals({ temperature: 37.4 }).level).toBe('watch');
+    const high = svc.scoreVitals({ bp_systolic: 165, bp_diastolic: 105 });
+    expect(high.level).toBe('urgent');
+    expect(high.signs).toMatchObject({ bp_systolic: 2, bp_diastolic: 2 });
+  });
+
+  test("the baby's heartbeat outside 110-160 is urgent even when mother's signs are fine", () => {
+    expect(svc.scoreVitals({ pulse: 80, fetal_heart_rate: 100 })).toMatchObject({ fetalAlert: true, level: 'urgent' });
+    expect(svc.scoreVitals({ fetal_heart_rate: 161 }).fetalAlert).toBe(true);
+  });
+
+  test('blank values are ignored and an empty reading is not accepted', () => {
+    expect(svc.scoreVitals({ pulse: '', resp_rate: null }).total).toBe(0);
+    expect(validateVitals({}).error).toBeDefined();
+    expect(validateVitals({ pulse: 80 }).error).toBeUndefined();
+    expect(validateVitals({ pulse: 900 }).error).toBeDefined();
   });
 });

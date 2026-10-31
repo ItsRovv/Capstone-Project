@@ -4,7 +4,10 @@ import { Input, Textarea, Select } from '../UI/Input';
 import { Icon } from '../Icon';
 import { fromLocalInput, toLocalInput } from '../../lib/admission';
 
-const blankBaby = () => ({ sex: '', weight_grams: '', apgar_1: '', apgar_5: '', essential_care: [], notes: '' });
+const blankBaby = () => ({
+  name: '', sex: '', weight_grams: '', length_cm: '', head_circumference_cm: '', chest_circumference_cm: '',
+  abdominal_circumference_cm: '', apgar_1: '', apgar_5: '', essential_care: [], notes: ''
+});
 
 export function deliveryToDraft(delivery) {
   if (!delivery) {
@@ -17,8 +20,13 @@ export function deliveryToDraft(delivery) {
     complications: delivery.complications || '',
     newborns: delivery.newborns?.length
       ? delivery.newborns.map((b) => ({
+          name: b.name || '',
           sex: b.sex || '',
           weight_grams: b.weight_grams ?? '',
+          length_cm: b.length_cm ?? '',
+          head_circumference_cm: b.head_circumference_cm ?? '',
+          chest_circumference_cm: b.chest_circumference_cm ?? '',
+          abdominal_circumference_cm: b.abdominal_circumference_cm ?? '',
           apgar_1: b.apgar_1 ?? '',
           apgar_5: b.apgar_5 ?? '',
           essential_care: Array.isArray(b.essential_care) ? b.essential_care : [],
@@ -39,29 +47,24 @@ export function draftToPayload(draft) {
     complications: text(draft.complications),
     // A baby row the staff never touched is not sent.
     newborns: draft.newborns
-      .filter((b) => b.sex || b.weight_grams !== '' || b.apgar_1 !== '' || b.apgar_5 !== '' || b.essential_care.length || b.notes)
+      .filter((b) => b.name || b.sex || ['weight_grams', 'length_cm', 'head_circumference_cm', 'chest_circumference_cm', 'abdominal_circumference_cm', 'apgar_1', 'apgar_5'].some((k) => b[k] !== '') || b.essential_care.length || b.notes)
       .map((b) => ({
-        sex: text(b.sex), weight_grams: num(b.weight_grams), apgar_1: num(b.apgar_1), apgar_5: num(b.apgar_5),
+        name: text(b.name), sex: text(b.sex), weight_grams: num(b.weight_grams), length_cm: num(b.length_cm),
+        head_circumference_cm: num(b.head_circumference_cm), chest_circumference_cm: num(b.chest_circumference_cm),
+        abdominal_circumference_cm: num(b.abdominal_circumference_cm), apgar_1: num(b.apgar_1), apgar_5: num(b.apgar_5),
         essential_care: b.essential_care, notes: text(b.notes)
       }))
   };
 }
 
-export function StepDelivery({ draft, setDraft, byGroup, status, canEdit, saving, onSave, onMarkInLabor, markingLabor }) {
+export function StepDelivery({ draft, setDraft, byGroup, canEdit, saving, onSave }) {
   const set = (key) => (e) => setDraft((d) => ({ ...d, [key]: e.target.value }));
   const types = byGroup.delivery_type || [];
   return (
     <Card>
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div>
-          <h3 className="text-base sm:text-lg font-semibold text-ink-900">Labor and delivery</h3>
-          <p className="text-sm text-ink-500">Record when and how the baby was born.</p>
-        </div>
-        {canEdit && status === 'admitted' && (
-          <Button variant="secondary" size="sm" onClick={onMarkInLabor} loading={markingLabor}>
-            <Icon.Clock width={14} height={14} /> Now in labor
-          </Button>
-        )}
+      <div className="mb-4">
+        <h3 className="text-base sm:text-lg font-semibold text-ink-900">Delivery</h3>
+        <p className="text-sm text-ink-500">Record when and how the baby was born. Labor progress is on the Labor page.</p>
       </div>
       <fieldset disabled={!canEdit} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-4">
@@ -83,7 +86,29 @@ export function StepDelivery({ draft, setDraft, byGroup, status, canEdit, saving
   );
 }
 
-export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave }) {
+const PLACE_OF_BIRTH = 'Jean Lying-In Maternity Clinic, Tughan, Juban, Sorsogon 4703';
+
+// The top of the baby card: filled in from the mother's record and the delivery, not typed again.
+function BabyCardInfo({ record, deliveredAt }) {
+  const born = deliveredAt ? new Date(deliveredAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  const item = (label, value) => (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">{label}</p>
+      <p className="text-sm text-ink-900 mt-0.5 break-words">{value || '—'}</p>
+    </div>
+  );
+  return (
+    <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-3 grid sm:grid-cols-2 gap-x-4 gap-y-3">
+      {item('Date and time of birth', born)}
+      {item('Place of birth', PLACE_OF_BIRTH)}
+      {item("Mother's name", record?.mother_name)}
+      {item("Father's name", record?.father_name)}
+      <div className="sm:col-span-2">{item('Address', record?.address)}</div>
+    </div>
+  );
+}
+
+export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave, record }) {
   const care = byGroup.newborn_care || [];
   const setBaby = (i, patch) => setDraft((d) => ({ ...d, newborns: d.newborns.map((b, idx) => (idx === i ? { ...b, ...patch } : b)) }));
   const toggleCare = (i, code) => {
@@ -114,7 +139,9 @@ export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave }) 
               </Button>
             )}
           </div>
-          <fieldset disabled={!canEdit} className="space-y-4">
+          <BabyCardInfo record={record} deliveredAt={draft.delivered_at} />
+          <fieldset disabled={!canEdit} className="space-y-4 mt-4">
+            <Input label="Baby's name" value={b.name} onChange={(e) => setBaby(i, { name: e.target.value })} />
             <div className="grid sm:grid-cols-2 gap-4">
               <Select label="Sex" value={b.sex} onChange={(e) => setBaby(i, { sex: e.target.value })}>
                 <option value="">Not recorded</option>
@@ -123,6 +150,10 @@ export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave }) 
                 <option value="Other">Other</option>
               </Select>
               <Input label="Birth weight (grams)" inputMode="numeric" hint="Example: 3100 for 3.1 kg" value={b.weight_grams} onChange={(e) => setBaby(i, { weight_grams: e.target.value })} />
+              <Input label="Birth length (cm)" inputMode="decimal" value={b.length_cm} onChange={(e) => setBaby(i, { length_cm: e.target.value })} />
+              <Input label="Head circumference, HC (cm)" inputMode="decimal" value={b.head_circumference_cm} onChange={(e) => setBaby(i, { head_circumference_cm: e.target.value })} />
+              <Input label="Chest circumference, CC (cm)" inputMode="decimal" value={b.chest_circumference_cm} onChange={(e) => setBaby(i, { chest_circumference_cm: e.target.value })} />
+              <Input label="Abdominal circumference, AC (cm)" inputMode="decimal" value={b.abdominal_circumference_cm} onChange={(e) => setBaby(i, { abdominal_circumference_cm: e.target.value })} />
               <Input label="Baby's score at 1 minute (0 to 10)" inputMode="numeric" hint="Also called APGAR." value={b.apgar_1} onChange={(e) => setBaby(i, { apgar_1: e.target.value })} />
               <Input label="Baby's score at 5 minutes (0 to 10)" inputMode="numeric" value={b.apgar_5} onChange={(e) => setBaby(i, { apgar_5: e.target.value })} />
             </div>

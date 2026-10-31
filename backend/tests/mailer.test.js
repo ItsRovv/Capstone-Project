@@ -27,8 +27,8 @@ describe('isConfigured', () => {
 });
 
 describe('sendMail', () => {
-  test('returns false when SMTP is not configured', async () => {
+  test('reports not sent when SMTP is not configured', async () => {
     const result = await sendMail({ to: 'x@y.com', subject: 'hi', text: 'hello' });
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ sent: false, error: 'SMTP not configured' });
   });
 });

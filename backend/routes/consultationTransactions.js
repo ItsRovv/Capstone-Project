@@ -6,11 +6,11 @@ const AuditLog = require('../models/AuditLog');
 const { validateConsultationTransaction } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
-const { requireStaff } = require('../middleware/role');
+const { requireStaffOrMidwifeRead } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
 
-// Clinic staff only.
-router.use(auth, requireStaff);
+// Clinic staff only (the admission midwife may view the statement of accounts, not change it).
+router.use(auth, requireStaffOrMidwifeRead);
 
 // Get all transactions
 router.get('/', auth, async (req, res) => {

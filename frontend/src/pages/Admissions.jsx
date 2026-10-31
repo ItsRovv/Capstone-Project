@@ -37,8 +37,15 @@ function WardTab({ ward, loading, onAdmit, canRecord }) {
   if (!ward) return <Card><EmptyState icon={<Icon.Users width={40} height={40} />} title="Could not load the ward" description="Please refresh the page." /></Card>;
   const used = ward.totalBeds - ward.freeBeds.length;
   const wardName = ward.name.toLowerCase();
+  const admittedNow = [...ward.beds.map((b) => b.admission).filter(Boolean), ...ward.unassigned];
+  const inLabor = admittedNow.filter((a) => a.status === 'in_labor').length;
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-4">
+        <Stat label="Patients admitted now" value={admittedNow.length} />
+        <Stat label="In labor" value={inLabor} />
+        <Stat label="Beds free" value={`${ward.freeBeds.length} of ${ward.totalBeds}`} />
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-700">
           <span className="font-semibold text-ink-900">{used} of {ward.totalBeds}</span> beds in use in the {wardName}
@@ -182,8 +189,8 @@ function LogbookTab({ labelFor }) {
           ) : (
             <Card padding="p-0" className="overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-ink-50 text-ink-600 text-xs uppercase tracking-wider">
+                <table className="w-full text-base">
+                  <thead className="bg-ink-50 text-ink-600 text-sm uppercase tracking-wider">
                     <tr>
                       <th className="text-left px-3 sm:px-5 py-3 font-semibold">Patient</th>
                       <th className="text-left px-3 sm:px-5 py-3 font-semibold hidden md:table-cell">Admitted</th>
@@ -234,7 +241,7 @@ export function Admissions() {
   return (
     <div className="h-full flex flex-col">
       <Topbar
-        title="Admissions"
+        title="Admission and Discharge"
         subtitle="Patients in the clinic, follow-up visits, and the logbook."
         onMenuClick={onOpenMenu}
         right={
@@ -246,7 +253,7 @@ export function Admissions() {
         }
       />
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
-        <div className="max-w-7xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           <div className="flex gap-1 border-b border-ink-100 overflow-x-auto">
             {TABS.map((t) => (
               <button

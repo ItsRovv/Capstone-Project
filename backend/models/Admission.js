@@ -2,19 +2,26 @@ const db = require('../config/db');
 const { encryptObject, decryptObject } = require('../utils/encryption');
 
 // Free-text clinical fields are encrypted like patient/consultation notes.
-const ADMISSION_ENC = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'notes'];
+const ADMISSION_ENC = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'notes',
+  'referred_by', 'hospitalization_plan', 'health_insurance_name', 'medicare_other',
+  'informant_name', 'informant_address', 'informant_relationship', 'icd_code'];
 const DELIVERY_ENC = ['attendant', 'complications'];
-const NEWBORN_ENC = ['notes'];
+const NEWBORN_ENC = ['notes', 'name'];
+const LABOR_ENC = ['notes'];
 const DISCHARGE_ENC = ['final_diagnosis', 'instructions', 'override_reason'];
 const REFERRAL_ENC = ['reason', 'notes'];
 const FOLLOWUP_ENC = ['notes'];
+const NOTE_ENC = ['description'];
 
 const enc = (obj, fields) => encryptObject(obj, fields);
 const dec = (obj, fields) => decryptObject(obj, fields);
 
 const ADMISSION_UPDATABLE = [
   'pregnancy_id', 'admitted_at', 'chief_complaint', 'admitting_diagnosis', 'bp', 'pulse', 'resp_rate',
-  'temperature', 'labor_notes', 'risk_flags', 'consent_signed', 'consent_by', 'philhealth_package', 'notes', 'bed_number'
+  'temperature', 'labor_notes', 'risk_flags', 'consent_signed', 'consent_by', 'philhealth_packages', 'notes', 'bed_number',
+  'admission_type', 'attending_physician',
+  'referred_by', 'social_service_class', 'hospitalization_plan', 'health_insurance_name',
+  'medicare', 'medicare_other', 'informant_name', 'informant_address', 'informant_relationship', 'icd_code'
 ];
 
 const clean = (v) => (v === '' || v === undefined ? null : v);
@@ -34,14 +41,20 @@ class Admission {
       `INSERT INTO admissions (
          patient_id, pregnancy_id, admitted_at, admitted_by, chief_complaint, admitting_diagnosis,
          bp, pulse, resp_rate, temperature, labor_notes, risk_flags, consent_signed, consent_by,
-         philhealth_package, notes, bed_number, bed_price
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)`,
+         philhealth_packages, notes, bed_number, bed_price, admission_type, attending_physician,
+         referred_by, social_service_class, hospitalization_plan, health_insurance_name,
+         medicare, medicare_other, informant_name, informant_address, informant_relationship, icd_code
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         d.patient_id, clean(d.pregnancy_id), d.admitted_at ?? new Date(), userId ?? null,
         clean(d.chief_complaint), clean(d.admitting_diagnosis), clean(d.bp), clean(d.pulse),
         clean(d.resp_rate), clean(d.temperature), clean(d.labor_notes),
         JSON.stringify(d.risk_flags ?? []), d.consent_signed ?? false, clean(d.consent_by),
-        clean(d.philhealth_package), clean(d.notes), clean(d.bed_number), clean(d.bed_price)
+        JSON.stringify(d.philhealth_packages ?? []), clean(d.notes), clean(d.bed_number), clean(d.bed_price),
+        clean(d.admission_type), clean(d.attending_physician),
+        clean(d.referred_by), clean(d.social_service_class), clean(d.hospitalization_plan),
+        clean(d.health_insurance_name), clean(d.medicare), clean(d.medicare_other),
+        clean(d.informant_name), clean(d.informant_address), clean(d.informant_relationship), clean(d.icd_code)
       ]
     );
     return result.insertId;
@@ -112,8 +125,8 @@ class Admission {
     const values = [];
     for (const col of ADMISSION_UPDATABLE) {
       if (d[col] === undefined) continue;
-      if (col === 'risk_flags') {
-        sets.push('risk_flags = ?::jsonb');
+      if (col === 'risk_flags' || col === 'philhealth_packages') {
+        sets.push(`${col} = ?::jsonb`);
         values.push(JSON.stringify(d[col] ?? []));
       } else {
         sets.push(`${col} = ?`);
@@ -158,10 +171,12 @@ class Admission {
       for (const baby of data.newborns || []) {
         const b = enc(baby, NEWBORN_ENC);
         await tx.execute(
-          `INSERT INTO newborns (delivery_id, sex, weight_grams, apgar_1, apgar_5, essential_care, notes)
-           VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)`,
-          [deliveryId, clean(b.sex), clean(b.weight_grams), clean(b.apgar_1), clean(b.apgar_5),
-           JSON.stringify(b.essential_care ?? []), clean(b.notes)]
+          `INSERT INTO newborns (delivery_id, name, sex, weight_grams, length_cm, head_circumference_cm,
+                                 chest_circumference_cm, abdominal_circumference_cm, apgar_1, apgar_5, essential_care, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)`,
+          [deliveryId, clean(b.name), clean(b.sex), clean(b.weight_grams), clean(b.length_cm),
+           clean(b.head_circumference_cm), clean(b.chest_circumference_cm), clean(b.abdominal_circumference_cm),
+           clean(b.apgar_1), clean(b.apgar_5), JSON.stringify(b.essential_care ?? []), clean(b.notes)]
         );
       }
       await tx.execute(
@@ -211,10 +226,10 @@ class Admission {
     const d = enc(data, DISCHARGE_ENC);
     return db.transaction(async (tx) => {
       const [result] = await tx.execute(
-        `INSERT INTO discharges (admission_id, discharged_at, disposition, final_diagnosis, instructions, override_reason, discharged_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO discharges (admission_id, discharged_at, disposition, final_diagnosis, instructions, override_reason, discharged_by, results)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb)`,
         [admissionId, d.discharged_at ?? new Date(), d.disposition, clean(d.final_diagnosis),
-         clean(d.instructions), clean(d.override_reason), userId ?? null]
+         clean(d.instructions), clean(d.override_reason), userId ?? null, JSON.stringify(data.results ?? [])]
       );
       await tx.execute("UPDATE admissions SET status = 'discharged' WHERE id = ?", [admissionId]);
       for (const due of followupDates) {
@@ -271,6 +286,106 @@ class Admission {
       await tx.execute("UPDATE admissions SET status = 'referred' WHERE id = ?", [admissionId]);
       return result.insertId;
     });
+  }
+
+  // ── Midwives' Notes ──────────────────────────────────────────────────────
+  static async listNotes(admissionId) {
+    const [rows] = await db.execute(
+      `SELECT n.*, u.name AS author_name FROM midwife_notes n
+       LEFT JOIN users u ON u.id = n.user_id
+       WHERE n.admission_id = ? ORDER BY n.noted_at, n.id`,
+      [admissionId]
+    );
+    return rows.map((r) => dec(r, NOTE_ENC));
+  }
+
+  static async addNote(admissionId, description, userId) {
+    const d = enc({ description }, NOTE_ENC);
+    const [result] = await db.execute(
+      'INSERT INTO midwife_notes (admission_id, description, user_id) VALUES (?, ?, ?)',
+      [admissionId, d.description, userId ?? null]
+    );
+    return result.insertId;
+  }
+
+  static async findNote(admissionId, noteId) {
+    const [rows] = await db.execute('SELECT * FROM midwife_notes WHERE id = ? AND admission_id = ?', [noteId, admissionId]);
+    return rows[0] ? dec(rows[0], NOTE_ENC) : null;
+  }
+
+  // Only used for an administrator's correction (the route audits it).
+  static async updateNote(admissionId, noteId, description) {
+    const d = enc({ description }, NOTE_ENC);
+    const [result] = await db.execute(
+      'UPDATE midwife_notes SET description = ? WHERE id = ? AND admission_id = ?',
+      [d.description, noteId, admissionId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  // ── Pre-discharge checklist ──────────────────────────────────────────────
+  static async getChecklist(admissionId) {
+    const [rows] = await db.execute(
+      `SELECT c.*, u.name AS updated_by_name FROM discharge_checklists c
+       LEFT JOIN users u ON u.id = c.updated_by WHERE c.admission_id = ?`,
+      [admissionId]
+    );
+    return rows[0] || null;
+  }
+
+  static async saveChecklist(admissionId, { items, danger_signs }, userId) {
+    await db.execute(
+      `INSERT INTO discharge_checklists (admission_id, items, danger_signs, updated_by, updated_at)
+       VALUES (?, ?::jsonb, ?::jsonb, ?, NOW())
+       ON CONFLICT (admission_id) DO UPDATE SET
+         items = EXCLUDED.items, danger_signs = EXCLUDED.danger_signs,
+         updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [admissionId, JSON.stringify(items ?? {}), JSON.stringify(danger_signs ?? []), userId ?? null]
+    );
+    return true;
+  }
+
+  // ── Labor chart ──────────────────────────────────────────────────────────
+  static async listLabor(admissionId) {
+    const [rows] = await db.execute(
+      `SELECT l.*, u.name AS recorded_by_name FROM labor_entries l
+       LEFT JOIN users u ON u.id = l.recorded_by
+       WHERE l.admission_id = ? ORDER BY l.recorded_at, l.id`,
+      [admissionId]
+    );
+    return rows.map((r) => dec(r, LABOR_ENC));
+  }
+
+  static async addLabor(admissionId, data, userId) {
+    const d = enc(data, LABOR_ENC);
+    const [result] = await db.execute(
+      `INSERT INTO labor_entries (admission_id, contractions, cervix_cm, fetal_heart_rate, membranes, notes, recorded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [admissionId, clean(d.contractions), clean(d.cervix_cm), clean(d.fetal_heart_rate), clean(d.membranes), clean(d.notes), userId ?? null]
+    );
+    return result.insertId;
+  }
+
+  // ── Vital signs ──────────────────────────────────────────────────────────
+  static async listVitals(admissionId) {
+    const [rows] = await db.execute(
+      `SELECT v.*, u.name AS recorded_by_name FROM admission_vitals v
+       LEFT JOIN users u ON u.id = v.recorded_by
+       WHERE v.admission_id = ? ORDER BY v.recorded_at, v.id`,
+      [admissionId]
+    );
+    return rows;
+  }
+
+  static async addVitals(admissionId, v, userId) {
+    const [result] = await db.execute(
+      `INSERT INTO admission_vitals
+         (admission_id, bp_systolic, bp_diastolic, pulse, resp_rate, temperature, spo2, fetal_heart_rate, recorded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [admissionId, clean(v.bp_systolic), clean(v.bp_diastolic), clean(v.pulse), clean(v.resp_rate),
+       clean(v.temperature), clean(v.spo2), clean(v.fetal_heart_rate), userId ?? null]
+    );
+    return result.insertId;
   }
 
   // ── Logbook ─────────────────────────────────────────────────────────────

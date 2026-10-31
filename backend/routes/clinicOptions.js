@@ -5,7 +5,7 @@ const Admission = require('../models/Admission');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
-const { requireStaff } = require('../middleware/role');
+const { requireAdmissionAccess } = require('../middleware/role');
 const {
   validateClinicOption, validateClinicOptionUpdate, validateSetting, OPTION_GROUPS
 } = require('../middleware/validation');
@@ -21,9 +21,15 @@ function audit(req, action, recordId, oldData, newData, tableName) {
 
 const bad = (res, error) => res.status(400).json({ message: error.details?.[0]?.message || error.message });
 
+// These lists belong to the Admission and Discharge module itself. Everyone can still
+// READ them (the module's forms need them), but they are not managed from Clinic
+// Settings, so create/edit/hide is blocked here too.
+const LOCKED_OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care'];
+const lockedMessage = 'This list belongs to the Admission and Discharge module and cannot be changed from Clinic Settings.';
+
 // Everyone on staff can read the lists (forms need them). Hidden choices are returned only
 // when asked (?all=1) so old records can still show the wording they were saved with.
-router.get('/options', requireStaff, async (req, res) => {
+router.get('/options', requireAdmissionAccess, async (req, res) => {
   try {
     const { group } = req.query;
     if (group && !OPTION_GROUPS.includes(group)) return res.status(400).json({ message: 'Unknown list' });
@@ -36,6 +42,9 @@ router.post('/options', requireRole('admin'), async (req, res) => {
   try {
     const { error, value } = validateClinicOption(req.body);
     if (error) return bad(res, error);
+    if (LOCKED_OPTION_GROUPS.includes(value.option_group)) {
+      return res.status(403).json({ message: lockedMessage });
+    }
     const id = await ClinicOption.create(value).catch((err) => {
       if (err.code === '23505') return null;
       throw err;
@@ -52,6 +61,9 @@ router.put('/options/:id', requireRole('admin'), async (req, res) => {
     if (error) return bad(res, error);
     const old = await ClinicOption.findById(req.params.id);
     if (!old) return res.status(404).json({ message: 'Not found' });
+    if (LOCKED_OPTION_GROUPS.includes(old.option_group)) {
+      return res.status(403).json({ message: lockedMessage });
+    }
     await ClinicOption.update(req.params.id, value);
     await audit(req, 'UPDATE', Number(req.params.id), old, value, 'clinic_options');
     res.json({ message: 'Saved' });
@@ -63,13 +75,16 @@ router.delete('/options/:id', requireRole('admin'), async (req, res) => {
   try {
     const old = await ClinicOption.findById(req.params.id);
     if (!old) return res.status(404).json({ message: 'Not found' });
+    if (LOCKED_OPTION_GROUPS.includes(old.option_group)) {
+      return res.status(403).json({ message: lockedMessage });
+    }
     await ClinicOption.deactivate(req.params.id);
     await audit(req, 'DELETE', Number(req.params.id), old, undefined, 'clinic_options');
     res.json({ message: 'Hidden from the lists' });
   } catch (err) { routeError(res, err); }
 });
 
-router.get('/settings', requireStaff, async (req, res) => {
+router.get('/settings', requireAdmissionAccess, async (req, res) => {
   try {
     res.json(await ClinicOption.getSettings());
   } catch (err) { routeError(res, err); }

@@ -14,6 +14,7 @@ const EMPTY_FORM = { name: '', username: '', email: '', password: '', role: 'sta
 const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff' },
   { value: 'nurse', label: 'Nurse' },
+  { value: 'midwife', label: 'Admission Midwife' },
   { value: 'doctor', label: 'Doctor' },
   { value: 'admin', label: 'Administrator' }
 ];
@@ -160,7 +161,7 @@ export function ManageUsers() {
             <div className="flex justify-center py-16"><Spinner /></div>
           ) : (
             <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead>
               <tr className="bg-ink-50 border-b border-ink-100 text-ink-600 text-left">
                 <th className="px-4 py-3 font-medium">Name</th>
@@ -272,6 +273,7 @@ export function ManageUsers() {
           <Select label="Role" value={createForm.role} onChange={updateCreate('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
+            <option value="midwife">Admission Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
@@ -311,6 +313,7 @@ export function ManageUsers() {
           <Select label="Role" value={editForm.role} onChange={updateEdit('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
+            <option value="midwife">Admission Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>

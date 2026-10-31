@@ -32,7 +32,7 @@ function signToken(user) {
 }
 
 // Staff roles that an admin may assign when creating/updating staff accounts.
-const STAFF_ROLES = ['admin', 'doctor', 'nurse', 'staff'];
+const STAFF_ROLES = ['admin', 'doctor', 'nurse', 'midwife', 'staff'];
 
 /**
  * Set the auth token as an httpOnly cookie so it is inaccessible to JavaScript

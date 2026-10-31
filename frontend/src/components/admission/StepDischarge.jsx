@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../UI/Card';
 import { Button } from '../UI/Button';
 import { Modal } from '../UI/Modal';
@@ -34,37 +35,157 @@ function ChecklistItem({ ok, label, detail }) {
   );
 }
 
+// Reasons for leaving that cannot go through the normal checklist (same list as the server).
+const CHECKLIST_EXEMPT = ['transferred', 'hama', 'absconded', 'expired'];
+
+// The "RESULTS" box at the bottom of the paper form. Radio groups; clicking a chosen
+// option again clears it. The death-time and autopsy choices only appear with "died".
+function ResultsPicker({ value, onChange }) {
+  const pick = (codes, code) =>
+    onChange(value.filter((c) => !codes.includes(c)).concat(value.includes(code) ? [] : [code]));
+  const group = (title, options) => (
+    <div>
+      <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">{title}</p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {options.map(([code, label]) => (
+          <label key={code} className="flex items-center gap-2 text-sm text-ink-800 cursor-pointer">
+            <input
+              type="radio"
+              className="h-4 w-4 border-ink-300 text-primary-600"
+              checked={value.includes(code)}
+              onChange={() => {}}
+              onClick={() => pick(options.map((o) => o[0]), code)}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+  const died = value.includes('died');
+  return (
+    <div>
+      <p className="text-sm font-medium text-ink-700 mb-2">Results</p>
+      <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
+        {group('Result', [['recovered', 'Recovered'], ['died', 'Died']])}
+        {group('Condition on leaving', [['improved', 'Improved'], ['unimproved', 'Unimproved']])}
+        {died && group('Time of death', [['died_24h', 'Within 24 hours'], ['died_48h', 'Within 48 hours']])}
+        {died && group('Autopsy', [['autopsy', 'Autopsy'], ['no_autopsy', 'No autopsy']])}
+      </div>
+    </div>
+  );
+}
+
+function localChecklistStatus(definition, checklist, hasDelivery) {
+  const items = checklist.items || {};
+  const required = (definition?.items || []).filter((i) => hasDelivery || !i.requiresDelivery);
+  const missing = required.filter((i) => items[i.code] !== true).map((i) => i.code);
+  return { complete: missing.length === 0, missing, dangerPresent: checklist.danger_signs || [] };
+}
+
+// Pre-discharge checklist: every box must be ticked, and any danger sign means refer, not discharge.
+function PreDischargeChecklist({ admission, definition, value, hasDelivery, canEdit, onSave }) {
+  const items = value.items || {};
+  const signs = value.danger_signs || [];
+  const status = localChecklistStatus(definition, value, hasDelivery);
+  const toggleItem = (code) => onSave({ items: { ...items, [code]: !items[code] }, danger_signs: signs });
+  const toggleSign = (code) => onSave({
+    items,
+    danger_signs: signs.includes(code) ? signs.filter((c) => c !== code) : [...signs, code]
+  });
+  return (
+    <Card>
+      <h3 className="text-base sm:text-lg font-semibold text-ink-900">Pre-discharge checklist</h3>
+      <p className="text-sm text-ink-500 mb-4">
+        Reminder to the midwife: tick each box once it is done, within 24 hours and before discharge.
+        {!hasDelivery && ' No delivery was recorded, so only the danger-sign check is needed.'}
+      </p>
+      <fieldset disabled={!canEdit} className="space-y-2.5">
+        {(definition?.items || []).filter((i) => hasDelivery || !i.requiresDelivery).map((i) => (
+          <div key={i.code}>
+            <label className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-sm cursor-pointer ${items[i.code] ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-ink-200 bg-white text-ink-700'}`}>
+              <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600" checked={Boolean(items[i.code])} onChange={() => toggleItem(i.code)} />
+              <span>{i.label}</span>
+            </label>
+            {i.code === 'danger_signs_checked' && (
+              <div className="ml-6 mt-2 space-y-1.5">
+                <p className="text-xs font-medium text-ink-600">Tick any danger sign that is present:</p>
+                <div className="grid sm:grid-cols-2 gap-1.5">
+                  {(definition?.dangerSigns || []).map((d) => (
+                    <label key={d.code} className={`flex items-start gap-2.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer ${signs.includes(d.code) ? 'border-red-300 bg-red-50 text-red-900' : 'border-ink-200 bg-white text-ink-700'}`}>
+                      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-red-600" checked={signs.includes(d.code)} onChange={() => toggleSign(d.code)} />
+                      <span>{d.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </fieldset>
+      {status.dangerPresent.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm text-red-900">
+          <span className="font-semibold">Refer to the hospital immediately.</span> A danger sign is present, so {admission.first_name} should not be discharged home. Use "Refer to a hospital" below.
+        </div>
+      ) : !status.complete ? (
+        <p className="mt-4 text-sm text-amber-800">{status.missing.length} item{status.missing.length === 1 ? '' : 's'} left before discharge.</p>
+      ) : (
+        <p className="mt-4 text-sm text-emerald-700 font-medium">Checklist complete.</p>
+      )}
+    </Card>
+  );
+}
+
 export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onChanged, onPrint }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const { admission, delivery, items, grandTotal, bed, discharge, followups, referral } = detail;
   const reasons = byGroup.discharge_reason || [];
 
-  const [form, setForm] = useState({ disposition: '', final_diagnosis: '', instructions: '', override_reason: '' });
+  const [form, setForm] = useState({ disposition: '', final_diagnosis: '', instructions: '', override_reason: '', results: [] });
   const [needReason, setNeedReason] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [referForm, setReferForm] = useState({ open: false, facility: '', reason: '', transport: '', notes: '' });
   const [referConfirm, setReferConfirm] = useState(false);
   const [doneFor, setDoneFor] = useState(null);
+  const [checklist, setChecklist] = useState({
+    items: detail.checklist?.items || {},
+    danger_signs: detail.checklist?.danger_signs || []
+  });
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const isDischarged = admission.status === 'discharged';
   const isReferred = admission.status === 'referred';
   const babies = delivery?.newborns?.length || 0;
 
+  async function saveChecklist(next) {
+    const before = checklist;
+    setChecklist(next);
+    try {
+      await admissionService.saveChecklist(admission.id, next);
+    } catch (err) {
+      setChecklist(before);
+      toast.error(apiError(err, 'Could not save the checklist'));
+    }
+  }
+
   async function submitDischarge() {
     setSaving(true);
     try {
-      const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim() === '' ? null : v.trim()]));
+      const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, Array.isArray(v) ? v : (v.trim() === '' ? null : v.trim())]));
       const res = await admissionService.discharge(admission.id, payload);
       toast.success(res.followups ? `Patient discharged. ${res.followups} follow-up visits were scheduled.` : 'Patient discharged');
       setConfirmOpen(false);
       setNeedReason('');
-      await onChanged();
+      // Next stop is the statement of accounts. Nothing to bill is fine, so a failure here is ignored.
+      await admissionService.sendToTransactions(admission.id).catch(() => null);
+      navigate(`/consultation-transactions?patient=${admission.patient_id}`);
     } catch (err) {
       const data = err?.response?.data;
       setConfirmOpen(false);
       if (data?.code === 'MIN_STAY') setNeedReason(data.message);
+      else if (data?.code === 'CHECKLIST_INCOMPLETE' || data?.code === 'DANGER_SIGNS') { toast.error(data.message); await onChanged(); }
       else toast.error(apiError(err, 'Could not discharge the patient'));
     } finally {
       setSaving(false);
@@ -103,6 +224,9 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
             <Row label="Final diagnosis" value={discharge?.final_diagnosis} />
             <Row label="Instructions given" value={discharge?.instructions} />
             {discharge?.override_reason && <Row label="Reason for leaving early" value={discharge.override_reason} />}
+            {(discharge?.results || []).length > 0 && (
+              <Row label="Results" value={discharge.results.map((c) => (detail.dischargeResults || []).find((r) => r.code === c)?.label || c).join(', ')} />
+            )}
           </div>
         </Card>
         <Card>
@@ -153,10 +277,17 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
     );
   }
 
-  const canDischargeNow = canEdit && form.disposition && (!needReason || form.override_reason.trim());
+  const exempt = CHECKLIST_EXEMPT.includes(form.disposition);
+  const check = localChecklistStatus(detail.checklistDefinition, checklist, Boolean(delivery));
+  const checklistBlocked = !exempt && (!check.complete || check.dangerPresent.length > 0);
+  const canDischargeNow = canEdit && form.disposition && !checklistBlocked && (!needReason || form.override_reason.trim());
 
   return (
     <div className="space-y-4">
+      <PreDischargeChecklist
+        admission={admission} definition={detail.checklistDefinition} value={checklist}
+        hasDelivery={Boolean(delivery)} canEdit={canEdit} onSave={saveChecklist}
+      />
       <Card>
         <h3 className="text-base sm:text-lg font-semibold text-ink-900">Ready to go home?</h3>
         <p className="text-sm text-ink-500 mb-4">A quick look before you discharge.</p>
@@ -173,6 +304,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
             {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
           </Select>
           <Input label="Final diagnosis" value={form.final_diagnosis} onChange={set('final_diagnosis')} />
+          <ResultsPicker value={form.results} onChange={(r) => setForm((f) => ({ ...f, results: r }))} />
           <Textarea label="Instructions for the patient" rows={3} hint="Medicines, rest, warning signs, when to come back." value={form.instructions} onChange={set('instructions')} />
           {needReason && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-3">

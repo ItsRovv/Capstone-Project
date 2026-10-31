@@ -13,11 +13,7 @@ import { useClinicOptions } from '../lib/admission';
 
 const LISTS = [
   { group: 'item', title: 'Items used during a stay', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true },
-  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can choose when admitting. The amount is for reference and is not charged at the clinic.', price: true },
-  { group: 'discharge_reason', title: 'Reasons for going home', help: 'Choices shown when discharging a patient.' },
-  { group: 'delivery_type', title: 'Types of delivery', help: 'Choices shown when recording a birth.' },
-  { group: 'risk_flag', title: 'Warning signs checklist', help: 'Shown when admitting. A checked box reminds staff to think about a hospital referral.' },
-  { group: 'newborn_care', title: 'Newborn care checklist', help: 'Things the team does for the baby right after birth.' }
+  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the payment step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true }
 ];
 const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
 

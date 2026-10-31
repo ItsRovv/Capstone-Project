@@ -8,16 +8,17 @@ const Pregnancy = require('../models/Pregnancy');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
-const { requireStaff, requireClinical } = require('../middleware/role');
+const requireRole = require('../middleware/role');
+const { requireAdmissionAccess, requireClinical } = require('../middleware/role');
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
-  validateDischarge, validateReferral
+  validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist
 } = require('../middleware/validation');
 const svc = require('../services/admissionService');
 const { onDelivered } = require('../services/admissionSync');
 const { routeError } = require('../utils/routeError');
 
-router.use(auth, requireStaff);
+router.use(auth, requireAdmissionAccess);
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const NO_FOLLOWUP = ['expired', 'transferred', 'absconded'];
@@ -53,6 +54,17 @@ async function wardInfo({ withComplaint = false } = {}) {
     beds,
     unassigned: active.filter((a) => !a.bed_number || a.bed_number > totalBeds).map((a) => pick(a, fields))
   };
+}
+
+// The packages chosen for a stay, with the clinic's wording and amount (hidden ones too,
+// so an old stay still shows what it used).
+async function resolvePackages(codes) {
+  if (!Array.isArray(codes) || !codes.length) return [];
+  const options = await ClinicOption.list({ group: 'package', includeInactive: true });
+  return codes
+    .map((code) => options.find((o) => o.code === code))
+    .filter(Boolean)
+    .map((o) => ({ code: o.code, label: o.label, amount: o.price === null || o.price === undefined ? 0 : Number(o.price) }));
 }
 
 // Charge for the bed so far (or for the whole stay once it has ended).
@@ -134,11 +146,12 @@ router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.patientId);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
-    const [consultations, pregnancies, active, settings] = await Promise.all([
+    const [consultations, pregnancies, active, settings, priorStays] = await Promise.all([
       Consultation.findByPatientId(patient.id),
       Pregnancy.findByPatientId(patient.id),
       Admission.findActiveByPatient(patient.id),
-      ClinicOption.getSettingsMap()
+      ClinicOption.getSettingsMap(),
+      Admission.list({ patientId: patient.id })
     ]);
     const latest = consultations[0] || null;
     const pregnancy = pregnancies.find((p) => p.status === 'Ongoing') || null;
@@ -147,6 +160,10 @@ router.get('/prefill/:patientId', requireClinical, async (req, res) => {
         id: patient.id, first_name: patient.first_name, last_name: patient.last_name, age: patient.age,
         allergies: patient.allergies || null
       },
+      record: svc.buildPatientRecord(patient),
+      suggestedAdmissionType: svc.suggestAdmissionType({
+        priorAdmissions: (priorStays || []).length, consultations: (consultations || []).length
+      }),
       latestConsultation: latest && {
         id: latest.id, visit_date: latest.visit_date, chief_complaint: latest.chief_complaint,
         diagnosis: latest.diagnosis, objective: latest.objective, delivery_location: latest.delivery_location
@@ -208,6 +225,14 @@ router.post('/', requireClinical, async (req, res) => {
       }
     }
     value.bed_price = ward.bedPrice;
+    if (!value.admission_type) {
+      const [priorStays, consultations] = await Promise.all([
+        Admission.list({ patientId: value.patient_id }), Consultation.findByPatientId(value.patient_id)
+      ]);
+      value.admission_type = svc.suggestAdmissionType({
+        priorAdmissions: (priorStays || []).length, consultations: (consultations || []).length
+      });
+    }
     let id;
     try {
       id = await Admission.create(value, req.user.id);
@@ -224,9 +249,10 @@ router.post('/', requireClinical, async (req, res) => {
 router.get('/:id', loadAdmission(), async (req, res) => {
   try {
     const a = req.admission;
-    const [delivery, items, discharge, followups, referral, settings] = await Promise.all([
+    const [delivery, items, discharge, followups, referral, settings, checklist] = await Promise.all([
       Admission.getDelivery(a.id), Admission.listItems(a.id), Admission.getDischarge(a.id),
-      Admission.listFollowupsForAdmission(a.id), Admission.getReferral(a.id), ClinicOption.getSettingsMap()
+      Admission.listFollowupsForAdmission(a.id), Admission.getReferral(a.id), ClinicOption.getSettingsMap(),
+      Admission.getChecklist(a.id)
     ]);
     const warnings = [];
     if (settings.require_consent !== 'false' && !a.consent_signed && svc.isActiveStatus(a.status)) {
@@ -242,10 +268,15 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     }
     const bed = stayBed(a, discharge, referral);
     const itemsSum = svc.itemsTotal(items);
+    const packages = await resolvePackages(a.philhealth_packages);
+    const record = svc.buildPatientRecord(await Patient.findById(a.patient_id));
     const bundle = {
-      admission: a, delivery, items, itemsTotal: itemsSum, bed, wardName: settings.ward_name || 'Ward',
+      admission: a, record, delivery, items, itemsTotal: itemsSum, bed, wardName: settings.ward_name || 'Ward',
+      packages, philhealthTotal: Math.round((packages.reduce((s, p) => s + p.amount, 0) + Number.EPSILON) * 100) / 100,
       grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
-      discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status)
+      discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status),
+      checklist: checklist || null, checklistDefinition: svc.CHECKLIST_DEFINITION, dischargeResults: svc.DISCHARGE_RESULTS,
+      checklistStatus: svc.checklistStatus({ checklist, hasDelivery: Boolean(delivery) })
     };
     res.json(isFrontDesk(req) ? svc.redactBundle(bundle) : bundle);
   } catch (err) { routeError(res, err); }
@@ -310,6 +341,89 @@ router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) =
   } catch (err) { routeError(res, err); }
 });
 
+// ── Midwives' Notes ─────────────────────────────────────────────────────
+// Date, time and author are set here, never by the browser. Saved notes are locked:
+// only the administrator can correct one (and the correction is logged).
+const withNoteMeta = (n) => ({ ...n, initials: svc.initialsOf(n.author_name), shift: svc.shiftOf(n.noted_at) });
+
+router.get('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json((await Admission.listNotes(req.params.id)).map(withNoteMeta));
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateMidwifeNote(req.body);
+    if (error) return bad(res, error);
+    const id = await Admission.addNote(req.params.id, value.description, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id) }, 'midwife_notes');
+    res.status(201).json({ id, message: 'Note saved' });
+  } catch (err) { routeError(res, err); }
+});
+
+router.put('/:id/notes/:noteId', requireRole('admin'), loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateMidwifeNote(req.body);
+    if (error) return bad(res, error);
+    const old = await Admission.findNote(req.params.id, req.params.noteId);
+    if (!old) return res.status(404).json({ message: 'Note not found' });
+    await Admission.updateNote(req.params.id, req.params.noteId, value.description);
+    await audit(req, 'UPDATE', Number(req.params.noteId), { description: old.description }, { description: value.description }, 'midwife_notes');
+    res.json({ message: 'Note corrected' });
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Pre-discharge checklist ─────────────────────────────────────────────
+// The patient cannot be discharged home until it is complete and no danger sign is present.
+router.put('/:id/checklist', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateChecklist(req.body);
+    if (error) return bad(res, error);
+    await Admission.saveChecklist(req.params.id, value, req.user.id);
+    await audit(req, 'UPDATE', Number(req.params.id), undefined, { checklist: value }, 'discharge_checklists');
+    const delivery = await Admission.getDelivery(req.params.id);
+    res.json({ message: 'Checklist saved', status: svc.checklistStatus({ checklist: value, hasDelivery: Boolean(delivery) }) });
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Labor chart ─────────────────────────────────────────────────────────
+// Separate from the Midwives' Notes. Time and author are set by the server.
+router.get('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json(await Admission.listLabor(req.params.id));
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateLaborEntry(req.body);
+    if (error) return bad(res, error);
+    const id = await Admission.addLabor(req.params.id, value, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id) }, 'labor_entries');
+    res.status(201).json({ id, message: 'Labor entry saved' });
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Vital signs ─────────────────────────────────────────────────────────
+// Each reading is stamped with the server time and the logged-in user, then scored.
+router.get('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const rows = await Admission.listVitals(req.params.id);
+    res.json(rows.map((r) => ({ ...r, score: svc.scoreVitals(r) })));
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateVitals(req.body);
+    if (error) return bad(res, error);
+    const id = await Admission.addVitals(req.params.id, value, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), ...value }, 'admission_vitals');
+    res.status(201).json({ id, score: svc.scoreVitals(value), message: 'Vital signs saved' });
+  } catch (err) { routeError(res, err); }
+});
+
 // ── Items used ──────────────────────────────────────────────────────────
 // Allowed even after discharge: some items are only recorded afterwards.
 router.post('/:id/items', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
@@ -346,22 +460,37 @@ router.delete('/:id/items/:itemId', requireClinical, loadAdmission({ allowLocked
   } catch (err) { routeError(res, err); }
 });
 
+// PhilHealth packages for the stay (delivery, newborn, ...). Part of the payment step,
+// so it stays open after discharge just like items do.
+router.put('/:id/packages', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    if (req.admission.status === 'referred' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to change the packages.' });
+    }
+    const { error, value } = validatePackages(req.body);
+    if (error) return bad(res, error);
+    const available = await ClinicOption.list({ group: 'package', includeInactive: false });
+    const previous = Array.isArray(req.admission.philhealth_packages) ? req.admission.philhealth_packages : [];
+    // Packages that were already on the stay may stay even if the clinic later hid them.
+    const unknown = value.packages.filter((c) => !previous.includes(c) && !available.some((o) => o.code === c));
+    if (unknown.length) return res.status(400).json({ message: 'One of those packages is not available. Please choose from the list.' });
+    await Admission.update(req.params.id, { philhealth_packages: value.packages });
+    await audit(req, 'UPDATE', Number(req.params.id), { philhealth_packages: previous }, { philhealth_packages: value.packages });
+    res.json({ message: 'PhilHealth packages saved' });
+  } catch (err) { routeError(res, err); }
+});
+
 // Turn the items used into a Consultation Transaction the front desk can collect.
 router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
   try {
     const a = req.admission;
     const [items, discharge, referral] = await Promise.all([Admission.listItems(a.id), Admission.getDischarge(a.id), Admission.getReferral(a.id)]);
     const bed = stayBed(a, discharge, referral);
-    if (!items.length && !a.philhealth_package && bed.amount <= 0) {
+    const packages = await resolvePackages(a.philhealth_packages);
+    if (!items.length && !packages.length && bed.amount <= 0) {
       return res.status(400).json({ message: 'Add at least one item used (or choose a PhilHealth package, or set the bed price) first.' });
     }
-    let packageOption = null;
-    let packageAmount = 0;
-    if (a.philhealth_package) {
-      packageOption = await ClinicOption.findByGroupCode('package', a.philhealth_package);
-      packageAmount = packageOption?.price === null || packageOption?.price === undefined ? 0 : Number(packageOption.price);
-    }
-    const payload = svc.buildTransactionPayload({ items, packageOption, packageAmount, bed });
+    const payload = svc.buildTransactionPayload({ items, packages, bed });
 
     const existing = (await ConsultationTransaction.findByAdmissionId(a.id))[0];
     let transactionId;
@@ -393,11 +522,27 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
     if (!svc.canTransition(a.status, 'discharged')) {
       return res.status(409).json({ message: 'This patient cannot be discharged yet. Record the delivery first, or refer the patient.' });
     }
-    const reason = await ClinicOption.findByGroupCode('discharge_reason', value.disposition);
-    if (!reason || !reason.active) {
+    const reason = svc.DISCHARGE_REASONS.find((r) => r.code === value.disposition);
+    if (!reason) {
       return res.status(400).json({ message: 'Please choose why the patient is going home from the list.' });
     }
     const [delivery, settings] = await Promise.all([Admission.getDelivery(a.id), ClinicOption.getSettingsMap()]);
+    if (!svc.CHECKLIST_EXEMPT_DISPOSITIONS.includes(value.disposition)) {
+      const check = svc.checklistStatus({ checklist: await Admission.getChecklist(a.id), hasDelivery: Boolean(delivery) });
+      if (check.dangerPresent.length) {
+        return res.status(409).json({
+          code: 'DANGER_SIGNS',
+          message: 'A danger sign was found, so the patient should not go home. Refer the patient to the hospital immediately.'
+        });
+      }
+      if (!check.complete) {
+        return res.status(409).json({
+          code: 'CHECKLIST_INCOMPLETE',
+          missing: check.missing,
+          message: 'Please finish the pre-discharge checklist before sending the patient home.'
+        });
+      }
+    }
     if (delivery && !value.override_reason) {
       const stay = svc.checkMinStay(delivery.delivered_at, settings.min_stay_hours);
       if (!stay.ok) {

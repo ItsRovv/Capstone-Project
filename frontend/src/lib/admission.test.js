@@ -3,7 +3,7 @@ import { canRecordClinical, followupState, fromLocalInput, monthKey, peso, timeA
 
 describe('admission helpers', () => {
   it('only midwives/nurses, doctors and admins can record; front desk cannot', () => {
-    expect(['admin', 'doctor', 'nurse'].every(canRecordClinical)).toBe(true);
+    expect(['admin', 'doctor', 'nurse', 'midwife'].every(canRecordClinical)).toBe(true);
     expect(canRecordClinical('staff')).toBe(false);
     expect(canRecordClinical(undefined)).toBe(false);
   });

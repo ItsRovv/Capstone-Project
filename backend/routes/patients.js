@@ -5,11 +5,11 @@ const AuditLog = require('../models/AuditLog');
 const { validatePatient } = require('../middleware/validation');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
-const { requireStaff } = require('../middleware/role');
+const { requireStaffOrMidwifeRead } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
 
-// Clinic staff only.
-router.use(auth, requireStaff);
+// Clinic staff only (the admission midwife may look patients up, not change them).
+router.use(auth, requireStaffOrMidwifeRead);
 
 // Get all patients (with optional search + pagination)
 // Returns { data, total, page, limit }. Pass ?page= & ?limit= to paginate.

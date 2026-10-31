@@ -28,6 +28,44 @@ function formatDate(d) {
   });
 }
 
+// Shows whether an account is in use right now, and when it was last seen.
+// last_seen_at updates while the person uses any page in the app (max once per 5 min).
+function ActivityBadge({ user }) {
+  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700">
+        <span className="w-2 h-2 rounded-full bg-red-500" />
+        Locked out
+      </span>
+    );
+  }
+  if (!user.last_seen_at) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-400">
+        <span className="w-2 h-2 rounded-full bg-ink-300" />
+        Never logged in
+      </span>
+    );
+  }
+  const mins = Math.round((Date.now() - new Date(user.last_seen_at).getTime()) / 60000);
+  let text, cls, dot;
+  if (mins < 10) {
+    text = 'Active now'; cls = 'text-emerald-700'; dot = 'bg-emerald-500 animate-pulse';
+  } else if (mins < 60) {
+    text = `${mins} min ago`; cls = 'text-emerald-700'; dot = 'bg-emerald-500';
+  } else if (mins < 60 * 24) {
+    text = `${Math.round(mins / 60)} hr ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+  } else {
+    text = formatDate(user.last_seen_at); cls = 'text-ink-500'; dot = 'bg-ink-300';
+  }
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${cls}`} title={`Last seen ${new Date(user.last_seen_at).toLocaleString()}`}>
+      <span className={`w-2 h-2 rounded-full ${dot}`} />
+      {text}
+    </span>
+  );
+}
+
 export function ManageUsers() {
   const toast = useToast();
   const { user: currentUser } = useAuth();
@@ -168,6 +206,7 @@ export function ManageUsers() {
                 <th className="px-4 py-3 font-medium hidden md:table-cell">Username</th>
                 <th className="px-4 py-3 font-medium hidden md:table-cell">Email</th>
                 <th className="px-3 sm:px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium hidden sm:table-cell">Activity</th>
                 <th className="px-4 py-3 font-medium hidden lg:table-cell">Date Created</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -175,7 +214,7 @@ export function ManageUsers() {
             <tbody>
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-ink-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-ink-400">
                     No users found.
                   </td>
                 </tr>
@@ -215,6 +254,7 @@ export function ManageUsers() {
                       ))}
                     </select>
                   </td>
+                  <td className="px-4 py-3 hidden sm:table-cell"><ActivityBadge user={u} /></td>
                   <td className="px-4 py-3 text-ink-500 hidden lg:table-cell">{formatDate(u.created_at)}</td>
                   <td className="px-2 sm:px-4 py-3">
                     <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 items-end sm:justify-end">

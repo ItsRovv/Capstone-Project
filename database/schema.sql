@@ -81,9 +81,13 @@ CREATE TABLE IF NOT EXISTS users (
   otp_purpose VARCHAR(20) NULL
     CHECK (otp_purpose IN ('password_reset', 'email_verify')),
   otp_attempts INT NOT NULL DEFAULT 0,
+  last_seen_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- For databases created before activity tracking existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 
 -- The admission midwife account only works in Admission and Discharge.
 -- Widen the role check for databases created before the 'midwife' role existed.

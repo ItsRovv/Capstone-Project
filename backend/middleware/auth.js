@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 require('dotenv').config();
 
 /**
@@ -25,6 +26,8 @@ const authenticateToken = (req, res, next) => {
       return res.status(403).json({ message: 'Invalid or expired token' });
     }
     req.user = user;
+    // Best-effort activity stamp for the Manage Users "Active" column.
+    Promise.resolve(User.touchLastSeen(user.id)).catch(() => {});
     next();
   });
 };

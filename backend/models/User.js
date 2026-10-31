@@ -53,7 +53,7 @@ class User {
 
   // Find all users (without password_hash)
   static async findAll() {
-    const query = 'SELECT id, name, username, email, role, email_verified, created_at, updated_at FROM users ORDER BY created_at DESC';
+    const query = 'SELECT id, name, username, email, role, email_verified, last_seen_at, locked_until, created_at, updated_at FROM users ORDER BY created_at DESC';
     const [rows] = await db.execute(query);
     return rows;
   }
@@ -102,6 +102,18 @@ class User {
   static async resetFailedLogin(id) {
     const query = 'UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?';
     await db.execute(query, [id]);
+  }
+
+  /**
+   * Record that a logged-in user just used the app. Writes at most once per
+   * 5 minutes per user so normal API traffic stays cheap.
+   */
+  static async touchLastSeen(id) {
+    await db.execute(
+      `UPDATE users SET last_seen_at = NOW()
+       WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '5 minutes')`,
+      [id]
+    );
   }
 
   // Update user (e.g., name, email, role, username, or password)

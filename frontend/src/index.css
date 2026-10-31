@@ -29,6 +29,13 @@
     text-size-adjust: 100%;
   }
 
+  /* Desktop: render at the size of ~110% browser zoom. */
+  @media (min-width: 640px) {
+    html {
+      zoom: 1.1;
+    }
+  }
+
   /* Phones: scale the whole UI down slightly (all rem-based sizes follow)
      while keeping body text comfortably readable. */
   @media (max-width: 639px) {

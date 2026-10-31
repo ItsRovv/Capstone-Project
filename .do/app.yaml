@@ -14,7 +14,7 @@ services:
     # Point this at your GitHub repository (Version Control: GitHub).
     github:
       repo: ItsRovv/Capstone-Project
-      branch: main
+      branch: master
       deploy_on_push: true
     source_dir: backend
     environment_slug: node-js

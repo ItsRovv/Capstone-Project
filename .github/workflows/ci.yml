@@ -45,30 +45,55 @@ jobs:
       - run: npm run lint --if-present || echo "lint script not defined"
 
   # ── Deploy backend to DigitalOcean App Platform (GitHub → DO) ───────────
+  # Skips cleanly when the DO secrets are not configured yet.
   deploy-backend:
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check DigitalOcean secrets
+        id: check
+        env:
+          DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DO_APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+        run: |
+          if [ -z "$DO_TOKEN" ] || [ -z "$DO_APP_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::DigitalOcean secrets not set - skipping backend deploy"
+          fi
       - name: Install doctl
+        if: steps.check.outputs.skip != 'true'
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       - name: Deploy to DigitalOcean App Platform
+        if: steps.check.outputs.skip != 'true'
         run: doctl apps update --spec .do/app.yaml ${{ secrets.DIGITALOCEAN_APP_ID }}
 
-  # ── Deploy frontend to Vercel ───────────────────────────────────────────
+  # ── Deploy frontend to Vercel (Vercel CLI; the old vercel/action-deploy is gone) ──
+  # Skips cleanly when the Vercel secrets are not configured yet.
   deploy-frontend:
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy to Vercel
-        uses: vercel/action-deploy@v1
+      - uses: actions/setup-node@v4
         with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: frontend
+          node-version: 20
+      - name: Deploy to Vercel
+        working-directory: frontend
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::notice::Vercel secrets not set - skipping frontend deploy (Vercel's GitHub integration still deploys on push)"
+            exit 0
+          fi
+          npm install -g vercel@latest
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

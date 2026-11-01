@@ -9,12 +9,13 @@ const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
-const { requireAdmissionAccess, requireClinical } = require('../middleware/role');
+const { requireAdmissionAccess, requireClinical, requireClinicalSigner } = require('../middleware/role');
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
   validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist,
-  validateReason, validateItemQuantity
+  validateReason, validateItemQuantity, validateNoteCorrection, validateMedication
 } = require('../middleware/validation');
+const User = require('../models/User');
 const svc = require('../services/admissionService');
 const { onDelivered } = require('../services/admissionSync');
 const { routeError } = require('../utils/routeError');
@@ -118,6 +119,18 @@ async function buildItemLine(value, admission) {
       unit, charged, price_missing: priceMissing, used_for: value.used_for || 'mother', unlisted, note
     }
   };
+}
+
+// A patient under 18 needs a guardian as the consent signer, with name and relationship.
+function consentProblem(merged, patient) {
+  if (!merged.consent_signed) return null;
+  const age = svc.ageFromBirthDate(patient?.date_of_birth, patient?.age);
+  if (age !== null && age !== undefined && age < 18) {
+    if (merged.consent_signer_type !== 'guardian' || !String(merged.consent_by || '').trim() || !String(merged.consent_relationship || '').trim()) {
+      return 'The patient is under 18. Consent must be signed by a guardian: choose "Guardian" and enter the name and relationship.';
+    }
+  }
+  return null;
 }
 
 // Keeps usage lines in step with newborn care ticked on the Baby step: one line per baby and care item.
@@ -236,6 +249,13 @@ router.get('/reports/item-usage', requireRole('admin', 'doctor'), async (req, re
   } catch (err) { routeError(res, err); }
 });
 
+// Staff who can be chosen as attending physician or birth attendant.
+router.get('/staff', requireClinical, async (req, res) => {
+  try {
+    res.json((await User.listClinicalStaff()) || []);
+  } catch (err) { routeError(res, err); }
+});
+
 // Everything we already know about the patient, so staff do not retype it.
 router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {
@@ -288,6 +308,8 @@ router.post('/', requireClinical, async (req, res) => {
     if (error) return bad(res, error);
     const patient = await Patient.findById(value.patient_id);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
+    const consentIssue = consentProblem(value, patient);
+    if (consentIssue) return res.status(400).json({ code: 'GUARDIAN_REQUIRED', message: consentIssue });
     const existing = await Admission.findActiveByPatient(value.patient_id);
     if (existing) {
       return res.status(409).json({
@@ -353,6 +375,10 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     if (settings.require_consent !== 'false' && !a.consent_signed && svc.isActiveStatus(a.status)) {
       warnings.push({ code: 'NO_CONSENT', message: 'Informed consent has not been recorded yet.' });
     }
+    const coversPhilhealth = String(a.medicare || '').startsWith('philhealth');
+    if (coversPhilhealth && !a.philhealth_pin && !svc.buildPatientRecord(await Patient.findById(a.patient_id))?.philhealth_pin) {
+      warnings.push({ code: 'NO_PHILHEALTH_PIN', message: 'PhilHealth coverage is chosen but the member PIN is missing.' });
+    }
     const stay = delivery && svc.isActiveStatus(a.status)
       ? svc.checkMinStay(delivery.delivered_at, settings.min_stay_hours) : null;
     if (stay && !stay.ok) {
@@ -398,11 +424,18 @@ router.put('/:id', requireClinical, loadAdmission(), async (req, res) => {
         }
       }
     }
+    if (value.consent_signed !== undefined || value.consent_signer_type !== undefined || value.consent_by !== undefined || value.consent_relationship !== undefined) {
+      const problem = consentProblem({ ...req.admission, ...value }, await Patient.findById(req.admission.patient_id));
+      if (problem) return res.status(400).json({ code: 'GUARDIAN_REQUIRED', message: problem });
+    }
     try {
       await Admission.update(req.params.id, value);
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ code: 'BED_TAKEN', message: 'That bed was just taken. Please choose another bed.' });
       throw err;
+    }
+    if (value.bed_number !== undefined && value.bed_number !== req.admission.bed_number) {
+      await Admission.logBedMove(req.params.id, req.admission.bed_number, value.bed_number, req.user.id);
     }
     await audit(req, 'UPDATE', Number(req.params.id), req.admission, value);
     res.json({ message: 'Admission updated' });
@@ -411,7 +444,7 @@ router.put('/:id', requireClinical, loadAdmission(), async (req, res) => {
 
 // "Continue at clinic" for a referral-level warning sign. The reason is required and
 // who/when are stamped by the server.
-router.post('/:id/risk-ack', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/risk-ack', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateReason(req.body);
     if (error) return bad(res, error);
@@ -421,7 +454,7 @@ router.post('/:id/risk-ack', requireClinical, loadAdmission(), async (req, res) 
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/status', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/status', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const next = req.body?.status;
     if (next !== 'in_labor') return res.status(400).json({ message: 'Only "in_labor" can be set here. Use the delivery, discharge or referral steps for the others.' });
@@ -434,13 +467,28 @@ router.post('/:id/status', requireClinical, loadAdmission(), async (req, res) =>
   } catch (err) { routeError(res, err); }
 });
 
-router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) => {
+router.put('/:id/delivery', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateDelivery(req.body);
     if (error) return bad(res, error);
     const a = req.admission;
     if (!['admitted', 'in_labor', 'delivered'].includes(a.status) && req.user.role !== 'admin') {
       return res.status(409).json({ message: 'Delivery cannot be recorded for this stay.' });
+    }
+    if (value.delivery_type === 'referred') {
+      return res.status(400).json({ message: 'Use "Refer patient" to refer during labor or delivery.' });
+    }
+    const timing = svc.checkDeliveryTime(value.delivered_at, a.admitted_at);
+    if (timing) return res.status(400).json({ code: timing.code, message: timing.message });
+    const noSex = (value.newborns || []).findIndex((b) => b.birth_status !== 'stillbirth' && !b.sex);
+    if (noSex >= 0) {
+      return res.status(400).json({ code: 'BABY_SEX', message: `Choose the sex for ${value.newborns.length > 1 ? `baby ${noSex + 1}` : 'the baby'}. It is required for a live birth.` });
+    }
+    if (value.attendant_ids?.length) {
+      const staff = (await User.listClinicalStaff()) || [];
+      const names = value.attendant_ids.map((id) => staff.find((s) => Number(s.id) === Number(id))?.name);
+      if (names.some((n) => !n)) return res.status(400).json({ message: 'Choose attendants from the list of midwives and doctors.' });
+      value.attendant = names.join(', ');
     }
     const conflict = svc.deliveryRiskConflict({
       riskFlags: a.risk_flags, ackReason: a.risk_ack_reason, deliveryType: value.delivery_type
@@ -456,7 +504,14 @@ router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) =
     await syncNewbornItems(a, value.newborns, req.user.id).catch((e) => console.warn('[admission] newborn items sync failed:', e.message));
     await audit(req, 'UPDATE', a.id, undefined, { delivery: value }, 'deliveries');
     onDelivered(a, { delivered_at: value.delivered_at }).catch((e) => console.warn('[admission] pregnancy sync failed:', e.message));
-    res.json({ id: deliveryId, message: 'Delivery recorded' });
+    res.json({
+      id: deliveryId, message: 'Delivery recorded',
+      // Any ticked problem, or a low-weight / low-APGAR baby, should prompt a referral on screen.
+      referralPrompt: [
+        ...(value.problems || []),
+        ...(value.newborns || []).flatMap((b) => svc.newbornReferralReasons(b))
+      ]
+    });
   } catch (err) { routeError(res, err); }
 });
 
@@ -471,7 +526,7 @@ router.get('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/notes', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateMidwifeNote(req.body);
     if (error) return bad(res, error);
@@ -483,19 +538,48 @@ router.post('/:id/notes', requireClinical, loadAdmission(), async (req, res) => 
 
 router.put('/:id/notes/:noteId', requireRole('admin'), loadAdmission(), async (req, res) => {
   try {
-    const { error, value } = validateMidwifeNote(req.body);
+    const { error, value } = validateNoteCorrection(req.body);
     if (error) return bad(res, error);
     const old = await Admission.findNote(req.params.id, req.params.noteId);
     if (!old) return res.status(404).json({ message: 'Note not found' });
-    await Admission.updateNote(req.params.id, req.params.noteId, value.description);
-    await audit(req, 'UPDATE', Number(req.params.noteId), { description: old.description }, { description: value.description }, 'midwife_notes');
-    res.json({ message: 'Note corrected' });
+    await Admission.updateNote(req.params.id, req.params.noteId, value.description, value.reason, req.user.id);
+    await audit(req, 'UPDATE', Number(req.params.noteId), { description: old.description }, { description: value.description, reason: value.reason }, 'midwife_notes');
+    res.json({ message: 'Note corrected. The original text is kept in the history.' });
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Medications given (clinical record, separate from the items summary) ─────
+router.get('/:id/medications', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json((await Admission.listMedications(req.params.id)) || []);
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/medications', requireClinicalSigner, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateMedication(req.body);
+    if (error) return bad(res, error);
+    const patient = await Patient.findById(req.admission.patient_id);
+    const allergy = svc.allergyConflict(svc.buildPatientRecord(patient)?.allergies, { label: value.drug });
+    if (allergy && !value.allergy_reason) {
+      return res.status(409).json({ code: 'ALLERGY', allergy, message: `Allergy warning: the patient is allergic to ${allergy}. Confirm with a reason to continue.` });
+    }
+    const note = allergy ? `Allergy warning (${allergy}) confirmed: ${value.allergy_reason}` : null;
+    const id = await Admission.addMedication(req.params.id, { ...value, note }, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), drug: value.drug }, 'medications_given');
+    res.status(201).json({ id, message: 'Medication recorded' });
+  } catch (err) { routeError(res, err); }
+});
+
+router.get('/:id/bed-moves', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json((await Admission.listBedMoves(req.params.id)) || []);
   } catch (err) { routeError(res, err); }
 });
 
 // ── Pre-discharge checklist ─────────────────────────────────────────────
 // The patient cannot be discharged home until it is complete and no danger sign is present.
-router.put('/:id/checklist', requireClinical, loadAdmission(), async (req, res) => {
+router.put('/:id/checklist', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateChecklist(req.body);
     if (error) return bad(res, error);
@@ -514,7 +598,7 @@ router.get('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/labor', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateLaborEntry(req.body);
     if (error) return bad(res, error);
@@ -533,7 +617,7 @@ router.get('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => 
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/vitals', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateVitals(req.body);
     if (error) return bad(res, error);
@@ -627,6 +711,16 @@ router.put('/:id/packages', requireClinical, loadAdmission({ allowLockedFor: ['*
     }
     const { error, value } = validatePackages(req.body);
     if (error) return bad(res, error);
+    if (value.packages.length) {
+      const record = svc.buildPatientRecord(await Patient.findById(req.admission.patient_id));
+      const covered = String(req.admission.medicare || '').startsWith('philhealth');
+      if (!covered || !(req.admission.philhealth_pin || record?.philhealth_pin)) {
+        return res.status(409).json({
+          code: 'NO_COVERAGE',
+          message: 'Choose PhilHealth under Coverage on the Admit step and enter the member PIN before ticking a package.'
+        });
+      }
+    }
     const available = await ClinicOption.list({ group: 'package', includeInactive: false });
     const previous = Array.isArray(req.admission.philhealth_packages) ? req.admission.philhealth_packages : [];
     // Packages that were already on the stay may stay even if the clinic later hid them.
@@ -684,7 +778,7 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
 });
 
 // ── Discharge ────────────────────────────────────────────────────────────
-router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/discharge', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateDischarge(req.body);
     if (error) return bad(res, error);
@@ -696,6 +790,8 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
     if (!reason) {
       return res.status(400).json({ message: 'Please choose why the patient is going home from the list.' });
     }
+    const conditionProblem = svc.dischargeConditionProblem(value);
+    if (conditionProblem) return res.status(400).json({ code: 'BAD_CONDITION', message: conditionProblem });
     const [delivery, settings] = await Promise.all([Admission.getDelivery(a.id), ClinicOption.getSettingsMap()]);
     if (!svc.CHECKLIST_EXEMPT_DISPOSITIONS.includes(value.disposition)) {
       const check = svc.checklistStatus({ checklist: await Admission.getChecklist(a.id), hasDelivery: Boolean(delivery) });
@@ -739,7 +835,7 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
 });
 
 // ── Referral to another facility ─────────────────────────────────────────
-router.post('/:id/referral', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/referral', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateReferral(req.body);
     if (error) return bad(res, error);

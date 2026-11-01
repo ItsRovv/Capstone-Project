@@ -479,7 +479,7 @@ async function listUsers(req, res, next) {
 async function updateUser(req, res, next) {
   try {
     const targetId = parseInt(req.params.id, 10);
-    const { name, email, role, password, username } = req.body || {};
+    const { name, email, role, password, username, can_sign_clinical: canSign } = req.body || {};
     if (!name || !email || !role) {
       return res.status(400).json({ message: 'Name, email, and role are required' });
     }
@@ -506,7 +506,7 @@ async function updateUser(req, res, next) {
         });
       }
     }
-    const updated = await User.update(targetId, { name, email, role, username: username || null, ...(password ? { password } : {}) });
+    const updated = await User.update(targetId, { name, email, role, username: username || null, ...(typeof canSign === 'boolean' ? { can_sign_clinical: canSign } : {}), ...(password ? { password } : {}) });
     if (!updated) return res.status(404).json({ message: 'User not found' });
     const user = await User.findById(targetId);
     return res.json({ message: 'User updated successfully', user: publicUser(user) });

@@ -376,6 +376,35 @@ function dischargeBlockers({ delivery, riskFlags, riskAckReason, disposition, ha
   return blockers;
 }
 
+// Discharge condition rules: a death needs who, cause and time; impossible combinations are refused.
+function dischargeConditionProblem(d = {}) {
+  const died = d.disposition === 'expired';
+  if (died) {
+    if (!d.death_of) return 'Say who died: the mother or the newborn.';
+    if (!String(d.death_cause || '').trim()) return 'Record the cause of death.';
+    if (!d.death_at) return 'Record the time of death.';
+    if (d.death_of === 'mother' && ['improved', 'unchanged'].includes(d.mother_condition)) {
+      return 'The mother cannot be "improved" or "unchanged" when she died.';
+    }
+    if (d.death_of === 'newborn' && ['well', 'needs_monitoring'].includes(d.newborn_condition)) {
+      return 'The newborn cannot be "well" when the newborn died.';
+    }
+  } else {
+    if (d.death_of || d.death_cause || d.death_at) return 'Death details only apply when the discharge type is "Passed away".';
+    if (d.newborn_condition === 'died') return 'Choose "Passed away" as the discharge type to record a newborn death.';
+  }
+  return null;
+}
+
+// Birth time cannot be in the future (small clock difference allowed) or before the admission.
+function checkDeliveryTime(deliveredAt, admittedAt, now = new Date()) {
+  if (!deliveredAt) return null;
+  const t = new Date(deliveredAt).getTime();
+  if (t > now.getTime() + 5 * 60000) return { code: 'FUTURE_BIRTH', message: 'The birth time cannot be in the future.' };
+  if (admittedAt && t < new Date(admittedAt).getTime()) return { code: 'BIRTH_BEFORE_ADMISSION', message: 'The birth time cannot be before the patient was admitted.' };
+  return null;
+}
+
 // Newborn alerts: low birth weight or low 5-minute APGAR should prompt a newborn referral.
 function newbornReferralReasons(baby = {}) {
   const reasons = [];
@@ -527,6 +556,8 @@ module.exports = {
   deliveryRiskConflict,
   dischargeBlockers,
   newbornReferralReasons,
+  checkDeliveryTime,
+  dischargeConditionProblem,
   CHECKLIST_ITEMS,
   DANGER_SIGNS,
   CHECKLIST_EXEMPT_DISPOSITIONS,

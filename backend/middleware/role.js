@@ -40,6 +40,26 @@ const requireStaffOrMidwifeRead = (req, res, next) => {
 const CLINICAL_ROLES = ['admin', 'doctor', 'nurse', 'midwife'];
 const requireClinical = requireRole(...CLINICAL_ROLES);
 
+// Signing clinical entries (notes, vitals, labor, delivery, discharge, referral): midwives, nurses and
+// doctors, and an administrator only when granted "can sign clinical entries". A plain admin can
+// view and manage but not sign. Checked on the backend against the account, not the login token.
+const SIGNER_ROLES = ['doctor', 'nurse', 'midwife'];
+async function requireClinicalSigner(req, res, next) {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Access token required' });
+    if (SIGNER_ROLES.includes(req.user.role)) return next();
+    if (req.user.role === 'admin') {
+      const User = require('../models/User');
+      const account = await User.findById(req.user.id);
+      if (account && account.can_sign_clinical === true) return next();
+      return res.status(403).json({ message: 'This account is not set up to sign clinical entries. Ask the clinic administrator to grant it.' });
+    }
+    return res.status(403).json({ message: `Forbidden: requires one of [${SIGNER_ROLES.join(', ')}]` });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 // Everyone who may open the Admission and Discharge screens.
 const ADMISSION_ROLES = [...STAFF_ROLES, 'midwife'];
 const requireAdmissionAccess = requireRole(...ADMISSION_ROLES);
@@ -48,6 +68,7 @@ module.exports = requireRole;
 module.exports.requireStaff = requireStaff;
 module.exports.requireStaffOrMidwifeRead = requireStaffOrMidwifeRead;
 module.exports.requireClinical = requireClinical;
+module.exports.requireClinicalSigner = requireClinicalSigner;
 module.exports.requireAdmissionAccess = requireAdmissionAccess;
 module.exports.CLINICAL_ROLES = CLINICAL_ROLES;
 module.exports.STAFF_ROLES = STAFF_ROLES;

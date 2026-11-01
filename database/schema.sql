@@ -418,6 +418,85 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_admission_items_ref
   ON admission_items (admission_id, ref_key) WHERE ref_key IS NOT NULL AND voided_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_admission_items_given ON admission_items (given_at);
 
+-- Medications given (clinical record, separate from the items/summary list).
+CREATE TABLE IF NOT EXISTS medications_given (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  drug VARCHAR(150) NOT NULL,
+  dose VARCHAR(80),
+  route VARCHAR(40),
+  given_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  given_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  item_id BIGINT REFERENCES admission_items(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_medications_given_admission ON medications_given (admission_id, given_at);
+
+-- Bed changes during a stay (from, to, when, who).
+CREATE TABLE IF NOT EXISTS bed_moves (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  from_bed INT,
+  to_bed INT,
+  moved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  moved_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Midwives' notes: a correction keeps the original text, the reason, who and when.
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS original_description TEXT;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS corrected_at TIMESTAMPTZ;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS corrected_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS correction_reason TEXT;
+
+-- Vitals: which phase the reading belongs to, plus postpartum observations.
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS phase VARCHAR(12) NOT NULL DEFAULT 'admission';
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS bleeding VARCHAR(10);
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS uterus VARCHAR(10);
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS perineum VARCHAR(20);
+
+-- Labor: richer water-bag options, station, contraction numbers, and the time it happened.
+ALTER TABLE labor_entries DROP CONSTRAINT IF EXISTS labor_entries_membranes_check;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS station VARCHAR(20);
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS contraction_freq INT;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS contraction_secs INT;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ;
+
+-- Delivery: problems checklist, mother-side fields, several attendants.
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS problems JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS placenta VARCHAR(12);
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS placenta_at TIMESTAMPTZ;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS blood_loss_ml INT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS perineum VARCHAR(20);
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS oxytocin_given BOOLEAN;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS oxytocin_at TIMESTAMPTZ;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS attendant_ids JSONB NOT NULL DEFAULT '[]';
+
+-- Babies: live birth or stillbirth, and each baby's own birth time.
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS birth_status VARCHAR(12) NOT NULL DEFAULT 'live';
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS born_at TIMESTAMPTZ;
+
+-- Discharge: type, mother and newborn condition, follow-up date, death details.
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS mother_condition VARCHAR(12);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS newborn_condition VARCHAR(20);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS follow_up_date DATE;
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_of VARCHAR(10);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_cause TEXT;
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_at TIMESTAMPTZ;
+
+-- Admit step: coverage list (PhilHealth added, None default), consent signer, staff dropdown ids.
+ALTER TABLE admissions DROP CONSTRAINT IF EXISTS admissions_medicare_check;
+ALTER TABLE admissions ADD CONSTRAINT admissions_medicare_check
+  CHECK (medicare IS NULL OR medicare IN ('none', 'philhealth_member', 'philhealth_dependent', 'sss', 'gsis', 'owwa', 'indigent', 'private', 'others'));
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS philhealth_pin VARCHAR(30);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_signer_type VARCHAR(20);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_relationship VARCHAR(100);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS attending_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+
+-- Staff who may sign clinical entries (midwife and doctor by role; an admin only when granted).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_sign_clinical BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- "Continue at clinic" decision for a referral-level warning sign (reason, who, when).
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_reason TEXT;
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_by BIGINT REFERENCES users(id) ON DELETE SET NULL;

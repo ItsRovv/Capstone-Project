@@ -256,6 +256,17 @@ router.get('/staff', requireClinical, async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+// Admission and discharge statistics for a period (daily, weekly, monthly or a trimester).
+router.get('/reports/summary', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const { from = today, to = today } = req.query;
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return res.status(400).json({ message: 'from and to must look like 2026-10-31' });
+    if (from > to) return res.status(400).json({ message: 'The start date must be before the end date.' });
+    res.json({ from, to, ...(await Admission.statsForRange(from, to)) });
+  } catch (err) { routeError(res, err); }
+});
+
 // Everything we already know about the patient, so staff do not retype it.
 router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {

@@ -504,6 +504,33 @@ class Admission {
     return result.insertId;
   }
 
+  // Counts for reports: admissions, discharges, referrals, average stay, births and newborn screenings.
+  static async statsForRange(from, to) {
+    const range = "(%s AT TIME ZONE 'Asia/Manila')::date BETWEEN ?::date AND ?::date";
+    const one = async (sql, values) => (await db.execute(sql, values))[0][0] || {};
+    const [adm, dis, ref, births] = await Promise.all([
+      one(`SELECT COUNT(*) AS n FROM admissions WHERE ${range.replace('%s', 'admitted_at')}`, [from, to]),
+      one(`SELECT COUNT(*) AS n, AVG(EXTRACT(EPOCH FROM (d.discharged_at - a.admitted_at)) / 3600) AS avg_hours
+           FROM discharges d JOIN admissions a ON a.id = d.admission_id WHERE ${range.replace('%s', 'd.discharged_at')}`, [from, to]),
+      one(`SELECT COUNT(*) AS n FROM referrals WHERE reversed_at IS NULL AND ${range.replace('%s', 'referred_at')}`, [from, to]),
+      one(`SELECT COUNT(*) FILTER (WHERE n.birth_status = 'live') AS live_births,
+                  COUNT(*) FILTER (WHERE n.birth_status = 'stillbirth') AS stillbirths,
+                  COUNT(*) FILTER (WHERE n.essential_care @> '["newborn_screening"]'::jsonb) AS screenings,
+                  COUNT(DISTINCT d.id) AS deliveries
+           FROM newborns n JOIN deliveries d ON d.id = n.delivery_id WHERE ${range.replace('%s', 'd.delivered_at')}`, [from, to])
+    ]);
+    return {
+      admissions: Number(adm.n || 0),
+      discharges: Number(dis.n || 0),
+      averageStayHours: dis.avg_hours === null || dis.avg_hours === undefined ? null : Math.round(Number(dis.avg_hours) * 10) / 10,
+      referrals: Number(ref.n || 0),
+      deliveries: Number(births.deliveries || 0),
+      liveBirths: Number(births.live_births || 0),
+      stillbirths: Number(births.stillbirths || 0),
+      newbornScreenings: Number(births.screenings || 0)
+    };
+  }
+
   // ── Medications given (clinical record) ────────────────────────────────
   static async listMedications(admissionId) {
     const [rows] = await db.execute(

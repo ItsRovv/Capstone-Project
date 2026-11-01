@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 process.env.JWT_SECRET = 'test-secret';
 
 jest.mock('../models/Admission');
+jest.mock('../config/db');
 jest.mock('../models/ClinicOption');
 jest.mock('../models/Consultation');
 jest.mock('../models/Queue');
@@ -825,6 +826,28 @@ describe('Signing, delivery checks, discharge details and consent', () => {
     const ok = await as('midwife', 'post', '/admissions/10/medications').send({ drug: 'Amoxicillin', dose: '500 mg', route: 'oral', allergy_reason: 'Doctor ordered' });
     expect(ok.status).toBe(201);
     expect((await as('staff', 'post', '/admissions/10/medications').send({ drug: 'x' })).status).toBe(403);
+  });
+});
+
+describe('Monitoring lists and statistics', () => {
+  const db = require('../config/db');
+
+  test('expected deliveries and missed follow-ups are readable by front desk staff, not by midwives', async () => {
+    db.execute.mockResolvedValue([[{ patient_id: 1, first_name: 'Maria', last_name: 'Santos', edd: '2026-11-10', overdue: false }]]);
+    const expected = await as('staff', 'get', '/monitoring/expected-deliveries?days=14');
+    expect(expected.status).toBe(200);
+    expect(expected.body.days).toBe(14);
+    expect(expected.body.rows[0].first_name).toBe('Maria');
+    expect((await as('staff', 'get', '/monitoring/missed-followups')).body.days).toBe(30);
+    expect((await as('midwife', 'get', '/monitoring/expected-deliveries')).status).toBe(403);
+  });
+
+  test('the admission statistics report validates dates and is for admin and doctor', async () => {
+    Admission.statsForRange.mockResolvedValue({ admissions: 4, discharges: 3, referrals: 1, liveBirths: 3, stillbirths: 0, newbornScreenings: 2, deliveries: 3, averageStayHours: 30.5 });
+    expect((await as('nurse', 'get', '/admissions/reports/summary')).status).toBe(403);
+    expect((await as('doctor', 'get', '/admissions/reports/summary?from=2026-11-05&to=2026-11-01')).status).toBe(400);
+    const res = await as('doctor', 'get', '/admissions/reports/summary?from=2026-10-01&to=2026-10-31');
+    expect(res.body).toMatchObject({ admissions: 4, liveBirths: 3, newbornScreenings: 2 });
   });
 });
 

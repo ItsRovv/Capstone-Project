@@ -173,7 +173,7 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
           {ADMISSION_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
         <Select
-          label="Attending midwife"
+          label="Attending doctor/midwife"
           value={form.attending_user_id}
           onChange={(e) => {
             const person = staff.find((m) => String(m.id) === e.target.value);
@@ -184,7 +184,7 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
           {form.attending_physician && !form.attending_user_id && (
             <option value="" disabled>{form.attending_physician}</option>
           )}
-          {staff.filter((m) => m.role === 'midwife').map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          {staff.filter((m) => ['doctor', 'midwife'].includes(m.role)).map((m) => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
         </Select>
       </div>
 

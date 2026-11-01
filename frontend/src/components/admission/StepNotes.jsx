@@ -108,7 +108,7 @@ export function StepNotes({ admission, canEdit, isAdmin, userName }) {
               {notes.map((n) => {
                 const shift = SHIFT_STYLE[n.shift] || SHIFT_STYLE.afternoon;
                 return (
-                  <tr key={n.id} className={shift.text} title={shift.label}>
+                  <tr key={n.id} className="text-ink-900" title={shift.label}>
                     <td className="px-3 py-2.5 whitespace-nowrap align-top">{formatDay(n.noted_at)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap align-top">{timeOf(n.noted_at)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap align-top text-xs font-semibold">{shift.word}</td>

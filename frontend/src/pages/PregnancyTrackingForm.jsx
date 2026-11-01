@@ -149,6 +149,27 @@ export function PregnancyTrackingForm() {
 
   const handlePrint = () => window.print();
 
+  // A CSV opens directly in Microsoft Excel with the same columns as the paper form.
+  const handleCsv = () => {
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc Submitted', 'EDD', 'OB Index',
+      ...Array.from({ length: TOTAL_TRIMESTER_COLS }, (_, i) => `T${i + 1}`), 'Delivery Date'];
+    const lines = [header.map(esc).join(',')];
+    rows.forEach((r, i) => {
+      lines.push([
+        i + 1, r.name, r.address, r.age, r.cpNumber, r.docSubmitted ? 'Yes' : '', r.edd, r.obIndex,
+        ...r.trimester, r.deliveryDate
+      ].map(esc).join(','));
+    });
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="h-full flex flex-col">
       <Topbar title="Pregnancy Tracking Form" onMenuClick={onOpenMenu} />
@@ -199,6 +220,12 @@ export function PregnancyTrackingForm() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handleCsv}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-ink-300 bg-white text-ink-700 text-sm font-medium hover:bg-ink-50 transition-colors"
+              >
+                Excel (CSV)
               </button>
               <button
                 onClick={handlePrint}

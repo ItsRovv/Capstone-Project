@@ -408,6 +408,7 @@ router.get('/:id', loadAdmission(), async (req, res) => {
       packages, philhealthTotal: Math.round((packages.reduce((s, p) => s + p.amount, 0) + Number.EPSILON) * 100) / 100,
       grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
       discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status),
+      progress: (await Admission.stepCounts(a.id)) || { notes: 0, completeVitals: 0, labor: 0 },
       checklist: checklist || null, checklistDefinition: svc.CHECKLIST_DEFINITION, dischargeResults: svc.DISCHARGE_RESULTS,
       checklistStatus: svc.checklistStatus({ checklist, hasDelivery: Boolean(delivery) })
     };
@@ -579,6 +580,13 @@ router.post('/:id/medications', requireClinicalSigner, loadAdmission(), async (r
     const id = await Admission.addMedication(req.params.id, { ...value, note }, req.user.id);
     await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), drug: value.drug }, 'medications_given');
     res.status(201).json({ id, message: 'Medication recorded' });
+  } catch (err) { routeError(res, err); }
+});
+
+// Read-only history of changes on one admission, for the administrator and doctors.
+router.get('/:id/history', requireRole('admin', 'doctor'), loadAdmission(), async (req, res) => {
+  try {
+    res.json((await AuditLog.forAdmission(req.params.id)) || []);
   } catch (err) { routeError(res, err); }
 });
 

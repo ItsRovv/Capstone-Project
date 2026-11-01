@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
@@ -16,13 +16,14 @@ import { StepVitals } from '../components/admission/StepVitals';
 import { StepLabor } from '../components/admission/StepLabor';
 import { PatientRecordCard } from '../components/admission/PatientRecordCard';
 import { PrintSummary } from '../components/admission/PrintSummary';
+import { HistoryCard } from '../components/admission/HistoryCard';
 import { MedicationsCard } from '../components/admission/MedicationsCard';
 import { RiskHeader } from '../components/admission/RiskHeader';
 import { RiskAlert } from '../components/admission/RiskAlert';
 import { ReferralModal } from '../components/admission/ReferralModal';
 import { admissionService } from '../services/admissionService';
 import { apiError } from '../services/api';
-import { canRecordClinical, formatDateTime, timeAgo, useClinicOptions, useWard } from '../lib/admission';
+import { canRecordClinical, formatDateTime, referralLevelFlags, timeAgo, useClinicOptions, useWard } from '../lib/admission';
 
 const STEPS = [
   { key: 'admission', label: 'Admit' },
@@ -59,6 +60,12 @@ export function AdmissionDetail() {
   const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState('');
   const [refer, setRefer] = useState({ open: false, context: '' });
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    const warn = (e) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
 
   const load = useCallback(async ({ resetForms = false, first = false } = {}) => {
     try {
@@ -108,13 +115,35 @@ export function AdmissionDetail() {
   const canReverse = ['doctor', 'admin'].includes(user?.role);
   const openRefer = (context = '') => setRefer({ open: true, context });
 
+  // Unsaved changes on the Admit form or the delivery/baby draft: warn before leaving the step or the page.
+  const savedForm = JSON.stringify(formToPayload(admissionToForm(admission)));
+  // The default birth time moves every minute, so it is left out until a delivery is saved.
+  const stripTime = (payload) => (delivery ? payload : { ...payload, delivered_at: null });
+  const savedDraft = JSON.stringify(stripTime(draftToPayload(deliveryToDraft(delivery))));
+  const dirty = canEdit && (JSON.stringify(formToPayload(form)) !== savedForm || JSON.stringify(stripTime(draftToPayload(draft))) !== savedDraft);
+  dirtyRef.current = dirty;
+  const goToStep = (key) => {
+    if (key === step || !dirty || window.confirm('You have unsaved changes on this step. Leave without saving?')) setStep(key);
+  };
+
+  // A check mark means the required data for that step is in. An amber "!" means it has a warning.
+  const progress = detail.progress || {};
+  const babies = delivery?.newborns?.length || 0;
   const done = {
-    admission: true,
-    labor: ['in_labor', 'delivered', 'discharged'].includes(admission.status) || Boolean(delivery),
+    admission: Boolean(admission.chief_complaint) && (admission.consent_signed || detail.record === null),
+    notes: progress.notes > 0 || !['in_labor', 'delivered', 'discharged'].includes(admission.status),
+    vitals: progress.completeVitals > 0,
+    labor: progress.labor > 0 || admission.status === 'referred',
     delivery: Boolean(delivery),
-    baby: Boolean(delivery?.newborns?.length),
+    baby: babies > 0 && delivery.newborns.every((b) => b.birth_status === 'stillbirth' || b.sex),
     items: items.some((it) => !it.voided_at),
     discharge: ['discharged', 'referred'].includes(admission.status)
+  };
+  const warn = {
+    admission: !admission.consent_signed || Boolean(referralLevelFlags(admission.risk_flags).length && !admission.risk_ack_reason),
+    vitals: false,
+    items: Boolean(detail.totalStatus?.incomplete),
+    discharge: Boolean(referralLevelFlags(admission.risk_flags).length && !admission.risk_ack_reason)
   };
 
   async function run(name, fn, successMessage) {
@@ -201,16 +230,16 @@ export function AdmissionDetail() {
                 <button
                   key={s.key}
                   type="button"
-                  onClick={() => setStep(s.key)}
+                  onClick={() => goToStep(s.key)}
                   aria-current={active ? 'step' : undefined}
                   className={`flex flex-1 min-w-[4.25rem] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors ${active ? 'bg-primary-50' : 'hover:bg-ink-100/60'}`}
                 >
                   <span
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold border-2 ${
-                      active ? 'border-primary-600 bg-primary-600 text-white' : done[s.key] ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-ink-300 bg-white text-ink-500'
+                      active ? 'border-primary-600 bg-primary-600 text-white' : warn[s.key] ? 'border-amber-500 bg-amber-50 text-amber-800' : done[s.key] ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-ink-300 bg-white text-ink-500'
                     }`}
                   >
-                    {done[s.key] && !active ? '✓' : i + 1}
+                    {warn[s.key] && !active ? '!' : done[s.key] && !active ? '✓' : i + 1}
                   </span>
                   <span className={`text-[11px] sm:text-xs font-medium ${active ? 'text-primary-800' : 'text-ink-600'}`}>{s.label}</span>
                 </button>
@@ -277,9 +306,11 @@ export function AdmissionDetail() {
             />
           )}
 
+          {['admin', 'doctor'].includes(user?.role) && <HistoryCard admissionId={admission.id} />}
+
           <div className="flex justify-between pt-2">
-            <Button variant="ghost" disabled={step === STEPS[0].key} onClick={() => setStep(STEPS[Math.max(0, STEPS.findIndex((s) => s.key === step) - 1)].key)}>← Back</Button>
-            <Button variant="ghost" disabled={step === STEPS[STEPS.length - 1].key} onClick={() => setStep(STEPS[Math.min(STEPS.length - 1, STEPS.findIndex((s) => s.key === step) + 1)].key)}>Next →</Button>
+            <Button variant="ghost" disabled={step === STEPS[0].key} onClick={() => goToStep(STEPS[Math.max(0, STEPS.findIndex((s) => s.key === step) - 1)].key)}>← Back</Button>
+            <Button variant="ghost" disabled={step === STEPS[STEPS.length - 1].key} onClick={() => goToStep(STEPS[Math.min(STEPS.length - 1, STEPS.findIndex((s) => s.key === step) + 1)].key)}>Next →</Button>
           </div>
         </div>
       </div>

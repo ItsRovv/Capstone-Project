@@ -531,6 +531,19 @@ class Admission {
     };
   }
 
+  // How much has been recorded on each step, so the wizard can show real check marks.
+  static async stepCounts(admissionId) {
+    const [rows] = await db.execute(
+      `SELECT (SELECT COUNT(*) FROM midwife_notes WHERE admission_id = ?) AS notes,
+              (SELECT COUNT(*) FROM admission_vitals WHERE admission_id = ? AND bp_systolic IS NOT NULL AND bp_diastolic IS NOT NULL
+                 AND pulse IS NOT NULL AND resp_rate IS NOT NULL AND temperature IS NOT NULL) AS complete_vitals,
+              (SELECT COUNT(*) FROM labor_entries WHERE admission_id = ?) AS labor`,
+      [admissionId, admissionId, admissionId]
+    );
+    const r = rows[0] || {};
+    return { notes: Number(r.notes || 0), completeVitals: Number(r.complete_vitals || 0), labor: Number(r.labor || 0) };
+  }
+
   // ── Medications given (clinical record) ────────────────────────────────
   static async listMedications(admissionId) {
     const [rows] = await db.execute(

@@ -851,6 +851,18 @@ describe('Monitoring lists and statistics', () => {
   });
 });
 
+describe('History and step counts', () => {
+  test('the history of changes is for admin and doctor only', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    const AuditLog = require('../models/AuditLog');
+    AuditLog.forAdmission.mockResolvedValue([{ id: 1, action: 'UPDATE', table_name: 'admissions', user_name: 'Ana', created_at: '2026-10-31T03:00:00Z' }]);
+    expect((await as('midwife', 'get', '/admissions/10/history')).status).toBe(403);
+    const res = await as('doctor', 'get', '/admissions/10/history');
+    expect(res.status).toBe(200);
+    expect(res.body[0].user_name).toBe('Ana');
+  });
+});
+
 const FULL_VITALS = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
 
 describe('Vital signs', () => {

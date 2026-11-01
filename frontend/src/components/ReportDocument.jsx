@@ -154,6 +154,7 @@ export function ReportDocument({ metrics, date, type }) {
     trend,
     followUpAlerts = [],
     pregnancy = null,
+    admissions = null,
     monthly = false,
     monthYear,
     range
@@ -436,6 +437,44 @@ export function ReportDocument({ metrics, date, type }) {
               {pregnancy.activeTotal === 0 && (
                 <p className="text-sm text-ink-600 italic">No active pregnancy records during this period.</p>
               )}
+            </>
+          )}
+
+          {/* Admission and Discharge statistics */}
+          {admissions && (
+            <>
+              <SectionHeader
+                icon={<Icon.Clipboard width={16} height={16} />}
+                title="Admission and Discharge"
+              />
+              <div className="grid grid-cols-4 gap-3 mb-2">
+                <StatBadge label="Admissions" value={admissions.admissions} tone="primary" />
+                <StatBadge label="Deliveries" value={admissions.deliveries} tone="warning" />
+                <StatBadge label="Live births" value={admissions.liveBirths} tone="success" />
+                <StatBadge label="Stillbirths" value={admissions.stillbirths} tone="danger" />
+                <StatBadge label="Discharges" value={admissions.discharges} tone="info" />
+                <StatBadge label="Referrals" value={admissions.referrals} tone="danger" />
+                <StatBadge label="Newborn screenings" value={admissions.newbornScreenings} tone="success" />
+                <StatBadge
+                  label="Average stay"
+                  value={admissions.averageStayHours == null ? '—' : `${admissions.averageStayHours} h`}
+                  tone="primary"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Item usage during stays */}
+          {admissions && (admissions.topItems || []).length > 0 && (
+            <>
+              <SectionHeader
+                icon={<Icon.Receipt width={16} height={16} />}
+                title="Items Used During Stays"
+              />
+              <DataTable
+                headers={['Item', 'Unit', 'Quantity used']}
+                rows={admissions.topItems.map((it) => [it.label, it.unit || '—', it.quantity])}
+              />
             </>
           )}
 

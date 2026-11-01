@@ -12,8 +12,6 @@ import { Input } from '../components/UI/Input';
 import { reportService } from '../services/reportService';
 import { apiError } from '../services/api';
 import { ReportDocument } from '../components/ReportDocument';
-import { ItemUsageReport } from '../components/ItemUsageReport';
-import { AdmissionStats } from '../components/AdmissionStats';
 
 function formatDate(d) {
   if (!d) return '—';
@@ -231,9 +229,6 @@ export function Reports() {
                   );
                 })}
               </div>
-
-              <AdmissionStats />
-              <ItemUsageReport />
 
               {/* Grouped report list */}
               <div className="space-y-4">

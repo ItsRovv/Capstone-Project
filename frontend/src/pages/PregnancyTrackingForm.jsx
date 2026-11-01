@@ -149,49 +149,134 @@ export function PregnancyTrackingForm() {
 
   const handlePrint = () => window.print();
 
-  // A formatted .xls that mirrors the printed paper form: merged headers, the same
-  // trimester grouping, borders in every cell. Excel and WPS open it directly.
-  const handleExcel = () => {
-    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const HEAD = 'border:0.5pt solid #000;font-weight:bold;text-align:center;vertical-align:middle;padding:3pt;';
-    const CELL = 'border:0.5pt solid #000;padding:3pt;';
-    const NUM = `${CELL}text-align:center;`;
-    const SPACER = 'width:4pt;padding:0;';
-    const th = (label) => `<th style="${HEAD}">${label}</th>`;
-    const td = (v, style = NUM) => `<td style="${style}">${esc(v)}</td>`;
-    const gap = `<td style="${SPACER}"></td>`;
-    const widths = [30, 180, 180, 40, 100, 55, 100, 55, ...Array(7).fill(30), 8, 30, 30, 8, 30, 30, 30, 30, 8, 30, 30, 80];
-    const headRows = [
-      `<tr>${['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc<br/>Submitted', 'EDD', 'OB<br/>INDEX'].map((h) => `<th rowspan="3" style="${HEAD}">${h}</th>`).join('')}<th colspan="18" style="${HEAD}letter-spacing:0.25em;">TRIMESTER</th><th rowspan="3" style="${HEAD}">JLMC<br/>Delivery<br/>Date</th></tr>`,
-      `<tr>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<th rowspan="2" style="${HEAD}">${n}</th>`).join('')}${gap}<th colspan="2" style="${HEAD}">8</th>${gap}<th colspan="4" style="${HEAD}">9</th>${gap}<th colspan="2" style="${HEAD}">+</th></tr>`,
-      `<tr>${gap}${th(1)}${th(2)}${gap}${[1, 2, 3, 4].map(th).join('')}${gap}${th('')}${th('')}</tr>`
-    ].join('');
-    const bodyRows = rows.map((r, i) => `<tr>${[
-      td(i + 1), td(r.name, CELL), td(r.address, CELL), td(r.age), td(r.cpNumber, CELL),
-      td(r.docSubmitted ? '✓' : ''), td(r.edd), td(r.obIndex),
-      ...r.trimester.slice(0, 7).map((v) => td(v)), gap,
-      ...r.trimester.slice(7, 9).map((v) => td(v)), gap,
-      ...r.trimester.slice(9, 13).map((v) => td(v)), gap,
-      ...r.trimester.slice(13, 15).map((v) => td(v)),
-      td(r.deliveryDate)
-    ].join('')}</tr>`).join('');
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"/></head><body>
-<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
-<colgroup>${widths.map((w) => `<col style="width:${w}pt"/>`).join('')}</colgroup>
-<tr><td colspan="27" style="font-size:16pt;font-weight:bold;padding:6pt 0 2pt;">Pregnancy Tracking Form</td></tr>
-<tr><td colspan="27" style="text-align:center;font-weight:bold;border-bottom:0.5pt solid #555;padding:2pt;">${esc(monthYear)}</td></tr>
-<tr><td colspan="27" style="text-align:center;font-size:9pt;color:#666;padding-bottom:4pt;">Month &amp; Year</td></tr>
-<tr><td colspan="27" style="text-align:right;font-weight:bold;padding:2pt 0 4pt;">JLMC</td></tr>
-${headRows}
-${bodyRows}
-</table></body></html>`;
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // A real .xlsx that mirrors the printed paper form: merged trimester header, clinic
+  // branding, bordered cells. No "format doesn't match" prompt because it is a true xlsx.
+  // The xlsx library is loaded on demand so it does not slow the initial page load.
+  const handleExcel = async () => {
+    const XLSX = await import('xlsx-js-style');
+    const COLS = 27;
+    const THIN = { style: 'thin', color: { rgb: 'FF334155' } };
+    const BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+    const headCell = {
+      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: 'FFFFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF0F766E' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: BORDER
+    };
+    const text = (zebra) => ({
+      font: { sz: 10, name: 'Calibri' },
+      fill: zebra ? { patternType: 'solid', fgColor: { rgb: 'FFF1F5F4' } } : undefined,
+      alignment: { vertical: 'center', wrapText: true },
+      border: BORDER
+    });
+    const num = (zebra) => ({
+      font: { sz: 10, name: 'Calibri' },
+      fill: zebra ? { patternType: 'solid', fgColor: { rgb: 'FFF1F5F4' } } : undefined,
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: BORDER
+    });
+    const merges = [];
+    const ws = {};
+    const range = { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+    const put = (r, c, v, s, t = 's') => {
+      const cell = { t, v };
+      if (s) cell.s = s;
+      ws[XLSX.utils.encode_cell({ r, c })] = cell;
+      if (r > range.e.r) range.e.r = r;
+      if (c > range.e.c) range.e.c = c;
+    };
+    const merge = (r0, c0, r1, c1) => merges.push({ s: { r: r0, c: c0 }, e: { r: r1, c: c1 } });
+    const head = (r, c, v) => put(r, c, v, headCell);
+    const fill = (r, c) => put(r, c, '', headCell);
+    const gap = (r, c) => put(r, c, '', { fill: { patternType: 'solid', fgColor: { rgb: 'FFE2E8F0' } } });
+
+    // Title block
+    put(0, 0, 'JEAN LYING-IN MATERNITY CLINIC', {
+      font: { bold: true, sz: 16, name: 'Calibri', color: { rgb: 'FF134E4A' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+    merge(0, 0, 0, COLS - 1);
+    put(1, 0, 'Pregnancy Tracking Form', {
+      font: { bold: true, sz: 13, name: 'Calibri', color: { rgb: 'FF0F172A' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+    merge(1, 0, 1, COLS - 1);
+    put(2, 0, `Month & Year:  ${monthYear}`, {
+      font: { sz: 11, italic: true, name: 'Calibri', color: { rgb: 'FF475569' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { bottom: { style: 'medium', color: { rgb: 'FF0F766E' } } }
+    });
+    merge(2, 0, 2, COLS - 1);
+
+    const H = 4; // first header row
+    const FIXED = ['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc Submitted', 'EDD', 'OB INDEX'];
+    FIXED.forEach((label, c) => { head(H, c, label); fill(H + 1, c); fill(H + 2, c); merge(H, c, H + 2, c); });
+    const T0 = FIXED.length; // first trimester column = 8 (col I)
+    head(H, T0, 'TRIMESTER');
+    for (let c = T0 + 1; c <= COLS - 2; c++) fill(H, c);
+    merge(H, T0, H, COLS - 2);
+    head(H, COLS - 1, 'JLMC Delivery Date');
+    fill(H + 1, COLS - 1); fill(H + 2, COLS - 1);
+    merge(H, COLS - 1, H + 2, COLS - 1);
+
+    // Row H+1: months 1-7 (merged down), 8, 9, +
+    for (let i = 0; i < 7; i++) { head(H + 1, T0 + i, i + 1); fill(H + 2, T0 + i); merge(H + 1, T0 + i, H + 2, T0 + i); }
+    let c = T0 + 7;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '8'); head(H + 1, c + 1, '');
+    merge(H + 1, c, H + 1, c + 1);
+    head(H + 2, c, '1'); head(H + 2, c + 1, '2');
+    c += 2;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '9'); head(H + 1, c + 1, ''); head(H + 1, c + 2, ''); head(H + 1, c + 3, '');
+    merge(H + 1, c, H + 1, c + 3);
+    head(H + 2, c, '1'); head(H + 2, c + 1, '2'); head(H + 2, c + 2, '3'); head(H + 2, c + 3, '4');
+    c += 4;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '+'); head(H + 1, c + 1, '');
+    merge(H + 1, c, H + 1, c + 1);
+    head(H + 2, c, ''); head(H + 2, c + 1, '');
+
+    // Data rows with a light zebra fill
+    rows.forEach((r, i) => {
+      const rowIdx = H + 3 + i;
+      const zebra = i % 2 === 1;
+      const t = text(zebra); const n = num(zebra);
+      put(rowIdx, 0, i + 1, n, 'n');
+      put(rowIdx, 1, r.name, t);
+      put(rowIdx, 2, r.address, t);
+      const ageNum = Number(r.age);
+      put(rowIdx, 3, r.age === '' || Number.isNaN(ageNum) ? r.age : ageNum, n, r.age === '' || Number.isNaN(ageNum) ? 's' : 'n');
+      put(rowIdx, 4, r.cpNumber, t);
+      put(rowIdx, 5, r.docSubmitted ? '✓' : '', n);
+      put(rowIdx, 6, r.edd, n);
+      put(rowIdx, 7, r.obIndex, n);
+      let tc = T0;
+      r.trimester.slice(0, 7).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(7, 9).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(9, 13).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(13, 15).forEach((v) => put(rowIdx, tc++, v, n));
+      put(rowIdx, COLS - 1, r.deliveryDate, n);
+    });
+
+    ws['!ref'] = XLSX.utils.encode_range(range);
+    ws['!merges'] = merges;
+    ws['!cols'] = [
+      { wch: 4 }, { wch: 26 }, { wch: 24 }, { wch: 5 }, { wch: 13 }, { wch: 8 }, { wch: 12 }, { wch: 8 },
+      ...Array(7).fill({ wch: 4.5 }),
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 12 }
+    ];
+    ws['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 16 }, { hpt: 6 }, { hpt: 22 }, { hpt: 16 }, { hpt: 16 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, monthYear.slice(0, 31));
+    XLSX.writeFile(wb, `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.xlsx`);
   };
 
   return (

@@ -17,7 +17,7 @@ const LISTS = [
   { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the payment step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true },
   { group: 'consult_package', title: 'Consultation PhilHealth packages', help: 'Packages staff can tick in a transaction (antenatal care, postpartum care, vaccines). For reference only — availed through PhilHealth, not charged at the clinic.', price: true }
 ];
-const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
+const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'antibiotic', label: 'Antibiotic' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
 
 function OptionRow({ option, list, onSaved }) {
   const toast = useToast();

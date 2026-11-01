@@ -555,6 +555,36 @@ INSERT INTO clinic_options (option_group, code, label, price, category, sort_ord
   ('consult_package', 'TDAP2', 'Tetanus-Diphtheria-Pertussis Vaccine — 2nd Dose', 150, 'philhealth', 6)
 ON CONFLICT (option_group, code) DO NOTHING;
 
+-- From the clinic's handwritten inventory sheets: vitamins/supplements charged
+-- at the clinic, plus medicines and supplies consumed during a stay. Specific
+-- antibiotics sit under the 'antibiotic' category. Prices are set by the admin.
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order) VALUES
+  ('vitamin', 'natalion', 'Natalion', NULL, 'vitamin', 11),
+  ('vitamin', 'natalcare', 'Natalcare (vitamins & minerals)', NULL, 'vitamin', 12),
+  ('vitamin', 'auronin_ob', 'AURONIN-OB multivitamins', NULL, 'vitamin', 13),
+  ('vitamin', 'magnepenon', 'Magnepenon (magnesium)', NULL, 'vitamin', 14),
+  ('vitamin', 'anifer', 'ANIFER (Iron + Folic Acid)', NULL, 'vitamin', 15),
+  ('vitamin', 'ameciron', 'AMECIRON (Iron + Folic Acid)', NULL, 'vitamin', 16),
+  ('vitamin', 'calciv_flex', 'Calciv Flex chewable', NULL, 'vitamin', 17),
+  ('vitamin', 'bonina', 'Bonina maternal milk', NULL, 'vitamin', 18),
+  ('vitamin', 'enfamama', 'Enfamama maternal milk', NULL, 'vitamin', 19),
+  ('vitamin', 'lactum', 'Lactum maternal milk', NULL, 'vitamin', 20),
+  ('item', 'isoxsuprine', 'Isoxsuprine', NULL, 'medicine', 11),
+  ('item', 'hyoscine', 'Hyoscine (Buscopan)', NULL, 'medicine', 12),
+  ('item', 'xylocaine_gel', 'Xylocaine (lidocaine) gel', NULL, 'medicine', 13),
+  ('item', 'metoclopramide', 'Metoclopramide', NULL, 'medicine', 14),
+  ('item', 'salbutamol', 'Salbutamol / Ventolin', NULL, 'medicine', 15),
+  ('item', 'chlorphenamine', 'Chlorphenamine', NULL, 'medicine', 16),
+  ('item', 'cetirizine', 'Cetirizine', NULL, 'medicine', 17),
+  ('item', 'allerkid', 'Allerkid (cetirizine drops)', NULL, 'medicine', 18),
+  ('item', 'nasal_saline', 'Sodium Nasoclear / Salinase drops', NULL, 'supply', 19),
+  ('item', 'cefalexin', 'Cefalexin', NULL, 'antibiotic', 20),
+  ('item', 'cotrimoxazole', 'Cotrimoxazole', NULL, 'antibiotic', 21),
+  ('item', 'sulfur_soap', 'Sulfur soap', NULL, 'supply', 22),
+  ('item', 'baby_bottle', 'Baby bottle (Nature)', NULL, 'supply', 23),
+  ('item', 'feeding_bottles', 'Feeding bottles (3-in-1)', NULL, 'supply', 24)
+ON CONFLICT (option_group, code) DO NOTHING;
+
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
   ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),
   ('followup_offsets_hours', '72,168', 'Postpartum follow-up visits, hours after discharge (72 = 3 days, 168 = 7 days)'),

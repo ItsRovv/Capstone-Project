@@ -258,8 +258,8 @@ export function StepItems({ admission, items, itemsTotal, bed, grandTotal, packa
               <Icon.Receipt width={16} height={16} /> Send to Transactions
             </Button>
             {sent && (
-              <Link to="/consultation-transactions" className="text-sm font-medium text-primary-700 hover:underline">
-                View in Transactions ({peso(sent.total_amount)}) →
+              <Link to="/transactions" className="text-sm font-medium text-primary-700 hover:underline">
+                View in Transactions →
               </Link>
             )}
           </div>

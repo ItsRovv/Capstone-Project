@@ -1,29 +1,78 @@
 # Lying-In Clinic Web App
 
-A full-stack patient records management system for a lying-in clinic in Sorsogon City, with structured SOAP consultation notes, vitamin inventory tracking, and auto-generated reports.
+A full-stack patient records management system for a lying-in maternity clinic in Sorsogon City, with patient profiling, structured SOAP consultation notes, admission and discharge of maternity patients, and auto-generated reports.
 
 ## Tech Stack
 
 - **Frontend**: React 18 + Vite + Tailwind CSS + React Router → **Vercel**
 - **Backend**: Node.js + Express + pg (Supabase Postgres) + JWT + Helmet + Morgan → **DigitalOcean App Platform**
-- **Database**: **Supabase** (managed Postgres)
+- **Database**: **Supabase** (managed Postgres) with an automatic local PostgreSQL failover
+- **Reports and email**: cron scheduler + SMTP mailer (optional)
+- **Testing**: Jest unit tests (backend)
+- **Containers**: Docker / docker-compose
 - **Version Control**: **GitHub** (CI/CD + deploy triggers)
 
 ## Features
 
+### Patients and consultation
+
 - 🔐 **JWT authentication** with role-based access (admin, doctor, staff) and login rate-limiting
-- 👥 **Patient management** — search + pagination, add, edit, delete; detailed view with consultations & appointments
-- 📋 **Daily Queue** — staff adds patients to the queue, doctor serves them in order
-- 🩺 **Landscape Consultation** — structured SOAP notes (Subjective / Objective / Assessment / Plan) with pregnancy context banner auto-fetched from the patient's latest pregnancy, bullet/paragraph toggle for Assessment and Plan
-- 🤰 **Pregnancy tracking forms** — monthly trimester sheets pre-filled from active pregnancies and saved by month/year, with auto-calculation of LMP, EDD, trimester, and OB index
-- 💊 **Auto-create transactions from prescriptions** — vitamins dispensed during consultation automatically generate transaction records
-- � **Vitamin inventory tracking** — catalog and manage clinic vitamin stock through the transactions page
-- �📊 **Auto-generated reports** — daily, weekly, and monthly census summaries of clinic activity
-- ⏰ **Automatic end-of-day reports** — a scheduler generates the daily report and (optionally) emails it to the clinic owner
-- 🔒 **Role-based data access** — staff has read-only access to transactions and sees only emergency contact + pregnancy history in patient profiles
-- 🎨 **Polished UI** — sage-green medical palette, responsive, accessible
-- 🔄 **Auto-failover database** — local PostgreSQL backup that automatically takes over when Supabase is unreachable, with reverse-sync on recovery
-- 🛡️ **Production-hardened** — Helmet CSP + HSTS, CORS, DB connect retry, `/health` endpoint, graceful errors, SPA fallback
+- 👥 **Patient management**: search + pagination, add, edit, delete; detailed view with consultations & appointments
+- 📋 **Daily Queue**: staff adds patients to the queue, doctor serves them in order
+- 🩺 **Landscape Consultation**: structured SOAP notes (Subjective / Objective / Assessment / Plan) with pregnancy context banner auto-fetched from the patient's latest pregnancy, bullet/paragraph toggle for Assessment and Plan
+- 🤰 **Pregnancy tracking forms**: monthly trimester sheets pre-filled from active pregnancies and saved by month/year, with auto-calculation of LMP, EDD, trimester, and OB index
+- 💊 **Auto-create transactions from prescriptions**: vitamins dispensed during consultation automatically generate transaction records
+
+### Admission and discharge (maternity inpatient workflow)
+
+An 8-step wizard that follows the patient from admission to discharge:
+
+| Step | What it records |
+| ---- | --------------- |
+| 1. Admit | Patient information pulled read-only from the profile (with an allergy alert), bed selection, type of admission, attending physician, reason for admission, coverage, informant, arrival vitals, warning signs checklist, informed consent |
+| 2. Notes | Midwives' notes with automatic date, time and initials; saved notes are locked and can only be corrected |
+| 3. Vitals | Vital sign readings over time, colored by a maternity early warning chart (yellow = watch, red = act) |
+| 4. Labor | Labor chart entries: contractions, cervix opening, baby's heartbeat, water bag |
+| 5. Delivery | Date and time of birth, type of delivery, who attended, problems during delivery |
+| 6. Baby | Baby details, measurements, APGAR scores, newborn care, with support for twins |
+| 7. Items | Services, medicines and supplies used during the stay, PhilHealth packages, and a summary sent to Transactions |
+| 8. Discharge | Pre-discharge checklist, danger signs, discharge details and instructions |
+
+- This module covers **normal birthing**. Signs of an abnormal birth are handled through the **referral** process.
+- 🧾 **Send to Transactions** passes the total of items used to the front desk. It is a **summary/total only**; the system does not collect payments.
+- ⚙️ **Clinic Settings**: beds and prices.
+
+### Reports, security and reliability
+
+- 📊 **Auto-generated reports**: daily, weekly, and monthly census summaries of clinic activity
+- ⏰ **Automatic end-of-day reports**: a scheduler generates the daily report and (optionally) emails it to the clinic owner
+- 🔒 **Role-based data access**: staff has read-only access to transactions and sees only emergency contact + pregnancy history in patient profiles
+- 🎨 **Polished UI**: sage-green medical palette, responsive, accessible
+- 🔄 **Auto-failover database**: local PostgreSQL backup that automatically takes over when Supabase is unreachable, with reverse-sync on recovery
+- 🛡️ **Production-hardened**: Helmet CSP + HSTS, CORS, DB connect retry, `/health` endpoint, graceful errors, SPA fallback
+
+## Planned improvements (in progress)
+
+These are **not yet implemented**. They come from usability testing of the admission and discharge module and are tracked in `docs/FIX_PLAN_Admission_Discharge.md`.
+
+- Referral that can be started from every admission step, with automatic alerts for risk flags and abnormal readings
+- Vitals completeness checks (no "all signs normal" for incomplete readings) and postpartum monitoring
+- Discharge rules: required baby details and checklist, danger signs lead to referral, clearer discharge type and outcomes
+- Item usage with quantities (for example diapers, gloves, gauze, medicines) and item usage reports. Stock and inventory management are outside the study's scope
+- Admission prefilled from the prenatal consultation and pregnancy record, so data is not retyped
+- Expected deliveries list and missed follow-up list, and report counts of deliveries and newborn screenings
+- A midwife role and clinical signing rules, bed occupancy safeguards, audit trail, and consistent saving behavior
+- All new tables covered by the failover database and its sync
+
+## Capstone objectives and where they are in the system
+
+| Objective | Where it is in the system |
+| --------- | ------------------------- |
+| 1. Profiling of patients | Patient management, pregnancy tracking forms |
+| 2. Consultation transactions (totals/summary only, no payment) | Daily Queue, SOAP consultation, auto-created transactions, Transactions page (summary) |
+| 3. Admission and discharge | 8-step Admission and Discharge wizard |
+| 4. Automated reports | Daily, weekly and monthly census reports, end-of-day report |
+| 5. Deploy and evaluate | Vercel + DigitalOcean deployment with CI/CD; evaluation by IT experts and end-users as part of the study |
 
 ## Quick start (development)
 
@@ -50,7 +99,7 @@ npm run start:dev
 ```
 
 > **Security note:** The seed script creates a default administrator only when no
-> users exist yet. Treat the seeded credentials as temporary — log in and change
+> users exist yet. Treat the seeded credentials as temporary: log in and change
 > the password immediately, and never commit real credentials to the repo.
 
 ## Quick start (production / Docker)
@@ -106,11 +155,10 @@ lying-in-clinic-web-app/
 │   ├── config/db.js          # delegates to dbManager (auto-failover)
 │   ├── config/dbManager.js   # dual-pool failover manager
 │   ├── controllers/          # authController.js
-│   ├── middleware/           # auth, validation, role
-│   ├── models/               # Patient, Consultation, Appointment, Report, User, PregnancyTrackingForm
-│   ├── routes/               # auth, patients, consultations, pregnancies, pregnancyTracking, reports, summary
-│   ├── services/             # summaryService, reportService (daily/weekly/monthly generation)
 │   ├── middleware/           # auth, validation, role, rateLimit
+│   ├── models/               # Patient, Consultation, Appointment, Report, User, PregnancyTrackingForm, ...
+│   ├── routes/               # auth, patients, consultations, pregnancies, pregnancyTracking, reports, summary, ...
+│   ├── services/             # summaryService, reportService (daily/weekly/monthly generation)
 │   ├── utils/                # seed, scheduler, mailer, sync
 │   ├── tests/                # jest unit tests (auth, validation, role)
 │   ├── server.js
@@ -125,7 +173,7 @@ lying-in-clinic-web-app/
 │   │   └── main.jsx
 │   └── package.json
 ├── database/schema.sql       # Postgres DDL (Supabase / local)
-├── docs/data-flow-diagram.html  # DFD for title defense (Level 0 + Level 1)
+├── docs/                     # data-flow-diagram.html (DFD, Level 0 + Level 1), fix plan
 ├── docker-compose.yml        # API container only (DB is Supabase)
 ├── Dockerfile
 ├── .do/app.yaml              # DigitalOcean App Platform spec
@@ -134,6 +182,8 @@ lying-in-clinic-web-app/
 ├── package.json              # Workspace scripts
 └── DEPLOYMENT.md             # Detailed deployment guide
 ```
+
+The Admission and Discharge, Transactions, Clinic Settings and Referral modules have their own routes, models and pages inside these folders.
 
 ## Tests
 
@@ -144,18 +194,28 @@ npm test          # jest unit tests (auth, validation, role)
 
 Tests mock the data layer, so they run without a database.
 
+## Data privacy and security
+
+Patient records are sensitive personal health information (see the Data Privacy Act of 2012, RA 10173). Before going live:
+
+- Change the seeded admin password and use a long random `JWT_SECRET`.
+- Create separate accounts for each staff member, with the correct role.
+- Serve the app over HTTPS and never set `CORS_ORIGIN` to `*`.
+- Keep backups and restrict who can access the database and the clinic machine that hosts the failover database.
+- Do not commit `.env` files or real patient data to the repository.
+
 ## Note on the capstone proposal
 
 The original proposal lists the stack as **PHP + HTML/CSS/JS**. This implementation
 uses **Node.js + Express + React** instead (a more modern stack that's already built
 and tested). Update the proposal's "Tech Stack" slide to match:
 
-> Frontend: React (Vite) · Backend: Node.js + Express · Database: Supabase (Postgres) · Deploy: Vercel + DigitalOcean
+> Frontend: React (Vite) · Backend: Node.js + Express · Database: Supabase (Postgres) with local PostgreSQL failover · Deploy: Vercel + DigitalOcean
 
 All proposed features are implemented: patient registration, consultation records,
-patient history lookup, appointment scheduling, auto-generated report generation —
+patient history lookup, appointment scheduling, auto-generated report generation,
 including the **weekly report** and **automatic end-of-day report** described in the
-proposal.
+proposal, and the admission and discharge of maternity patients.
 
 ## Auto-failover database (local backup)
 

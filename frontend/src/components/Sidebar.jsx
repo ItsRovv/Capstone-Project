@@ -8,7 +8,7 @@ const STAFF_NAV = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/patients', label: 'Patients' },
   { to: '/consultations', label: 'Daily Queue' },
-  { to: '/consultation-transactions', label: 'Transactions' },
+  { to: '/transactions', label: 'Transactions' },
   { to: '/admissions', label: 'Admission and Discharge' },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
 ];
@@ -17,7 +17,7 @@ const DOCTOR_NAV = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/patients', label: 'Patients' },
   { to: '/doctor/consultations', label: 'Consultation' },
-  { to: '/consultation-transactions', label: 'Transactions' },
+  { to: '/transactions', label: 'Transactions' },
   { to: '/admissions', label: 'Admission and Discharge' },
   { to: '/reports', label: 'Reports' },
   { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }

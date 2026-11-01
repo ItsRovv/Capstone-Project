@@ -190,7 +190,7 @@ export function Dashboard() {
                   tone="info"
                 />
               </Link>
-              <Link to="/consultation-transactions" className="block cursor-pointer">
+              <Link to="/transactions" className="block cursor-pointer">
                 <StatCard
                   icon={<Icon.Receipt />}
                   label="Total transactions"

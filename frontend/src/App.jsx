@@ -78,7 +78,8 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="consultation-transactions" element={<ConsultationTransactions />} />
+        <Route path="transactions" element={<ConsultationTransactions />} />
+        <Route path="consultation-transactions" element={<Navigate to="/transactions" replace />} />
         <Route
           path="reports"
           element={

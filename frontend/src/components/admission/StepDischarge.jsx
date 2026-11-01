@@ -180,7 +180,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
       setNeedReason('');
       // Next stop is the statement of accounts. Nothing to bill is fine, so a failure here is ignored.
       await admissionService.sendToTransactions(admission.id).catch(() => null);
-      navigate(`/consultation-transactions?patient=${admission.patient_id}`);
+      navigate(`/transactions?patient=${admission.patient_id}`);
     } catch (err) {
       const data = err?.response?.data;
       setConfirmOpen(false);

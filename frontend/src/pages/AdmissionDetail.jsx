@@ -195,7 +195,7 @@ export function AdmissionDetail() {
       </div>
 
       <div className="print:hidden flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
-        <div className="max-w-4xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           <RiskHeader
             admission={admission} record={detail.record} labelFor={labelFor} canRecord={canRecord} canReverse={canReverse}
             onRefer={openRefer} onChanged={() => load({ resetForms: true })}

@@ -149,23 +149,47 @@ export function PregnancyTrackingForm() {
 
   const handlePrint = () => window.print();
 
-  // A CSV opens directly in Microsoft Excel with the same columns as the paper form.
-  const handleCsv = () => {
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const header = ['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc Submitted', 'EDD', 'OB Index',
-      ...Array.from({ length: TOTAL_TRIMESTER_COLS }, (_, i) => `T${i + 1}`), 'Delivery Date'];
-    const lines = [header.map(esc).join(',')];
-    rows.forEach((r, i) => {
-      lines.push([
-        i + 1, r.name, r.address, r.age, r.cpNumber, r.docSubmitted ? 'Yes' : '', r.edd, r.obIndex,
-        ...r.trimester, r.deliveryDate
-      ].map(esc).join(','));
-    });
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  // A formatted .xls that mirrors the printed paper form: merged headers, the same
+  // trimester grouping, borders in every cell. Excel and WPS open it directly.
+  const handleExcel = () => {
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const HEAD = 'border:0.5pt solid #000;font-weight:bold;text-align:center;vertical-align:middle;padding:3pt;';
+    const CELL = 'border:0.5pt solid #000;padding:3pt;';
+    const NUM = `${CELL}text-align:center;`;
+    const SPACER = 'width:4pt;padding:0;';
+    const th = (label) => `<th style="${HEAD}">${label}</th>`;
+    const td = (v, style = NUM) => `<td style="${style}">${esc(v)}</td>`;
+    const gap = `<td style="${SPACER}"></td>`;
+    const widths = [30, 180, 180, 40, 100, 55, 100, 55, ...Array(7).fill(30), 8, 30, 30, 8, 30, 30, 30, 30, 8, 30, 30, 80];
+    const headRows = [
+      `<tr>${['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc<br/>Submitted', 'EDD', 'OB<br/>INDEX'].map((h) => `<th rowspan="3" style="${HEAD}">${h}</th>`).join('')}<th colspan="18" style="${HEAD}letter-spacing:0.25em;">TRIMESTER</th><th rowspan="3" style="${HEAD}">JLMC<br/>Delivery<br/>Date</th></tr>`,
+      `<tr>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<th rowspan="2" style="${HEAD}">${n}</th>`).join('')}${gap}<th colspan="2" style="${HEAD}">8</th>${gap}<th colspan="4" style="${HEAD}">9</th>${gap}<th colspan="2" style="${HEAD}">+</th></tr>`,
+      `<tr>${gap}${th(1)}${th(2)}${gap}${[1, 2, 3, 4].map(th).join('')}${gap}${th('')}${th('')}</tr>`
+    ].join('');
+    const bodyRows = rows.map((r, i) => `<tr>${[
+      td(i + 1), td(r.name, CELL), td(r.address, CELL), td(r.age), td(r.cpNumber, CELL),
+      td(r.docSubmitted ? '✓' : ''), td(r.edd), td(r.obIndex),
+      ...r.trimester.slice(0, 7).map((v) => td(v)), gap,
+      ...r.trimester.slice(7, 9).map((v) => td(v)), gap,
+      ...r.trimester.slice(9, 13).map((v) => td(v)), gap,
+      ...r.trimester.slice(13, 15).map((v) => td(v)),
+      td(r.deliveryDate)
+    ].join('')}</tr>`).join('');
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"/></head><body>
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
+<colgroup>${widths.map((w) => `<col style="width:${w}pt"/>`).join('')}</colgroup>
+<tr><td colspan="27" style="font-size:16pt;font-weight:bold;padding:6pt 0 2pt;">Pregnancy Tracking Form</td></tr>
+<tr><td colspan="27" style="text-align:center;font-weight:bold;border-bottom:0.5pt solid #555;padding:2pt;">${esc(monthYear)}</td></tr>
+<tr><td colspan="27" style="text-align:center;font-size:9pt;color:#666;padding-bottom:4pt;">Month &amp; Year</td></tr>
+<tr><td colspan="27" style="text-align:right;font-weight:bold;padding:2pt 0 4pt;">JLMC</td></tr>
+${headRows}
+${bodyRows}
+</table></body></html>`;
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    a.download = `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.xls`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -222,10 +246,10 @@ export function PregnancyTrackingForm() {
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
-                onClick={handleCsv}
+                onClick={handleExcel}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-ink-300 bg-white text-ink-700 text-sm font-medium hover:bg-ink-50 transition-colors"
               >
-                Excel (CSV)
+                Excel
               </button>
               <button
                 onClick={handlePrint}

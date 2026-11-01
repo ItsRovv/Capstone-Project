@@ -208,7 +208,6 @@ export function Dashboard() {
               </Link>
             </div>
 
-            {/* Quick actions + Today's queue — visible immediately */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Quick actions */}
               <Card>
@@ -244,13 +243,47 @@ export function Dashboard() {
                       <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 inline-flex items-center justify-center mb-3">
                         <Icon.Clipboard />
                       </div>
-                      <p className="font-medium text-ink-900">Quick discharge</p>
-                      <p className="text-xs text-ink-500 mt-0.5">Send a patient home</p>
+                      <p className="font-medium text-ink-900">Pre-discharge checklist</p>
+                      <p className="text-xs text-ink-500 mt-0.5">Check before going home</p>
                     </div>
                   </button>
                 </div>
               </Card>
 
+              <div className="bg-white rounded-lg border border-ink-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-ink-800">Follow-up visits</h2>
+                    <p className="text-xs text-ink-500">Check-ups after going home</p>
+                  </div>
+                  <Link to="/admissions?tab=followups" className="text-xs font-medium text-primary-700 hover:text-primary-800">View all</Link>
+                </div>
+                {followups.length === 0 ? (
+                  <div className="text-sm text-ink-500 py-6 text-center">No follow-ups waiting.</div>
+                ) : (
+                  <ul className="divide-y divide-ink-100">
+                    {followups.slice(0, 5).map((f) => {
+                      const overdue = followupState(f) === 'overdue';
+                      return (
+                        <li key={f.id}>
+                          <Link to="/admissions?tab=followups" className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60 px-2 rounded-lg">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-ink-900 break-words">{f.first_name} {f.last_name}</p>
+                              <p className="text-xs text-ink-500">due {formatDay(f.due_at)}</p>
+                            </div>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${overdue ? 'bg-red-50 text-red-700' : 'bg-sky-50 text-sky-700'}`}>
+                              {overdue ? 'Overdue' : 'Coming up'}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Today's queue */}
               <div className="bg-white rounded-lg border border-ink-200 p-4">
                 {(() => {
@@ -304,61 +337,7 @@ export function Dashboard() {
                   );
                 })()}
               </div>
-            </div>
 
-            {/* Recently accessed — consultations carousel */}
-            <div className="bg-white rounded-lg border border-ink-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-ink-800">Recent consultations</h2>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => carouselRef.current?.scrollBy({ left: -260, behavior: 'smooth' })}
-                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
-                    aria-label="Scroll left"
-                  >
-                    <Icon.Chevron width={14} height={14} className="rotate-180" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => carouselRef.current?.scrollBy({ left: 260, behavior: 'smooth' })}
-                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
-                    aria-label="Scroll right"
-                  >
-                    <Icon.Chevron width={14} height={14} />
-                  </button>
-                </div>
-              </div>
-              {recentConsultations.length === 0 ? (
-                <div className="text-sm text-ink-500 py-6 text-center">
-                  No consultations recorded yet.
-                </div>
-              ) : (
-                <div ref={carouselRef} className="flex gap-3 overflow-x-auto pb-1 scroll-smooth">
-                  {recentConsultations.map((c, i) => (
-                    <Link
-                      key={c.id}
-                      to={`/patients/${c.patient_id}?tab=consultations&consultation=${c.id}`}
-                      className="flex-shrink-0 w-56 rounded-lg border border-ink-200 overflow-hidden hover:border-primary-300 transition-colors"
-                    >
-                      <div className={BANNER_TONES[i % BANNER_TONES.length]} />
-                      <div className="p-3">
-                        <p className="text-[11px] text-ink-400">{formatDate(c.visit_date)}</p>
-                        <p className="font-medium text-ink-900 text-sm truncate mt-0.5">
-                          {c.patient_first_name} {c.patient_last_name}
-                        </p>
-                        <p className="text-xs text-ink-500 truncate mt-0.5">
-                          {c.chief_complaint || 'Consultation visit'}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* In the clinic now + follow-ups due */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-white rounded-lg border border-ink-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
@@ -384,38 +363,6 @@ export function Dashboard() {
                         </Link>
                       </li>
                     ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="bg-white rounded-lg border border-ink-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-ink-800">Follow-up visits</h2>
-                    <p className="text-xs text-ink-500">Check-ups after going home</p>
-                  </div>
-                  <Link to="/admissions?tab=followups" className="text-xs font-medium text-primary-700 hover:text-primary-800">View all</Link>
-                </div>
-                {followups.length === 0 ? (
-                  <div className="text-sm text-ink-500 py-6 text-center">No follow-ups waiting.</div>
-                ) : (
-                  <ul className="divide-y divide-ink-100">
-                    {followups.slice(0, 5).map((f) => {
-                      const overdue = followupState(f) === 'overdue';
-                      return (
-                        <li key={f.id}>
-                          <Link to="/admissions?tab=followups" className="flex items-center justify-between gap-3 py-2.5 hover:bg-ink-50/60 px-2 rounded-lg">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-ink-900 break-words">{f.first_name} {f.last_name}</p>
-                              <p className="text-xs text-ink-500">due {formatDay(f.due_at)}</p>
-                            </div>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${overdue ? 'bg-red-50 text-red-700' : 'bg-sky-50 text-sky-700'}`}>
-                              {overdue ? 'Overdue' : 'Coming up'}
-                            </span>
-                          </Link>
-                        </li>
-                      );
-                    })}
                   </ul>
                 )}
               </div>
@@ -459,6 +406,7 @@ export function Dashboard() {
               )}
             </div>
 
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Daily report */}
             <Card className="flex flex-col">
               <div className="flex items-center gap-3 mb-3">
@@ -488,6 +436,57 @@ export function Dashboard() {
               </Button>
             </Card>
 
+            {/* Recently accessed — consultations carousel */}
+            <div className="bg-white rounded-lg border border-ink-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-ink-800">Recent consultations</h2>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => carouselRef.current?.scrollBy({ left: -260, behavior: 'smooth' })}
+                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
+                    aria-label="Scroll left"
+                  >
+                    <Icon.Chevron width={14} height={14} className="rotate-180" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => carouselRef.current?.scrollBy({ left: 260, behavior: 'smooth' })}
+                    className="w-7 h-7 rounded-md border border-ink-200 text-ink-500 hover:bg-ink-50 inline-flex items-center justify-center"
+                    aria-label="Scroll right"
+                  >
+                    <Icon.Chevron width={14} height={14} />
+                  </button>
+                </div>
+              </div>
+              {recentConsultations.length === 0 ? (
+                <div className="text-sm text-ink-500 py-6 text-center">
+                  No consultations recorded yet.
+                </div>
+              ) : (
+                <div ref={carouselRef} className="flex gap-3 overflow-x-auto pb-1 scroll-smooth">
+                  {recentConsultations.map((c, i) => (
+                    <Link
+                      key={c.id}
+                      to={`/patients/${c.patient_id}`}
+                      className="flex-shrink-0 w-56 rounded-lg border border-ink-200 overflow-hidden hover:border-primary-300 transition-colors"
+                    >
+                      <div className={BANNER_TONES[i % BANNER_TONES.length]} />
+                      <div className="p-3">
+                        <p className="text-[11px] text-ink-400">{formatDate(c.visit_date)}</p>
+                        <p className="font-medium text-ink-900 text-sm truncate mt-0.5">
+                          {c.patient_first_name} {c.patient_last_name}
+                        </p>
+                        <p className="text-xs text-ink-500 truncate mt-0.5">
+                          {c.chief_complaint || 'Consultation visit'}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+            </div>
           </>
         )}
         </div>
@@ -496,7 +495,7 @@ export function Dashboard() {
       <Modal
         open={quickDischargeOpen}
         onClose={() => setQuickDischargeOpen(false)}
-        title="Quick discharge"
+        title="Pre-discharge checklist"
         size="md"
       >
         {admitted.length === 0 ? (
@@ -511,7 +510,7 @@ export function Dashboard() {
                 </div>
                 <StatusChip status={a.status} />
                 <Link to={`/admissions/${a.id}?step=discharge`} onClick={() => setQuickDischargeOpen(false)}>
-                  <Button size="sm" variant="secondary">Discharge</Button>
+                  <Button size="sm" variant="secondary">Open checklist</Button>
                 </Link>
               </li>
             ))}

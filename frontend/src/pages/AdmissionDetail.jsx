@@ -196,16 +196,16 @@ export function AdmissionDetail() {
 
       <div className="print:hidden flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
         <div className="w-full px-4 md:px-8 space-y-4">
-          <RiskHeader
-            admission={admission} record={detail.record} labelFor={labelFor} canRecord={canRecord} canReverse={canReverse}
-            onRefer={openRefer} onChanged={() => load({ resetForms: true })}
-          />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button size="sm" onClick={() => navigate('/admissions')}>All admissions</Button>
             {user?.role !== 'midwife' && (
               <Button size="sm" onClick={() => navigate(`/patients/${admission.patient_id}`)}>Open patient profile</Button>
             )}
           </div>
+          <RiskHeader
+            admission={admission} record={detail.record} labelFor={labelFor} canRecord={canRecord} canReverse={canReverse}
+            onRefer={openRefer} onChanged={() => load({ resetForms: true })}
+          />
 
           {warnings.map((w) => (
             <div key={w.code} className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900 flex gap-2.5">

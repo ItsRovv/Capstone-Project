@@ -1,6 +1,7 @@
 const Joi = require('joi');
 const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS } = require('../services/admissionService');
 const { sanitizeObject, sanitizeDeep } = require('../utils/sanitizer');
+const { REQUIRED_VITALS } = require('../config/clinicalThresholds');
 
 // ── Personal Information (Mommy / Daddy / Emergency contact) — OB patients ──
 const personInfoSchema = Joi.object({
@@ -316,8 +317,17 @@ function validateVitals(data) {
   if (result.error) return result;
   const hasValue = Object.values(result.value).some((v) => v !== null && v !== '' && v !== undefined);
   if (!hasValue) return { error: new Error('Enter at least one vital sign.'), value: result.value };
+  const missing = REQUIRED_VITALS.filter((r) => {
+    const v = result.value[r.key];
+    return v === null || v === '' || v === undefined;
+  }).map((r) => r.label);
+  if (missing.length) {
+    return { error: new Error(`Incomplete reading: ${missing.join(', ')} not recorded.`), value: result.value };
+  }
   return result;
 }
+const reasonSchema = Joi.object({ reason: Joi.string().trim().min(3).max(500).required() }).unknown(false);
+function validateReason(data) { return runValidation(reasonSchema, data, ['reason']); }
 function validateMidwifeNote(data) { return runValidation(midwifeNoteSchema, data, ['description']); }
 function validateAdmission(data) { return runValidation(admissionSchema, data, ADMISSION_TEXT); }
 function validateAdmissionUpdate(data) { return runValidation(admissionUpdateSchema, data, ADMISSION_TEXT); }
@@ -353,6 +363,7 @@ module.exports = {
   validatePackages,
   validateMidwifeNote,
   validateVitals,
+  validateReason,
   validateLaborEntry,
   validateChecklist,
   OPTION_GROUPS,

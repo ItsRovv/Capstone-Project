@@ -128,7 +128,7 @@ describe('discharge', () => {
   test('asks for a reason when discharging before the minimum stay, then accepts it', async () => {
     Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
     ClinicOption.findByGroupCode.mockResolvedValue(reason);
-    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 2 * 3600000) });
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 2 * 3600000), newborns: [{ id: 1 }] });
     Admission.discharge.mockResolvedValue(4);
 
     const early = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
@@ -536,30 +536,103 @@ describe("Midwives' Notes", () => {
   });
 });
 
+describe('Risk flags, referral reversal and discharge gating', () => {
+  const delivery = { delivered_at: '2026-10-31T03:00:00Z', newborns: [{ sex: 'Female' }] };
+
+  test('a normal delivery is blocked while a referral-level flag has no recorded reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['placenta_previa'], risk_ack_reason: null }));
+    const res = await as('midwife', 'put', '/admissions/10/delivery').send(delivery);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('RISK_CONFLICT');
+    expect(Admission.saveDelivery).not.toHaveBeenCalled();
+  });
+
+  test('once a reason is recorded the delivery can be saved', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['placenta_previa'], risk_ack_reason: 'Doctor reviewed, low-lying only' }));
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    expect((await as('midwife', 'put', '/admissions/10/delivery').send(delivery)).status).toBe(200);
+  });
+
+  test('"continue at clinic" needs a reason; the server stamps who decided', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['breech'] }));
+    Admission.acknowledgeRisk.mockResolvedValue(true);
+    expect((await as('midwife', 'post', '/admissions/10/risk-ack').send({})).status).toBe(400);
+    expect((await as('midwife', 'post', '/admissions/10/risk-ack').send({ reason: 'ok' })).status).toBe(400);
+    const res = await as('midwife', 'post', '/admissions/10/risk-ack').send({ reason: 'Doctor will attend the birth here' });
+    expect(res.status).toBe(201);
+    expect(Admission.acknowledgeRisk).toHaveBeenCalledWith('10', 'Doctor will attend the birth here', 5);
+    expect((await as('staff', 'post', '/admissions/10/risk-ack').send({ reason: 'Doctor will attend' })).status).toBe(403);
+  });
+
+  test('only a doctor or admin can reverse a referral, with a reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'referred' }));
+    Admission.reverseReferral.mockResolvedValue(true);
+    expect((await as('midwife', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled' })).status).toBe(403);
+    expect((await as('doctor', 'post', '/admissions/10/referral/reverse').send({})).status).toBe(400);
+    const res = await as('doctor', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled, patient stayed' });
+    expect(res.status).toBe(200);
+    expect(Admission.reverseReferral).toHaveBeenCalledWith('10', 'Referral cancelled, patient stayed', expect.any(Number));
+    Admission.findById.mockResolvedValue(stay({ status: 'admitted' }));
+    expect((await as('doctor', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled' })).status).toBe(409);
+  });
+
+  test('routine discharge is blocked without baby details, and allowed with a logged reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [] });
+    Admission.discharge.mockResolvedValue(4);
+    const blocked = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('NO_BABY');
+    const ok = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved', override_reason: 'Baby referred separately' });
+    expect(ok.status).toBe(201);
+  });
+
+  test('routine discharge is blocked by an unresolved risk flag', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered', risk_flags: ['multiple_pregnancy'], risk_ack_reason: null }));
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [{ id: 1 }] });
+    const res = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('RISK_UNRESOLVED');
+  });
+});
+
+const FULL_VITALS = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
+
 describe('Vital signs', () => {
   test('a midwife records vitals; time and author come from the server and the reading is scored', async () => {
     Admission.findById.mockResolvedValue(stay());
     Admission.addVitals.mockResolvedValue(8);
-    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ bp_systolic: 170, bp_diastolic: 110, pulse: 90 });
+    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ ...FULL_VITALS, bp_systolic: 170, bp_diastolic: 110 });
     expect(res.status).toBe(201);
     expect(res.body.score.level).toBe('urgent');
+    expect(res.body.referralReasons).toContain('Severe high blood pressure');
     expect(Admission.addVitals).toHaveBeenCalledWith('10', expect.objectContaining({ bp_systolic: 170 }), 5);
-    expect((await as('midwife', 'post', '/admissions/10/vitals').send({ pulse: 80, recorded_by: 99 })).status).toBe(400);
+    expect((await as('midwife', 'post', '/admissions/10/vitals').send({ ...FULL_VITALS, recorded_by: 99 })).status).toBe(400);
     expect((await as('midwife', 'post', '/admissions/10/vitals').send({})).status).toBe(400);
+  });
+
+  test('a reading with a required sign missing is rejected and lists what is missing', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ bp_systolic: 120, bp_diastolic: 80 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Incomplete reading.*pulse.*breathing.*temperature/);
+    expect(Admission.addVitals).not.toHaveBeenCalled();
   });
 
   test('front desk cannot read or write vitals, and a closed stay is locked', async () => {
     Admission.findById.mockResolvedValue(stay());
     expect((await as('staff', 'get', '/admissions/10/vitals')).status).toBe(403);
     Admission.findById.mockResolvedValue(stay({ status: 'discharged' }));
-    expect((await as('nurse', 'post', '/admissions/10/vitals').send({ pulse: 80 })).status).toBe(403);
+    expect((await as('nurse', 'post', '/admissions/10/vitals').send(FULL_VITALS)).status).toBe(403);
   });
 
-  test('listing scores each reading', async () => {
+  test('listing scores each reading; an incomplete reading is never "normal"', async () => {
     Admission.findById.mockResolvedValue(stay());
-    Admission.listVitals.mockResolvedValue([{ id: 1, pulse: 80, temperature: 36.8 }, { id: 2, pulse: 130 }]);
+    Admission.listVitals.mockResolvedValue([{ id: 1, ...FULL_VITALS }, { id: 2, pulse: 130 }, { id: 3, pulse: 80 }]);
     const res = await as('nurse', 'get', '/admissions/10/vitals');
-    expect(res.body.map((r) => r.score.level)).toEqual(['normal', 'urgent']);
+    expect(res.body.map((r) => r.score.level)).toEqual(['normal', 'urgent', 'incomplete']);
+    expect(res.body[2].score.missing).toContain('temperature');
   });
 });
 
@@ -697,7 +770,7 @@ describe('rest of the paper record', () => {
   test('discharge stores the results box and rejects unknown result codes', async () => {
     Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
     ClinicOption.findByGroupCode.mockResolvedValue({ code: 'improved', active: true });
-    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000) });
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [{ id: 1 }] });
     Admission.discharge.mockResolvedValue(4);
     const res = await as('midwife', 'post', '/admissions/10/discharge')
       .send({ disposition: 'improved', results: ['recovered', 'improved'] });

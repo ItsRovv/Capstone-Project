@@ -1,5 +1,6 @@
 import { Input, Select, Textarea } from '../UI/Input';
 import { BedPicker } from './BedPicker';
+import { REFERRAL_LEVEL_FLAGS } from '../../lib/admission';
 
 export const ADMISSION_TYPE_OPTIONS = [
   { value: 'new', label: 'New patient' },
@@ -229,27 +230,42 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
       />
 
       {flags.length > 0 && (
-        <div>
-          <p className="text-sm font-medium text-ink-700">Any warning signs?</p>
-          <p className="text-xs text-ink-500 mb-2">If any box is checked, think about sending the patient to a hospital.</p>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {flags.map((f) => (
-              <label
-                key={f.code}
-                className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
-                  form.risk_flags.includes(f.code) ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-ink-200 bg-white text-ink-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600"
-                  checked={form.risk_flags.includes(f.code)}
-                  onChange={() => toggleFlag(f.code)}
-                />
-                <span>{f.label}</span>
-              </label>
-            ))}
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium text-ink-700">Any warning signs?</p>
+            <p className="text-xs text-ink-500">If any box is checked, think about sending the patient to a hospital.</p>
           </div>
+          {[['history', 'From her history'], ['today', 'Found today']].map(([group, title]) => {
+            const list = flags.filter((f) => (f.group || 'today') === group);
+            if (!list.length) return null;
+            return (
+              <div key={group}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500 mb-1.5">{title}</p>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {list.map((f) => {
+                    const on = form.risk_flags.includes(f.code);
+                    const high = REFERRAL_LEVEL_FLAGS.includes(f.code);
+                    return (
+                      <label
+                        key={f.code}
+                        className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                          on ? (high ? 'border-red-300 bg-red-50 text-red-900' : 'border-amber-300 bg-amber-50 text-amber-900') : 'border-ink-200 bg-white text-ink-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600"
+                          checked={on}
+                          onChange={() => toggleFlag(f.code)}
+                        />
+                        <span>{f.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -10,7 +10,16 @@ import { formatDay } from '../../lib/admission';
 
 const EMPTY = { bp_systolic: '', bp_diastolic: '', pulse: '', resp_rate: '', temperature: '', spo2: '', fetal_heart_rate: '' };
 
+const REQUIRED = [
+  ['bp_systolic', 'BP top (systolic)'],
+  ['bp_diastolic', 'BP bottom (diastolic)'],
+  ['pulse', 'pulse'],
+  ['resp_rate', 'breathing'],
+  ['temperature', 'temperature']
+];
+
 const LEVEL_META = {
+  incomplete: { label: 'Incomplete reading', box: 'border-ink-300 bg-ink-50 text-ink-800' },
   normal: { label: 'All signs normal', box: 'border-emerald-200 bg-emerald-50 text-emerald-900' },
   watch: { label: 'Watch closely: check again soon', box: 'border-amber-300 bg-amber-50 text-amber-900' },
   urgent: { label: 'Tell the doctor now: consider referral', box: 'border-red-300 bg-red-50 text-red-900' }
@@ -25,11 +34,12 @@ function Cell({ value, points = 0, children }) {
   return <td className={`px-3 py-2.5 text-center whitespace-nowrap ${CELL[points] || ''}`}>{children ?? show(value)}</td>;
 }
 
-export function StepVitals({ admission, canEdit }) {
+export function StepVitals({ admission, canEdit, onRefer }) {
   const toast = useToast();
   const [rows, setRows] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [alertReasons, setAlertReasons] = useState([]);
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const load = useCallback(async () => {
@@ -50,6 +60,7 @@ export function StepVitals({ admission, canEdit }) {
     try {
       const res = await admissionService.addVitals(admission.id, payload);
       setForm(EMPTY);
+      setAlertReasons(res.referralReasons || []);
       toast[res.score?.level === 'urgent' ? 'error' : 'success'](
         res.score?.level === 'urgent' ? 'Saved. One or more signs need attention now.' : 'Vital signs saved'
       );
@@ -64,6 +75,7 @@ export function StepVitals({ admission, canEdit }) {
   const latest = rows?.length ? rows[rows.length - 1] : null;
   const level = latest ? LEVEL_META[latest.score.level] : null;
   const hasInput = Object.values(form).some((v) => String(v).trim() !== '');
+  const missingNow = REQUIRED.filter(([key]) => String(form[key]).trim() === '').map(([, label]) => label);
 
   return (
     <Card>
@@ -76,6 +88,9 @@ export function StepVitals({ admission, canEdit }) {
       {latest && (
         <div className={`rounded-lg border px-3.5 py-2.5 text-sm mb-4 ${level.box}`}>
           <p className="font-semibold">{level.label}</p>
+          {latest.score.level === 'incomplete' && (
+            <p className="text-sm">{latest.score.missing.join(', ')} not recorded.</p>
+          )}
           <p className="text-xs opacity-80">
             Last reading {formatDay(latest.recorded_at)} at {timeOf(latest.recorded_at)}
             {latest.score.fetalAlert ? ' · baby\'s heartbeat is outside 110-160' : ''}
@@ -83,19 +98,33 @@ export function StepVitals({ admission, canEdit }) {
         </div>
       )}
 
+      {alertReasons.length > 0 && (
+        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 mb-4 space-y-2">
+          <p className="font-bold">Red reading: {alertReasons.join(', ')}</p>
+          <p>Think about referral. Choose an action.</p>
+          <div className="flex gap-2">
+            {onRefer && <Button size="sm" variant="danger" onClick={() => onRefer(`Vitals: ${alertReasons.join(', ')}`)}>Create referral</Button>}
+            <Button size="sm" variant="ghost" onClick={() => setAlertReasons([])}>Dismiss</Button>
+          </div>
+        </div>
+      )}
+
       {canEdit && (
         <div className="mb-5 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Input label="BP top (systolic)" inputMode="numeric" placeholder="110" value={form.bp_systolic} onChange={set('bp_systolic')} />
-            <Input label="BP bottom (diastolic)" inputMode="numeric" placeholder="70" value={form.bp_diastolic} onChange={set('bp_diastolic')} />
+            <Input label="BP top (systolic)" inputMode="numeric" placeholder="e.g. 110" value={form.bp_systolic} onChange={set('bp_systolic')} />
+            <Input label="BP bottom (diastolic)" inputMode="numeric" placeholder="e.g. 70" value={form.bp_diastolic} onChange={set('bp_diastolic')} />
             <Input label="Pulse (per min)" inputMode="numeric" value={form.pulse} onChange={set('pulse')} />
             <Input label="Breathing (per min)" inputMode="numeric" value={form.resp_rate} onChange={set('resp_rate')} />
             <Input label="Temperature (°C)" inputMode="decimal" value={form.temperature} onChange={set('temperature')} />
             <Input label="Oxygen (SpO2 %)" inputMode="numeric" value={form.spo2} onChange={set('spo2')} />
             <Input label="Baby's heartbeat (per min)" inputMode="numeric" value={form.fetal_heart_rate} onChange={set('fetal_heart_rate')} />
           </div>
+          {hasInput && missingNow.length > 0 && (
+            <p className="text-xs text-amber-800">Still needed before you can save: {missingNow.join(', ')}.</p>
+          )}
           <div className="flex justify-end">
-            <Button onClick={save} loading={saving} disabled={!hasInput}>Add reading</Button>
+            <Button onClick={save} loading={saving} disabled={!hasInput || missingNow.length > 0}>Add reading</Button>
           </div>
         </div>
       )}

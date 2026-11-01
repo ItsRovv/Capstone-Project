@@ -10,7 +10,7 @@ import { useToast } from '../UI/Toast';
 import { FollowupDoneModal } from './FollowupDoneModal';
 import { admissionService } from '../../services/admissionService';
 import { apiError } from '../../services/api';
-import { followupState, formatDateTime, formatDay, peso } from '../../lib/admission';
+import { followupState, formatDateTime, formatDay, peso, referralLevelFlags } from '../../lib/admission';
 
 function Row({ label, value }) {
   return (
@@ -184,8 +184,8 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
     } catch (err) {
       const data = err?.response?.data;
       setConfirmOpen(false);
-      if (data?.code === 'MIN_STAY') setNeedReason(data.message);
-      else if (data?.code === 'CHECKLIST_INCOMPLETE' || data?.code === 'DANGER_SIGNS') { toast.error(data.message); await onChanged(); }
+      if (data?.code === 'MIN_STAY' || data?.code === 'NO_BABY') setNeedReason(data.message);
+      else if (['CHECKLIST_INCOMPLETE', 'DANGER_SIGNS', 'RISK_UNRESOLVED'].includes(data?.code)) { toast.error(data.message); await onChanged(); }
       else toast.error(apiError(err, 'Could not discharge the patient'));
     } finally {
       setSaving(false);
@@ -280,7 +280,8 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
   const exempt = CHECKLIST_EXEMPT.includes(form.disposition);
   const check = localChecklistStatus(detail.checklistDefinition, checklist, Boolean(delivery));
   const checklistBlocked = !exempt && (!check.complete || check.dangerPresent.length > 0);
-  const canDischargeNow = canEdit && form.disposition && !checklistBlocked && (!needReason || form.override_reason.trim());
+  const unresolvedFlags = admission.risk_ack_reason ? [] : referralLevelFlags(admission.risk_flags);
+  const canDischargeNow = canEdit && form.disposition && !checklistBlocked && (!needReason || form.override_reason.trim()) && (exempt || unresolvedFlags.length === 0);
 
   return (
     <div className="space-y-4">
@@ -299,6 +300,12 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
         </ul>
 
         <fieldset disabled={!canEdit} className="space-y-4">
+          {!exempt && unresolvedFlags.length > 0 && (
+            <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-3.5 py-2.5 text-sm text-red-900">
+              <p className="font-bold">Unresolved warning sign: {unresolvedFlags.map((c) => labelFor('risk_flag', c)).join(', ')}</p>
+              <p>Routine discharge is blocked. Refer the patient, or record a reason to continue on the Admit step.</p>
+            </div>
+          )}
           <Select label="Why is the patient going home?" value={form.disposition} onChange={set('disposition')}>
             <option value="">Choose…</option>
             {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
@@ -309,7 +316,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
           {needReason && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-3">
               <p className="text-sm text-amber-900">{needReason}</p>
-              <Textarea label="Why is she leaving early?" rows={2} value={form.override_reason} onChange={set('override_reason')} />
+              <Textarea label="Reason (saved with who and when)" rows={2} value={form.override_reason} onChange={set('override_reason')} />
             </div>
           )}
         </fieldset>

@@ -108,8 +108,19 @@ function BabyCardInfo({ record, deliveredAt }) {
   );
 }
 
-export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave, record }) {
+// Same limits as THRESHOLDS.newborn in backend/config/clinicalThresholds.js.
+const LOW_BIRTH_WEIGHT_G = 2500;
+const LOW_APGAR_5 = 7;
+function newbornAlerts(b) {
+  const out = [];
+  if (b.weight_grams !== '' && Number(b.weight_grams) < LOW_BIRTH_WEIGHT_G) out.push('Low birth weight');
+  if (b.apgar_5 !== '' && Number(b.apgar_5) < LOW_APGAR_5) out.push('Low 5-minute APGAR');
+  return out;
+}
+
+export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave, record, onRefer }) {
   const care = byGroup.newborn_care || [];
+  const alerts = [...new Set(draft.newborns.flatMap(newbornAlerts))];
   const setBaby = (i, patch) => setDraft((d) => ({ ...d, newborns: d.newborns.map((b, idx) => (idx === i ? { ...b, ...patch } : b)) }));
   const toggleCare = (i, code) => {
     const b = draft.newborns[i];
@@ -127,6 +138,15 @@ export function StepBaby({ draft, setDraft, byGroup, canEdit, saving, onSave, re
 
   return (
     <div className="space-y-4">
+      {alerts.length > 0 && (
+        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 space-y-2">
+          <p className="font-bold">Newborn alert: {alerts.join(', ')}</p>
+          <p>Think about referring the baby for a check-up.</p>
+          {onRefer && (
+            <Button size="sm" variant="danger" onClick={() => onRefer(`Newborn: ${alerts.join(', ')}`)}>Create referral</Button>
+          )}
+        </div>
+      )}
       {draft.newborns.map((b, i) => (
         <Card key={i}>
           <div className="flex items-center justify-between mb-4">

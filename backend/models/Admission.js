@@ -4,12 +4,12 @@ const { encryptObject, decryptObject } = require('../utils/encryption');
 // Free-text clinical fields are encrypted like patient/consultation notes.
 const ADMISSION_ENC = ['chief_complaint', 'admitting_diagnosis', 'labor_notes', 'notes',
   'referred_by', 'hospitalization_plan', 'health_insurance_name', 'medicare_other',
-  'informant_name', 'informant_address', 'informant_relationship', 'icd_code'];
+  'informant_name', 'informant_address', 'informant_relationship', 'icd_code', 'risk_ack_reason'];
 const DELIVERY_ENC = ['attendant', 'complications'];
 const NEWBORN_ENC = ['notes', 'name'];
 const LABOR_ENC = ['notes'];
 const DISCHARGE_ENC = ['final_diagnosis', 'instructions', 'override_reason'];
-const REFERRAL_ENC = ['reason', 'notes'];
+const REFERRAL_ENC = ['reason', 'notes', 'reverse_reason'];
 const FOLLOWUP_ENC = ['notes'];
 const NOTE_ENC = ['description'];
 
@@ -275,17 +275,46 @@ class Admission {
     return rows[0] ? dec(rows[0], REFERRAL_ENC) : null;
   }
 
+  // A re-referral after a reversal reuses the same row (one referral row per stay).
   static async refer(admissionId, data, userId) {
     const d = enc(data, REFERRAL_ENC);
     return db.transaction(async (tx) => {
       const [result] = await tx.execute(
         `INSERT INTO referrals (admission_id, facility, reason, referred_at, transport, notes, referred_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (admission_id) DO UPDATE SET
+           facility = EXCLUDED.facility, reason = EXCLUDED.reason, referred_at = EXCLUDED.referred_at,
+           transport = EXCLUDED.transport, notes = EXCLUDED.notes, referred_by = EXCLUDED.referred_by,
+           reversed_at = NULL, reversed_by = NULL, reverse_reason = NULL`,
         [admissionId, d.facility, clean(d.reason), d.referred_at ?? new Date(), clean(d.transport), clean(d.notes), userId ?? null]
       );
       await tx.execute("UPDATE admissions SET status = 'referred' WHERE id = ?", [admissionId]);
       return result.insertId;
     });
+  }
+
+  // A doctor can undo a referral (cancelled, or the patient came back). The stay reopens.
+  static async reverseReferral(admissionId, reason, userId) {
+    const d = enc({ reverse_reason: reason }, ['reverse_reason']);
+    return db.transaction(async (tx) => {
+      const [result] = await tx.execute(
+        'UPDATE referrals SET reversed_at = NOW(), reversed_by = ?, reverse_reason = ? WHERE admission_id = ? AND reversed_at IS NULL',
+        [userId ?? null, d.reverse_reason, admissionId]
+      );
+      if (!result.affectedRows) return false;
+      await tx.execute("UPDATE admissions SET status = 'admitted' WHERE id = ? AND status = 'referred'", [admissionId]);
+      return true;
+    });
+  }
+
+  // "Continue at clinic" decision for a referral-level warning sign. Who and when come from the server.
+  static async acknowledgeRisk(admissionId, reason, userId) {
+    const d = enc({ risk_ack_reason: reason }, ADMISSION_ENC);
+    const [result] = await db.execute(
+      'UPDATE admissions SET risk_ack_reason = ?, risk_ack_by = ?, risk_ack_at = NOW() WHERE id = ?',
+      [d.risk_ack_reason, userId ?? null, admissionId]
+    );
+    return result.affectedRows > 0;
   }
 
   // ── Midwives' Notes ──────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ const requireRole = require('../middleware/role');
 const { requireAdmissionAccess, requireClinical } = require('../middleware/role');
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
-  validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist
+  validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist,
+  validateReason
 } = require('../middleware/validation');
 const svc = require('../services/admissionService');
 const { onDelivered } = require('../services/admissionSync');
@@ -313,6 +314,18 @@ router.put('/:id', requireClinical, loadAdmission(), async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+// "Continue at clinic" for a referral-level warning sign. The reason is required and
+// who/when are stamped by the server.
+router.post('/:id/risk-ack', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    await Admission.acknowledgeRisk(req.params.id, value.reason, req.user.id);
+    await audit(req, 'UPDATE', Number(req.params.id), undefined, { risk_ack: true, flags: svc.referralLevelFlags(req.admission.risk_flags) });
+    res.status(201).json({ message: 'Decision recorded' });
+  } catch (err) { routeError(res, err); }
+});
+
 router.post('/:id/status', requireClinical, loadAdmission(), async (req, res) => {
   try {
     const next = req.body?.status;
@@ -333,6 +346,16 @@ router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) =
     const a = req.admission;
     if (!['admitted', 'in_labor', 'delivered'].includes(a.status) && req.user.role !== 'admin') {
       return res.status(409).json({ message: 'Delivery cannot be recorded for this stay.' });
+    }
+    const conflict = svc.deliveryRiskConflict({
+      riskFlags: a.risk_flags, ackReason: a.risk_ack_reason, deliveryType: value.delivery_type
+    });
+    if (conflict) {
+      return res.status(409).json({
+        code: 'RISK_CONFLICT',
+        flags: conflict.flags,
+        message: `This patient has a referral-level risk flag (${conflict.labels.join(', ')}). Refer, or confirm with a reason.`
+      });
     }
     const deliveryId = await Admission.saveDelivery(a.id, value);
     await audit(req, 'UPDATE', a.id, undefined, { delivery: value }, 'deliveries');
@@ -420,7 +443,9 @@ router.post('/:id/vitals', requireClinical, loadAdmission(), async (req, res) =>
     if (error) return bad(res, error);
     const id = await Admission.addVitals(req.params.id, value, req.user.id);
     await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), ...value }, 'admission_vitals');
-    res.status(201).json({ id, score: svc.scoreVitals(value), message: 'Vital signs saved' });
+    res.status(201).json({
+      id, score: svc.scoreVitals(value), referralReasons: svc.vitalsReferralReasons(value), message: 'Vital signs saved'
+    });
   } catch (err) { routeError(res, err); }
 });
 
@@ -543,6 +568,13 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
         });
       }
     }
+    const blockers = svc.dischargeBlockers({
+      delivery, riskFlags: a.risk_flags, riskAckReason: a.risk_ack_reason,
+      disposition: value.disposition, hasOverride: Boolean(value.override_reason)
+    });
+    if (blockers.length) {
+      return res.status(409).json({ code: blockers[0].code, blockers, message: blockers.map((b) => b.message).join(' ') });
+    }
     if (delivery && !value.override_reason) {
       const stay = svc.checkMinStay(delivery.delivered_at, settings.min_stay_hours);
       if (!stay.ok) {
@@ -567,11 +599,26 @@ router.post('/:id/referral', requireClinical, loadAdmission(), async (req, res) 
     const { error, value } = validateReferral(req.body);
     if (error) return bad(res, error);
     if (!svc.canTransition(req.admission.status, 'referred')) {
-      return res.status(409).json({ message: 'This patient cannot be referred anymore because the baby is already delivered.' });
+      return res.status(409).json({ message: `A patient who is "${req.admission.status}" cannot be referred.` });
     }
     const id = await Admission.refer(req.params.id, value, req.user.id);
     await audit(req, 'UPDATE', Number(req.params.id), { status: req.admission.status }, { status: 'referred', facility: value.facility });
     res.status(201).json({ id, message: 'Patient referred' });
+  } catch (err) { routeError(res, err); }
+});
+
+// A doctor (or the administrator) can undo a referral with a reason; the locked steps reopen.
+router.post('/:id/referral/reverse', requireRole('doctor', 'admin'), loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    if (req.admission.status !== 'referred') {
+      return res.status(409).json({ message: 'This stay is not marked as referred.' });
+    }
+    const ok = await Admission.reverseReferral(req.params.id, value.reason, req.user.id);
+    if (!ok) return res.status(404).json({ message: 'No active referral found for this stay.' });
+    await audit(req, 'UPDATE', Number(req.params.id), { status: 'referred' }, { status: 'admitted', reversed: true }, 'referrals');
+    res.json({ message: 'Referral reversed. The stay is open again.' });
   } catch (err) { routeError(res, err); }
 });
 

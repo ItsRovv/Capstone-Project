@@ -99,17 +99,24 @@ export const MODULE_LISTS = {
     { code: 'assisted', label: 'Assisted delivery' },
     { code: 'other', label: 'Other' }
   ],
+  // Keep in step with RISK_FLAGS in backend/services/admissionService.js.
   risk_flag: [
-    { code: 'multiple_pregnancy', label: 'Twins or more' },
-    { code: 'placenta_previa', label: 'Placenta covering the cervix (placenta previa)' },
-    { code: 'previous_cs', label: 'Previous cesarean section' },
-    { code: 'preeclampsia_history', label: 'Past pre-eclampsia or eclampsia' },
-    { code: 'stillbirth_history', label: 'Past stillbirth or 3 or more miscarriages' },
-    { code: 'hypertension', label: 'High blood pressure' },
-    { code: 'diabetes', label: 'Diabetes' },
-    { code: 'heart_disease', label: 'Heart disease' },
-    { code: 'severe_anemia', label: 'Severe anemia' },
-    { code: 'bleeding', label: 'Heavy bleeding' }
+    { code: 'previous_cs', label: 'Previous cesarean section', group: 'history' },
+    { code: 'preeclampsia_history', label: 'Past pre-eclampsia or eclampsia', group: 'history' },
+    { code: 'stillbirth_history', label: 'Past stillbirth or 3 or more miscarriages', group: 'history' },
+    { code: 'diabetes', label: 'Diabetes', group: 'history' },
+    { code: 'heart_disease', label: 'Heart disease', group: 'history' },
+    { code: 'severe_anemia', label: 'Severe anemia', group: 'history' },
+    { code: 'multiple_pregnancy', label: 'Twins or more', group: 'today' },
+    { code: 'placenta_previa', label: 'Placenta covering the cervix (placenta previa)', group: 'today' },
+    { code: 'hypertension', label: 'High blood pressure', group: 'today' },
+    { code: 'bleeding', label: 'Heavy bleeding', group: 'today' },
+    { code: 'breech', label: 'Breech or abnormal presentation', group: 'today' },
+    { code: 'preterm', label: 'Preterm (under 37 weeks)', group: 'today' },
+    { code: 'reduced_fetal_movement', label: 'Reduced baby movement', group: 'today' },
+    { code: 'severe_headache', label: 'Severe headache or blurred vision', group: 'today' },
+    { code: 'fever', label: 'Fever', group: 'today' },
+    { code: 'prolonged_rupture', label: 'Waters broke a long time ago', group: 'today' }
   ],
   newborn_care: [
     { code: 'drying', label: 'Dried and wrapped right away' },
@@ -118,6 +125,10 @@ export const MODULE_LISTS = {
     { code: 'breastfeeding', label: 'Breastfeeding started' }
   ]
 };
+
+// Warning signs that make a normal birth here unsafe: refer, or record a reason to continue.
+export const REFERRAL_LEVEL_FLAGS = ['placenta_previa', 'previous_cs', 'multiple_pregnancy', 'breech', 'preterm'];
+export const referralLevelFlags = (flags = []) => (flags || []).filter((c) => REFERRAL_LEVEL_FLAGS.includes(c));
 
 /**
  * Loads the clinic's editable lists and rules once. Forms use this so a change

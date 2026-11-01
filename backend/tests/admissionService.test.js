@@ -12,7 +12,7 @@ describe('admission status flow', () => {
     ['in_labor', 'delivered', true],
     ['in_labor', 'discharged', false],
     ['delivered', 'discharged', true],
-    ['delivered', 'referred', false],
+    ['delivered', 'referred', true],
     ['discharged', 'admitted', false],
     ['referred', 'discharged', false]
   ])('%s -> %s allowed=%s', (from, to, allowed) => {
@@ -255,7 +255,44 @@ describe('vital signs early warning', () => {
   test('blank values are ignored and an empty reading is not accepted', () => {
     expect(svc.scoreVitals({ pulse: '', resp_rate: null }).total).toBe(0);
     expect(validateVitals({}).error).toBeDefined();
-    expect(validateVitals({ pulse: 80 }).error).toBeUndefined();
-    expect(validateVitals({ pulse: 900 }).error).toBeDefined();
+    const full = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
+    expect(validateVitals(full).error).toBeUndefined();
+    expect(validateVitals({ ...full, pulse: 900 }).error).toBeDefined();
+  });
+
+  test('a reading without all required signs is incomplete, never "normal"', () => {
+    expect(svc.scoreVitals({ pulse: 80 })).toMatchObject({ level: 'incomplete' });
+    expect(svc.missingVitals({ pulse: 80 })).toEqual(['BP top (systolic)', 'BP bottom (diastolic)', 'breathing', 'temperature']);
+    expect(validateVitals({ pulse: 80 }).error.message).toMatch(/Incomplete reading/);
+    expect(svc.scoreVitals({ bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 }).level).toBe('normal');
+  });
+
+  test('red readings give referral reasons from the configured limits', () => {
+    expect(svc.vitalsReferralReasons({ bp_systolic: 165, fetal_heart_rate: 90, spo2: 90, temperature: 38.2 }))
+      .toEqual(expect.arrayContaining(['Severe high blood pressure', "Baby's heartbeat outside the normal range", 'Low oxygen level', 'Fever']));
+    expect(svc.vitalsReferralReasons({ bp_systolic: 120, bp_diastolic: 80, pulse: 80 })).toEqual([]);
+  });
+});
+
+describe('risk flags and discharge gating', () => {
+  test('referral-level flags block a normal delivery until a reason is recorded', () => {
+    expect(svc.deliveryRiskConflict({ riskFlags: ['placenta_previa'], ackReason: null, deliveryType: 'nsd' }).labels[0]).toMatch(/placenta/i);
+    expect(svc.deliveryRiskConflict({ riskFlags: ['previous_cs'], ackReason: '', deliveryType: undefined })).not.toBeNull();
+    expect(svc.deliveryRiskConflict({ riskFlags: ['placenta_previa'], ackReason: 'Doctor reviewed', deliveryType: 'nsd' })).toBeNull();
+    expect(svc.deliveryRiskConflict({ riskFlags: ['diabetes'], ackReason: null, deliveryType: 'nsd' })).toBeNull();
+  });
+
+  test('routine discharge is blocked without baby details or with an unresolved flag', () => {
+    const noBaby = svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: [], disposition: 'improved', hasOverride: false });
+    expect(noBaby.map((b) => b.code)).toEqual(['NO_BABY']);
+    expect(svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: [], disposition: 'improved', hasOverride: true })).toEqual([]);
+    const risky = svc.dischargeBlockers({ delivery: { newborns: [{}] }, riskFlags: ['breech'], riskAckReason: '', disposition: 'improved' });
+    expect(risky[0].code).toBe('RISK_UNRESOLVED');
+    expect(svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: ['breech'], disposition: 'transferred' })).toEqual([]);
+  });
+
+  test('newborn alerts for low weight and low 5-minute APGAR', () => {
+    expect(svc.newbornReferralReasons({ weight_grams: 2300, apgar_5: 6 })).toEqual(['Low birth weight', 'Low 5-minute APGAR']);
+    expect(svc.newbornReferralReasons({ weight_grams: 3100, apgar_5: 9 })).toEqual([]);
   });
 });

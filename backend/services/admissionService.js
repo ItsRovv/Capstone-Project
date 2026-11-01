@@ -1,5 +1,6 @@
 // Pure business rules for admission, delivery and discharge.
 // Kept free of database access so they are easy to test and to change.
+const { THRESHOLDS, REQUIRED_VITALS } = require('../config/clinicalThresholds');
 
 const ACTIVE_STATUSES = ['admitted', 'in_labor', 'delivered'];
 
@@ -7,7 +8,7 @@ const ACTIVE_STATUSES = ['admitted', 'in_labor', 'delivered'];
 const TRANSITIONS = {
   admitted: ['in_labor', 'delivered', 'discharged', 'referred'],
   in_labor: ['delivered', 'referred'],
-  delivered: ['discharged'],
+  delivered: ['discharged', 'referred'],
   discharged: [],
   referred: []
 };
@@ -200,22 +201,52 @@ const SIGN_RULES = {
   bp_diastolic: (v) => (v >= 97 || v <= 56 ? 2 : v >= 89 || v <= 61 ? 1 : 0)
 };
 
+const isBlank = (v) => v === null || v === undefined || v === '' || Number.isNaN(Number(v));
+
+// Required readings that are missing (labels, in form order).
+function missingVitals(reading = {}) {
+  return REQUIRED_VITALS.filter((r) => isBlank(reading[r.key])).map((r) => r.label);
+}
+
 function scoreVitals(reading = {}) {
   const signs = {};
   let total = 0;
   for (const [sign, rule] of Object.entries(SIGN_RULES)) {
     const raw = reading[sign];
-    if (raw === null || raw === undefined || raw === '' || Number.isNaN(Number(raw))) continue;
+    if (isBlank(raw)) continue;
     const points = rule(Number(raw));
     signs[sign] = points;
     total += points;
   }
   const fhr = reading.fetal_heart_rate;
-  const hasFhr = fhr !== null && fhr !== undefined && fhr !== '';
-  const fetalAlert = hasFhr && !inRange(Number(fhr), 110, 160);
+  const fhrLimits = THRESHOLDS.fetalHeartRate;
+  const fetalAlert = !isBlank(fhr) && !inRange(Number(fhr), fhrLimits.min, fhrLimits.max);
   const anyRed = Object.values(signs).includes(2);
-  const level = anyRed || total >= 4 || fetalAlert ? 'urgent' : total >= 1 ? 'watch' : 'normal';
-  return { signs, total, fetalAlert, level };
+  const missing = missingVitals(reading);
+  let level = anyRed || total >= 4 || fetalAlert ? 'urgent' : total >= 1 ? 'watch' : 'normal';
+  // A reading with required signs missing must never be shown as "all normal".
+  if (level === 'normal' && missing.length) level = 'incomplete';
+  return { signs, total, fetalAlert, level, missing };
+}
+
+// Red readings that should prompt a referral (severe BP, high pulse/breathing/fever, low SpO2, baby's heartbeat).
+function vitalsReferralReasons(reading = {}) {
+  const t = THRESHOLDS;
+  const reasons = [];
+  const num = (k) => (isBlank(reading[k]) ? null : Number(reading[k]));
+  const sys = num('bp_systolic');
+  const dia = num('bp_diastolic');
+  if ((sys !== null && sys >= t.bloodPressure.severeSystolic) || (dia !== null && dia >= t.bloodPressure.severeDiastolic)) {
+    reasons.push('Severe high blood pressure');
+  }
+  if (num('pulse') !== null && num('pulse') > t.pulse.actHigh) reasons.push('Very fast pulse');
+  if (num('resp_rate') !== null && num('resp_rate') > t.breathing.actHigh) reasons.push('Very fast breathing');
+  if (num('temperature') !== null && num('temperature') >= t.temperature.fever) reasons.push('Fever');
+  if (num('spo2') !== null && num('spo2') < t.spo2.actBelow) reasons.push('Low oxygen level');
+  if (num('fetal_heart_rate') !== null && !inRange(num('fetal_heart_rate'), t.fetalHeartRate.min, t.fetalHeartRate.max)) {
+    reasons.push("Baby's heartbeat outside the normal range");
+  }
+  return reasons;
 }
 
 // ── The module's fixed lists ────────────────────────────────────────────
@@ -236,18 +267,69 @@ const DELIVERY_TYPES = [
   { code: 'other', label: 'Other' }
 ];
 
+// group: "history" = from her past, "today" = found at this admission.
 const RISK_FLAGS = [
-  { code: 'multiple_pregnancy', label: 'Twins or more' },
-  { code: 'placenta_previa', label: 'Placenta covering the cervix (placenta previa)' },
-  { code: 'previous_cs', label: 'Previous cesarean section' },
-  { code: 'preeclampsia_history', label: 'Past pre-eclampsia or eclampsia' },
-  { code: 'stillbirth_history', label: 'Past stillbirth or 3 or more miscarriages' },
-  { code: 'hypertension', label: 'High blood pressure' },
-  { code: 'diabetes', label: 'Diabetes' },
-  { code: 'heart_disease', label: 'Heart disease' },
-  { code: 'severe_anemia', label: 'Severe anemia' },
-  { code: 'bleeding', label: 'Heavy bleeding' }
+  { code: 'previous_cs', label: 'Previous cesarean section', group: 'history' },
+  { code: 'preeclampsia_history', label: 'Past pre-eclampsia or eclampsia', group: 'history' },
+  { code: 'stillbirth_history', label: 'Past stillbirth or 3 or more miscarriages', group: 'history' },
+  { code: 'diabetes', label: 'Diabetes', group: 'history' },
+  { code: 'heart_disease', label: 'Heart disease', group: 'history' },
+  { code: 'severe_anemia', label: 'Severe anemia', group: 'history' },
+  { code: 'multiple_pregnancy', label: 'Twins or more', group: 'today' },
+  { code: 'placenta_previa', label: 'Placenta covering the cervix (placenta previa)', group: 'today' },
+  { code: 'hypertension', label: 'High blood pressure', group: 'today' },
+  { code: 'bleeding', label: 'Heavy bleeding', group: 'today' },
+  { code: 'breech', label: 'Breech or abnormal presentation', group: 'today' },
+  { code: 'preterm', label: 'Preterm (under 37 weeks)', group: 'today' },
+  { code: 'reduced_fetal_movement', label: 'Reduced baby movement', group: 'today' },
+  { code: 'severe_headache', label: 'Severe headache or blurred vision', group: 'today' },
+  { code: 'fever', label: 'Fever', group: 'today' },
+  { code: 'prolonged_rupture', label: 'Waters broke a long time ago', group: 'today' }
 ];
+
+// A normal birth here is not appropriate when any of these is present: refer, or record a reason.
+const REFERRAL_LEVEL_FLAGS = ['placenta_previa', 'previous_cs', 'multiple_pregnancy', 'breech', 'preterm'];
+
+const flagLabel = (code) => RISK_FLAGS.find((f) => f.code === code)?.label || code;
+
+function referralLevelFlags(riskFlags = []) {
+  return (riskFlags || []).filter((c) => REFERRAL_LEVEL_FLAGS.includes(c));
+}
+
+// Blocks saving a normal delivery while a referral-level flag is active, unless a reason was recorded.
+function deliveryRiskConflict({ riskFlags, ackReason, deliveryType }) {
+  const active = referralLevelFlags(riskFlags);
+  if (!active.length || String(ackReason || '').trim()) return null;
+  if (deliveryType && deliveryType !== 'nsd') return null;
+  return { flags: active, labels: active.map(flagLabel) };
+}
+
+// What still stops a routine discharge. Each item has a code so the screen can explain it.
+function dischargeBlockers({ delivery, riskFlags, riskAckReason, disposition, hasOverride }) {
+  const blockers = [];
+  const routine = !CHECKLIST_EXEMPT_DISPOSITIONS.includes(disposition);
+  if (routine && delivery && !(delivery.newborns || []).length && !hasOverride) {
+    blockers.push({ code: 'NO_BABY', message: 'Save the baby details first, or add a reason to discharge without them.' });
+  }
+  const unresolved = referralLevelFlags(riskFlags);
+  if (routine && unresolved.length && !String(riskAckReason || '').trim()) {
+    blockers.push({
+      code: 'RISK_UNRESOLVED',
+      message: `Unresolved warning sign: ${unresolved.map(flagLabel).join(', ')}. Refer the patient, or record a reason to continue at the clinic.`
+    });
+  }
+  return blockers;
+}
+
+// Newborn alerts: low birth weight or low 5-minute APGAR should prompt a newborn referral.
+function newbornReferralReasons(baby = {}) {
+  const reasons = [];
+  const w = Number(baby.weight_grams);
+  const a5 = Number(baby.apgar_5);
+  if (!isBlank(baby.weight_grams) && w < THRESHOLDS.newborn.lowBirthWeightGrams) reasons.push('Low birth weight');
+  if (!isBlank(baby.apgar_5) && a5 < THRESHOLDS.newborn.lowApgar5) reasons.push('Low 5-minute APGAR');
+  return reasons;
+}
 
 const NEWBORN_CARE = [
   { code: 'drying', label: 'Dried and wrapped right away' },
@@ -349,6 +431,13 @@ module.exports = {
   initialsOf,
   shiftOf,
   scoreVitals,
+  missingVitals,
+  vitalsReferralReasons,
+  REFERRAL_LEVEL_FLAGS,
+  referralLevelFlags,
+  deliveryRiskConflict,
+  dischargeBlockers,
+  newbornReferralReasons,
   CHECKLIST_ITEMS,
   DANGER_SIGNS,
   CHECKLIST_EXEMPT_DISPOSITIONS,

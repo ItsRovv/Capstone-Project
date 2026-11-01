@@ -16,6 +16,9 @@ import { StepVitals } from '../components/admission/StepVitals';
 import { StepLabor } from '../components/admission/StepLabor';
 import { PatientRecordCard } from '../components/admission/PatientRecordCard';
 import { PrintSummary } from '../components/admission/PrintSummary';
+import { RiskHeader } from '../components/admission/RiskHeader';
+import { RiskAlert } from '../components/admission/RiskAlert';
+import { ReferralModal } from '../components/admission/ReferralModal';
 import { admissionService } from '../services/admissionService';
 import { apiError } from '../services/api';
 import { canRecordClinical, formatDateTime, timeAgo, useClinicOptions, useWard } from '../lib/admission';
@@ -54,6 +57,7 @@ export function AdmissionDetail() {
   const [form, setForm] = useState(emptyAdmissionForm);
   const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState('');
+  const [refer, setRefer] = useState({ open: false, context: '' });
 
   const load = useCallback(async ({ resetForms = false, first = false } = {}) => {
     try {
@@ -100,6 +104,8 @@ export function AdmissionDetail() {
   const canRecord = canRecordClinical(user?.role);
   const canEdit = canRecord && (!detail.locked || isAdmin);
   const canEditItems = canRecord && (admission.status !== 'referred' || isAdmin);
+  const canReverse = ['doctor', 'admin'].includes(user?.role);
+  const openRefer = (context = '') => setRefer({ open: true, context });
 
   const done = {
     admission: true,
@@ -149,6 +155,10 @@ export function AdmissionDetail() {
 
       <div className="print:hidden flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
         <div className="max-w-4xl w-full mx-auto px-4 md:px-8 space-y-4">
+          <RiskHeader
+            admission={admission} record={detail.record} labelFor={labelFor} canRecord={canRecord} canReverse={canReverse}
+            onRefer={openRefer} onChanged={() => load({ resetForms: true })}
+          />
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <Link to="/admissions" className="text-primary-700 font-medium hover:underline">← All admissions</Link>
             {user?.role !== 'midwife' && (
@@ -201,6 +211,12 @@ export function AdmissionDetail() {
             <Card>
               <h3 className="text-base sm:text-lg font-semibold text-ink-900 mb-4">Admission and Discharge Record</h3>
               {detail.record && <div className="mb-5"><PatientRecordCard record={detail.record} /></div>}
+              <div className="mb-5">
+                <RiskAlert
+                  flags={form.risk_flags} admission={admission} labelFor={labelFor} canRecord={canEdit}
+                  onRefer={openRefer} onChanged={() => load({ resetForms: false })}
+                />
+              </div>
               <AdmissionFields
                 form={form} setForm={setForm} byGroup={byGroup} disabled={!canEdit}
                 ward={detail.locked ? null : ward} currentAdmissionId={admission.id}
@@ -218,12 +234,12 @@ export function AdmissionDetail() {
             <Card><p className="text-sm text-ink-600">Midwives' notes are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
           ))}
           {step === 'vitals' && (canRecord ? (
-            <StepVitals admission={admission} canEdit={canEdit} />
+            <StepVitals admission={admission} canEdit={canEdit} onRefer={openRefer} />
           ) : (
             <Card><p className="text-sm text-ink-600">Vital signs are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
           ))}
           {step === 'labor' && (canRecord ? (
-            <StepLabor admission={admission} canEdit={canEdit} onMarkInLabor={markInLabor} markingLabor={saving === 'labor'} />
+            <StepLabor admission={admission} canEdit={canEdit} onMarkInLabor={markInLabor} markingLabor={saving === 'labor'} onRefer={openRefer} />
           ) : (
             <Card><p className="text-sm text-ink-600">The labor chart is a clinical record. Midwives, nurses and doctors can read and write it.</p></Card>
           ))}
@@ -234,7 +250,7 @@ export function AdmissionDetail() {
             />
           )}
           {step === 'baby' && (
-            <StepBaby draft={draft} setDraft={setDraft} byGroup={byGroup} canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery} record={detail.record} />
+            <StepBaby draft={draft} setDraft={setDraft} byGroup={byGroup} canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery} record={detail.record} onRefer={canRecord ? openRefer : undefined} />
           )}
           {step === 'items' && (
             <StepItems
@@ -256,6 +272,11 @@ export function AdmissionDetail() {
         </div>
       </div>
 
+      <ReferralModal
+        open={refer.open} onClose={() => setRefer({ open: false, context: '' })} admission={admission}
+        context={refer.context} riskLabels={(admission.risk_flags || []).map((c) => labelFor('risk_flag', c))}
+        onReferred={() => load({ resetForms: true }).then(() => setStep('discharge'))}
+      />
       <PrintSummary detail={detail} labelFor={labelFor} />
     </div>
   );

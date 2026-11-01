@@ -28,6 +28,8 @@ export const admissionService = {
   sendToTransactions: (id) => api.post(`/admissions/${id}/transaction`).then(data),
   discharge: (id, payload) => api.post(`/admissions/${id}/discharge`, payload).then(data),
   refer: (id, payload) => api.post(`/admissions/${id}/referral`, payload).then(data),
+  reverseReferral: (id, reason) => api.post(`/admissions/${id}/referral/reverse`, { reason }).then(data),
+  acknowledgeRisk: (id, reason) => api.post(`/admissions/${id}/risk-ack`, { reason }).then(data),
   followups: (state = 'pending') => api.get('/admissions/followups', { params: { state } }).then(data),
   completeFollowup: (id, notes) => api.post(`/admissions/followups/${id}/done`, { notes }).then(data)
 };

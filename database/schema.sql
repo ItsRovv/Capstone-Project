@@ -391,6 +391,16 @@ CREATE TABLE IF NOT EXISTS referrals (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Referral reversal (a doctor can reopen a referred stay with a reason).
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reverse_reason TEXT;
+
+-- "Continue at clinic" decision for a referral-level warning sign (reason, who, when).
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_reason TEXT;
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_at TIMESTAMPTZ;
+
 -- Midwives' Notes: one row per entry. Date and time are set by the server and the author is
 -- the logged-in user, so an entry cannot be backdated or signed by someone else.
 CREATE TABLE IF NOT EXISTS midwife_notes (

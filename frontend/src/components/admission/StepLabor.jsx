@@ -17,11 +17,18 @@ const timeOf = (d) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric',
  * Labor chart: how labor is progressing over time. It is a separate page from the
  * Midwives' Notes, which stay a free-text diary.
  */
-export function StepLabor({ admission, canEdit, onMarkInLabor, markingLabor }) {
+// Same limits as THRESHOLDS.fetalHeartRate in backend/config/clinicalThresholds.js.
+const FHR_MIN = 110;
+const FHR_MAX = 160;
+
+export function StepLabor({ admission, canEdit, onMarkInLabor, markingLabor, onRefer }) {
   const toast = useToast();
   const [rows, setRows] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [fhrAlert, setFhrAlert] = useState(null);
+  const [dismissing, setDismissing] = useState(false);
+  const [dismissReason, setDismissReason] = useState('');
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const load = useCallback(async () => {
@@ -44,6 +51,8 @@ export function StepLabor({ admission, canEdit, onMarkInLabor, markingLabor }) {
     try {
       await admissionService.addLabor(admission.id, payload);
       setForm(EMPTY);
+      const fhr = payload.fetal_heart_rate;
+      if (fhr !== undefined && (fhr < FHR_MIN || fhr > FHR_MAX)) setFhrAlert(fhr);
       toast.success('Labor entry saved');
       await load();
     } catch (err) {
@@ -53,10 +62,45 @@ export function StepLabor({ admission, canEdit, onMarkInLabor, markingLabor }) {
     }
   }
 
+  // Dismissing is allowed only with a reason, which is kept as a midwife note (author and time set by the server).
+  async function dismissAlert() {
+    setSaving(true);
+    try {
+      await admissionService.addNote(admission.id, `Alert dismissed: baby's heartbeat ${fhrAlert} per min (normal ${FHR_MIN}-${FHR_MAX}). Reason: ${dismissReason.trim()}`);
+      setFhrAlert(null);
+      setDismissing(false);
+      setDismissReason('');
+    } catch (err) {
+      toast.error(apiError(err, 'Could not save the reason'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const hasInput = Object.values(form).some((v) => String(v).trim() !== '');
 
   return (
     <Card>
+      {fhrAlert !== null && (
+        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 mb-4 space-y-2">
+          <p className="font-bold">Baby's heartbeat {fhrAlert} per min is outside {FHR_MIN}-{FHR_MAX}</p>
+          <p>Create a referral, or dismiss with a reason.</p>
+          {dismissing ? (
+            <div className="space-y-2">
+              <Textarea label="Why are you dismissing this alert?" rows={2} value={dismissReason} onChange={(e) => setDismissReason(e.target.value)} />
+              <div className="flex gap-2 justify-end">
+                <Button size="sm" variant="ghost" onClick={() => setDismissing(false)}>Cancel</Button>
+                <Button size="sm" onClick={dismissAlert} loading={saving} disabled={dismissReason.trim().length < 3}>Dismiss with reason</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              {onRefer && <Button size="sm" variant="danger" onClick={() => onRefer(`Labor: baby's heartbeat ${fhrAlert} per min`)}>Create referral</Button>}
+              <Button size="sm" variant="secondary" onClick={() => setDismissing(true)}>Dismiss (reason required)</Button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h3 className="text-base sm:text-lg font-semibold text-ink-900">Labor chart</h3>

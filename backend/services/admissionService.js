@@ -520,6 +520,7 @@ function redactBundle(bundle) {
     referral: bundle.referral && { id: bundle.referral.id, facility: bundle.referral.facility, referred_at: bundle.referral.referred_at },
     followups: (bundle.followups || []).map(({ notes, ...rest }) => rest),
     record: null,
+    pregnancy: null,
     checklist: null,
     warnings: []
   };

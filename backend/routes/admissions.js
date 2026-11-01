@@ -5,6 +5,7 @@ const ClinicOption = require('../models/ClinicOption');
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
 const Pregnancy = require('../models/Pregnancy');
+const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
@@ -272,12 +273,13 @@ router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.patientId);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
-    const [consultations, pregnancies, active, settings, priorStays] = await Promise.all([
+    const [consultations, pregnancies, active, settings, priorStays, tracking] = await Promise.all([
       Consultation.findByPatientId(patient.id),
       Pregnancy.findByPatientId(patient.id),
       Admission.findActiveByPatient(patient.id),
       ClinicOption.getSettingsMap(),
-      Admission.list({ patientId: patient.id })
+      Admission.list({ patientId: patient.id }),
+      PregnancyTrackingForm.findLatestRowForPatient(patient.id)
     ]);
     const latest = consultations[0] || null;
     const pregnancy = pregnancies.find((p) => p.status === 'Ongoing') || null;
@@ -294,8 +296,11 @@ router.get('/prefill/:patientId', requireClinical, async (req, res) => {
         id: latest.id, visit_date: latest.visit_date, chief_complaint: latest.chief_complaint,
         diagnosis: latest.diagnosis, objective: latest.objective, delivery_location: latest.delivery_location
       },
-      pregnancy: pregnancy && {
-        id: pregnancy.id, lmp: pregnancy.lmp, edd: pregnancy.edd, gp: pregnancy.gp, weeks: pregnancy.weeks, trimester: pregnancy.trimester
+      pregnancy: (pregnancy || tracking) && {
+        ...(pregnancy && {
+          id: pregnancy.id, lmp: pregnancy.lmp, edd: pregnancy.edd, gp: pregnancy.gp, ob_index: pregnancy.ob_index, weeks: pregnancy.weeks, trimester: pregnancy.trimester
+        }),
+        tracking: tracking && pick(tracking, ['month_year', 'edd', 'obIndex', 'docSubmitted', 'deliveryDate'])
       },
       activeAdmissionId: active?.id || null,
       requireConsent: settings.require_consent !== 'false'
@@ -403,8 +408,20 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     const totalStatus = svc.incompleteTotal(items, bed);
     const packages = await resolvePackages(a.philhealth_packages);
     const record = svc.buildPatientRecord(await Patient.findById(a.patient_id));
+    const [pregnancies, tracking] = await Promise.all([
+      Pregnancy.findByPatientId(a.patient_id),
+      PregnancyTrackingForm.findLatestRowForPatient(a.patient_id)
+    ]);
+    const pregnancy = (pregnancies || []).find(
+      (p) => !['delivered', 'discharged', 'completed'].includes(String(p.status || '').toLowerCase())
+    ) || (pregnancies || [])[0] || null;
     const bundle = {
-      admission: a, record, delivery, items, itemsTotal: itemsSum, totalStatus, bed, wardName: settings.ward_name || 'Ward',
+      admission: a, record,
+      pregnancy: (pregnancy || tracking) && {
+        ...(pregnancy && pick(pregnancy, ['id', 'lmp', 'edd', 'gp', 'ob_index', 'weeks', 'trimester'])),
+        tracking: tracking && pick(tracking, ['month_year', 'edd', 'obIndex', 'docSubmitted', 'deliveryDate'])
+      },
+      delivery, items, itemsTotal: itemsSum, totalStatus, bed, wardName: settings.ward_name || 'Ward',
       packages, philhealthTotal: Math.round((packages.reduce((s, p) => s + p.amount, 0) + Number.EPSILON) * 100) / 100,
       grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
       discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status),

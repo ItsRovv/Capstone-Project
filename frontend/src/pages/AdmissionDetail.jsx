@@ -251,7 +251,7 @@ export function AdmissionDetail() {
           {step === 'admission' && (
             <Card>
               <h3 className="text-base sm:text-lg font-semibold text-ink-900 mb-4">Admission and Discharge Record</h3>
-              {detail.record && <div className="mb-5"><PatientRecordCard record={detail.record} /></div>}
+              {detail.record && <div className="mb-5"><PatientRecordCard record={detail.record} pregnancy={detail.pregnancy} /></div>}
               <div className="mb-5">
                 <RiskAlert
                   flags={form.risk_flags} admission={admission} labelFor={labelFor} canRecord={canEdit}

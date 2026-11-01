@@ -10,6 +10,7 @@ jest.mock('../models/Consultation');
 jest.mock('../models/Queue');
 jest.mock('../models/Patient');
 jest.mock('../models/Pregnancy');
+jest.mock('../models/PregnancyTrackingForm');
 jest.mock('../models/ConsultationTransaction');
 jest.mock('../models/AuditLog');
 jest.mock('../models/User');
@@ -24,6 +25,7 @@ const Patient = require('../models/Patient');
 const Consultation = require('../models/Consultation');
 const Queue = require('../models/Queue');
 const Pregnancy = require('../models/Pregnancy');
+const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const app = require('../server');
@@ -43,6 +45,7 @@ beforeEach(() => {
     ward_name: 'Ward', ward_beds: '3', bed_price_per_night: '500'
   });
   Admission.listActive.mockResolvedValue([]);
+  PregnancyTrackingForm.findLatestRowForPatient.mockResolvedValue(null);
   Admission.getChecklist.mockResolvedValue({
     items: { danger_signs_checked: true, breastfeeding_started: true, selfcare_info: true, newborn_care_info: true, wounds_checked: true },
     danger_signs: []

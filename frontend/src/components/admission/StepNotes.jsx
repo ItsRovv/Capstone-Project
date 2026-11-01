@@ -10,9 +10,9 @@ import { formatDay } from '../../lib/admission';
 
 // Same ink colours as the paper sheet: blue morning, black afternoon, red evening.
 const SHIFT_STYLE = {
-  morning: { text: 'text-blue-700', label: 'Morning shift (8 AM - 4 PM)', word: 'Morning' },
-  afternoon: { text: 'text-ink-900', label: 'Afternoon shift (4 PM - 12 AM)', word: 'Afternoon' },
-  evening: { text: 'text-red-700', label: 'Evening shift (12 AM - 8 AM)', word: 'Evening' }
+  morning: { text: 'text-blue-700', label: 'Morning shift (6 AM - 12 PM)', word: 'Morning' },
+  afternoon: { text: 'text-ink-900', label: 'Afternoon shift (12 PM - 6 PM)', word: 'Afternoon' },
+  evening: { text: 'text-red-700', label: 'Evening shift (6 PM - 6 AM)', word: 'Evening' }
 };
 
 const timeOf = (d) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });

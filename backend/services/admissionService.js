@@ -233,11 +233,11 @@ function initialsOf(name) {
   return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// The paper sheet uses ink colours per shift: blue 0800-1600, black 1600-0000, red 0000-0800 (Philippine time).
+// The paper sheet uses ink colours per shift: blue 0600-1200, black 1200-1800, red 1800-0600 (Philippine time).
 function shiftOf(date) {
   const hour = Math.floor(((new Date(date).getTime() + PH_OFFSET_MS) % 86400000) / 3600000);
-  if (hour >= 8 && hour < 16) return 'morning';
-  if (hour >= 16) return 'afternoon';
+  if (hour >= 6 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 18) return 'afternoon';
   return 'evening';
 }
 

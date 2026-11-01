@@ -228,9 +228,15 @@ describe("Midwives' Notes helpers", () => {
   });
 
   test('shift follows the paper sheet in Philippine time', () => {
-    expect(svc.shiftOf('2026-10-31T00:30:00Z')).toBe('morning');
-    expect(svc.shiftOf('2026-10-31T08:30:00Z')).toBe('afternoon');
-    expect(svc.shiftOf('2026-10-31T16:30:00Z')).toBe('evening');
+    expect(svc.shiftOf('2026-10-31T00:30:00Z')).toBe('morning');   // 08:30 PHT
+    expect(svc.shiftOf('2026-10-31T03:59:00Z')).toBe('morning');   // 11:59 PHT
+    expect(svc.shiftOf('2026-10-31T04:00:00Z')).toBe('afternoon'); // 12:00 PHT
+    expect(svc.shiftOf('2026-10-31T08:30:00Z')).toBe('afternoon'); // 16:30 PHT
+    expect(svc.shiftOf('2026-10-31T09:59:00Z')).toBe('afternoon'); // 17:59 PHT
+    expect(svc.shiftOf('2026-10-31T10:00:00Z')).toBe('evening');    // 18:00 PHT
+    expect(svc.shiftOf('2026-10-31T14:10:00Z')).toBe('evening');   // 22:10 PHT
+    expect(svc.shiftOf('2026-10-31T21:59:00Z')).toBe('evening');    // 05:59 PHT
+    expect(svc.shiftOf('2026-10-31T22:00:00Z')).toBe('morning');    // 06:00 PHT
   });
 });
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
@@ -46,6 +46,7 @@ function firstStep(detail) {
 
 export function AdmissionDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { onOpenMenu } = useOutletContext();
   const { user } = useAuth();
@@ -199,10 +200,10 @@ export function AdmissionDetail() {
             admission={admission} record={detail.record} labelFor={labelFor} canRecord={canRecord} canReverse={canReverse}
             onRefer={openRefer} onChanged={() => load({ resetForms: true })}
           />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <Link to="/admissions" className="text-primary-700 font-medium hover:underline">← All admissions</Link>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button size="sm" onClick={() => navigate('/admissions')}>All admissions</Button>
             {user?.role !== 'midwife' && (
-              <Link to={`/patients/${admission.patient_id}`} className="text-primary-700 font-medium hover:underline">Open patient profile →</Link>
+              <Button size="sm" onClick={() => navigate(`/patients/${admission.patient_id}`)}>Open patient profile</Button>
             )}
           </div>
 
@@ -309,8 +310,8 @@ export function AdmissionDetail() {
           {['admin', 'doctor'].includes(user?.role) && <HistoryCard admissionId={admission.id} />}
 
           <div className="flex justify-between pt-2">
-            <Button variant="ghost" disabled={step === STEPS[0].key} onClick={() => goToStep(STEPS[Math.max(0, STEPS.findIndex((s) => s.key === step) - 1)].key)}>← Back</Button>
-            <Button variant="ghost" disabled={step === STEPS[STEPS.length - 1].key} onClick={() => goToStep(STEPS[Math.min(STEPS.length - 1, STEPS.findIndex((s) => s.key === step) + 1)].key)}>Next →</Button>
+            <Button variant="ghost" disabled={step === STEPS[0].key} onClick={() => goToStep(STEPS[Math.max(0, STEPS.findIndex((s) => s.key === step) - 1)].key)}>Back</Button>
+            <Button variant="ghost" disabled={step === STEPS[STEPS.length - 1].key} onClick={() => goToStep(STEPS[Math.min(STEPS.length - 1, STEPS.findIndex((s) => s.key === step) + 1)].key)}>Next</Button>
           </div>
         </div>
       </div>

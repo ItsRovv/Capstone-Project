@@ -249,7 +249,7 @@ describe('front-desk privacy', () => {
   });
 });
 
-describe('consultation: plan to deliver at JLMC', () => {
+describe('consultation: delivery location recorded', () => {
   const post = (body, role = 'doctor') => as(role, 'post', '/consultations').send({ patient_id: 1, ...body });
 
   beforeEach(() => {
@@ -258,10 +258,19 @@ describe('consultation: plan to deliver at JLMC', () => {
     Queue.findByPatientToday.mockResolvedValue(null);
   });
 
-  test('adds an ongoing pregnancy once, so she shows up in pregnancy tracking', async () => {
+  test('adds an ongoing pregnancy once when JLMC is selected', async () => {
     Pregnancy.findByPatientId.mockResolvedValue([]);
     Pregnancy.create.mockResolvedValue(9);
-    const res = await post({ delivery_location: 'jlmc' });
+    const res = await post({ delivery_location: 'JLMC' });
+    expect(res.status).toBe(201);
+    expect(res.body.pregnancy_created).toBe(true);
+    expect(Pregnancy.create).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'Ongoing' }));
+  });
+
+  test('adds an ongoing pregnancy once when a custom delivery location is selected', async () => {
+    Pregnancy.findByPatientId.mockResolvedValue([]);
+    Pregnancy.create.mockResolvedValue(9);
+    const res = await post({ delivery_location: 'BICOL MEDICAL CENTER' });
     expect(res.status).toBe(201);
     expect(res.body.pregnancy_created).toBe(true);
     expect(Pregnancy.create).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'Ongoing' }));
@@ -269,12 +278,12 @@ describe('consultation: plan to deliver at JLMC', () => {
 
   test('does not create a second pregnancy when one is already ongoing', async () => {
     Pregnancy.findByPatientId.mockResolvedValue([{ id: 2, status: 'Ongoing' }]);
-    const res = await post({ delivery_location: 'jlmc' });
+    const res = await post({ delivery_location: 'JLMC' });
     expect(res.body.pregnancy_created).toBe(false);
     expect(Pregnancy.create).not.toHaveBeenCalled();
   });
 
-  test('does nothing when the box is not ticked', async () => {
+  test('does nothing when no delivery location is selected', async () => {
     const res = await post({});
     expect(res.body.pregnancy_created).toBe(false);
     expect(Pregnancy.findByPatientId).not.toHaveBeenCalled();
@@ -282,7 +291,7 @@ describe('consultation: plan to deliver at JLMC', () => {
 
   test('a failure here never loses the saved consultation', async () => {
     Pregnancy.findByPatientId.mockRejectedValue(new Error('db hiccup'));
-    const res = await post({ delivery_location: 'jlmc' });
+    const res = await post({ delivery_location: 'JLMC' });
     expect(res.status).toBe(201);
     expect(res.body.id).toBe(30);
   });

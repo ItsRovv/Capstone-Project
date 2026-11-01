@@ -117,7 +117,7 @@ export function PatientDetail() {
     try {
       const created = await consultationService.create({ ...payload, patient_id: Number(id) });
       toast.success('Consultation recorded');
-      if (created?.pregnancy_created) toast.info('Added to Pregnancy Tracking: she plans to deliver at JLMC.');
+      if (created?.pregnancy_created) toast.info('Added to Pregnancy Tracking: delivery location recorded.');
       setNewConsultOpen(false);
       load();
     } catch (err) {
@@ -359,6 +359,11 @@ export function PatientDetail() {
                             {c.chief_complaint || 'Consultation'}
                           </p>
                           <SoapBadge consultation={c} />
+                          {c.consultation_type && c.consultation_type !== 'normal' && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">
+                              {c.consultation_type}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-ink-500 mt-0.5">
                           {formatDateTime(c.visit_date)}
@@ -718,6 +723,9 @@ function ConsultationDetailModal({ consultation, onClose }) {
   if (!consultation) return null;
   const c = consultation;
   const editable = c.visit_date && Date.now() - new Date(c.visit_date).getTime() < ONE_WEEK_MS;
+  // Prenatal/postnatal consultations show a simple overview of the visit —
+  // the SOAP layout only applies to normal consultations.
+  const typedVisit = c.consultation_type === 'prenatal' || c.consultation_type === 'postnatal';
 
   return (
     <Modal
@@ -730,19 +738,26 @@ function ConsultationDetailModal({ consultation, onClose }) {
         {/* Header: date + badge */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-ink-500">{formatDateTime(c.visit_date)}</p>
-          <SoapBadge consultation={c} />
+          <div className="flex items-center gap-1.5">
+            {c.consultation_type && c.consultation_type !== 'normal' && (
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">
+                {c.consultation_type}
+              </span>
+            )}
+            <SoapBadge consultation={c} />
+          </div>
         </div>
 
         {/* Chief complaint */}
-        {c.chief_complaint && (
+        {!typedVisit && c.chief_complaint && (
           <div className="rounded-lg bg-ink-50 border border-ink-100 px-4 py-3">
             <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-0.5">Chief Complaint</p>
             <p className="text-sm font-medium text-ink-900">{c.chief_complaint}</p>
           </div>
         )}
 
-        {/* SOAP Notes — 2x2 grid */}
-        {(c.subjective || c.objective || c.assessment || c.plan) && (
+        {/* SOAP Notes — 2x2 grid (normal consultations only) */}
+        {!typedVisit && (c.subjective || c.objective || c.assessment || c.plan) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {c.subjective && (
               <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
@@ -771,7 +786,8 @@ function ConsultationDetailModal({ consultation, onClose }) {
           </div>
         )}
 
-        {/* Diagnosis + Follow-up */}
+        {/* Diagnosis + Follow-up (normal consultations only) */}
+        {!typedVisit && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {c.diagnosis && (
             <div>
@@ -786,14 +802,21 @@ function ConsultationDetailModal({ consultation, onClose }) {
             </div>
           )}
         </div>
+        )}
 
-        {/* Prescription */}
-        {c.prescription && (
+        {/* Prescription (normal consultations only) */}
+        {!typedVisit && c.prescription && (
           <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3">
             <p className="text-xs font-bold text-teal-700 uppercase tracking-wide mb-1">Prescription</p>
             <p className="text-sm text-ink-700 whitespace-pre-wrap font-mono">{c.prescription}</p>
           </div>
         )}
+
+        {/* Postnatal visit data */}
+        {c.postnatal_data && <PostnatalDataView data={c.postnatal_data} />}
+
+        {/* Prenatal visit data */}
+        {c.prenatal_data && <PrenatalDataView data={c.prenatal_data} />}
 
         {/* Legacy structured notes (if no SOAP fields) */}
         {!c.subjective && !c.objective && !c.assessment && !c.plan && c.structured_notes && (
@@ -814,6 +837,107 @@ function ConsultationDetailModal({ consultation, onClose }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+const POSTNATAL_SERVICE_LABELS = {
+  tetanus: 'Tetanus Immunization',
+  mms: 'MMS',
+  iron: 'Iron',
+  folic_acid: 'Folic Acid',
+  calcium: 'Calcium',
+  counseling: 'Counseling',
+  mental_health: 'Mental Health',
+  family_planning: 'Family Planning',
+  nutrition_counseling: 'Nutrition Counseling',
+  lactation_management: 'Lactation Management'
+};
+
+function PnField({ label, value }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider">{label}</p>
+      <p className="text-sm text-ink-700 whitespace-pre-wrap">{value}</p>
+    </div>
+  );
+}
+
+function postnatalServicesText(services) {
+  if (!services) return '';
+  return Object.entries(services)
+    .filter(([, v]) => (typeof v === 'object' ? v?.given : v))
+    .map(([k, v]) => {
+      const label = POSTNATAL_SERVICE_LABELS[k] || k;
+      return typeof v === 'object' && v.qty ? `${label} x${v.qty}` : label;
+    })
+    .join(', ');
+}
+
+function PostnatalDataView({ data }) {
+  const services = postnatalServicesText(data.services);
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+      <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">
+        Postpartum Care Record — Visit #{data.visit_no || '—'}
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <PnField label="Visit Date" value={formatDate(data.visit_date)} />
+        <PnField label="BP" value={data.bp} />
+        <PnField label="Temperature" value={data.temperature ? `${data.temperature}°C` : ''} />
+        <PnField label="Weight" value={data.weight_kg ? `${data.weight_kg} kg` : ''} />
+        <PnField label="Date of Delivery" value={formatDate(data.delivery_date)} />
+        <PnField label="Referred" value={data.referred ? `Yes${data.referral_reason ? ` — ${data.referral_reason}` : ''}` : ''} />
+        <PnField label="Provider" value={data.provider_name} />
+      </div>
+      <PnField label="General Survey / Pertinent Findings" value={data.general_survey} />
+      <PnField label="OB History" value={data.ob_history} />
+      <PnField label="Services Provided" value={services} />
+    </div>
+  );
+}
+
+const FETAL_POSITIONS = { C: 'Cephalic', B: 'Breech', O: 'Oblique', T: 'Transverse' };
+
+function PrenatalDataView({ data }) {
+  const yn = (v) => (v === 'Y' ? 'Yes' : v === 'N' ? 'No' : '');
+  return (
+    <div className="rounded-lg border border-pink-200 bg-pink-50/40 p-3 space-y-3">
+      <p className="text-xs font-bold text-pink-700 uppercase tracking-wide">Prenatal Check-up</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <PnField label="Visit Date" value={formatDate(data.visit_date)} />
+        <PnField label="AOG by LMP" value={data.aog_lmp} />
+        <PnField label="AOG by UTZ" value={data.aog_utz} />
+        <PnField label="BP" value={data.bp} />
+        <PnField label="Temperature" value={data.temperature ? `${data.temperature}°C` : ''} />
+        <PnField label="Pulse" value={data.pulse_rate ? `${data.pulse_rate} bpm` : ''} />
+        <PnField label="SpO2" value={data.spo2 ? `${data.spo2}%` : ''} />
+        <PnField label="Weight" value={data.weight_kg ? `${data.weight_kg} kg` : ''} />
+        <PnField label="Fundic Height" value={data.fundic_height_cm ? `${data.fundic_height_cm} cm` : ''} />
+        <PnField label="Fetal Heart Tone" value={data.fetal_heart_tone ? `${data.fetal_heart_tone} bpm` : ''} />
+        <PnField label="Fetal Position" value={FETAL_POSITIONS[data.fetal_position] || data.fetal_position} />
+        <PnField label="Next Visit" value={formatDate(data.next_visit)} />
+        <PnField label="Provider" value={data.provider_name} />
+      </div>
+      <PnField label="Hemoglobin Count" value={data.lab_hemoglobin} />
+      <PnField label="Urinalysis" value={data.lab_urinalysis} />
+      <PnField label="STIs" value={data.lab_stis} />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <PnField label="Swelling of face/hands" value={yn(data.swelling_face_hands)} />
+        <PnField label="Vaginal Bleeding" value={yn(data.vaginal_bleeding)} />
+        <PnField label="Vaginal Infection" value={yn(data.vaginal_infection)} />
+      </div>
+      {data.counseling?.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider">Counseling</p>
+          <ul className="text-sm text-ink-700 list-disc list-inside">
+            {data.counseling.map((c) => <li key={c}>{c}</li>)}
+          </ul>
+        </div>
+      )}
+      <PnField label="Rx and Supplements" value={data.rx_supplements} />
+      <PnField label="Remarks" value={data.remarks} />
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon';
 import { useToast } from '../components/UI/Toast';
 import { patientService } from '../services/patientService';
 import { queueService } from '../services/queueService';
+import { ConsultationTypeModal } from './Patients';
 import { apiError } from '../services/api';
 
 function StatusBadge({ status }) {
@@ -37,6 +38,7 @@ export function Consultations() {
   const [pickerPatients, setPickerPatients] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [typeTarget, setTypeTarget] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -67,13 +69,18 @@ export function Consultations() {
     }
   }
 
-  async function handleAddToQueue(patientId) {
+  function handlePickPatient(patient) {
+    setTypeTarget(patient);
+    setPickerOpen(false);
+    setPickerSearch('');
+  }
+
+  async function handleAddToQueue(patientId, consultationType = 'normal') {
     setAdding(true);
     try {
-      await queueService.add(patientId);
+      await queueService.add(patientId, consultationType);
       toast.success('Patient added to queue');
-      setPickerOpen(false);
-      setPickerSearch('');
+      setTypeTarget(null);
       load();
     } catch (err) {
       toast.error(apiError(err, 'Could not add to queue'));
@@ -308,7 +315,7 @@ export function Consultations() {
                     <button
                       type="button"
                       disabled={adding}
-                      onClick={() => handleAddToQueue(p.id)}
+                      onClick={() => handlePickPatient(p)}
                       className="w-full text-left px-3 py-3 flex items-center gap-3 hover:bg-ink-50 rounded-md transition-colors disabled:opacity-50"
                     >
                       <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-600 inline-flex items-center justify-center text-xs font-bold flex-shrink-0">
@@ -342,6 +349,14 @@ export function Consultations() {
           )}
         </div>
       </Modal>
+
+      <ConsultationTypeModal
+        open={Boolean(typeTarget)}
+        patient={typeTarget}
+        loading={adding}
+        onClose={() => setTypeTarget(null)}
+        onSelect={(type) => handleAddToQueue(typeTarget.id, type)}
+      />
     </div>
   );
 }

@@ -141,6 +141,14 @@ router.get('/patient/:patientId', async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+// Latest delivery for a patient — used to prefill postpartum/postnatal care.
+router.get('/patient/:patientId/latest-delivery', async (req, res) => {
+  try {
+    const delivery = await Admission.findLatestDeliveryByPatient(req.params.patientId);
+    res.json(delivery || null);
+  } catch (err) { routeError(res, err); }
+});
+
 // Everything we already know about the patient, so staff do not retype it.
 router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {

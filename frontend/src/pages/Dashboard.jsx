@@ -338,7 +338,7 @@ export function Dashboard() {
                   {recentConsultations.map((c, i) => (
                     <Link
                       key={c.id}
-                      to={`/patients/${c.patient_id}`}
+                      to={`/patients/${c.patient_id}?tab=consultations&consultation=${c.id}`}
                       className="flex-shrink-0 w-56 rounded-lg border border-ink-200 overflow-hidden hover:border-primary-300 transition-colors"
                     >
                       <div className={BANNER_TONES[i % BANNER_TONES.length]} />

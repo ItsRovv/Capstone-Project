@@ -239,7 +239,7 @@ const referralSchema = Joi.object({
   notes: shortText(2000)
 }).unknown(false);
 
-const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item'];
+const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item', 'vitamin', 'consult_package'];
 
 const clinicOptionSchema = Joi.object({
   option_group: Joi.string().valid(...OPTION_GROUPS).required(),

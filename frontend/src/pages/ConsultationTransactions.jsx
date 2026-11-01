@@ -154,10 +154,10 @@ export function ConsultationTransactions() {
   return (
     <div className="h-full flex flex-col">
       <Topbar
-        title="Consultation Transactions"
+        title="Transactions"
         subtitle={
           canManage
-            ? "Vitamins charged at clinic & PhilHealth packages (for reference), grouped by patient."
+            ? "Payment records for consultations and admissions — vitamins charged at clinic & PhilHealth packages (for reference), grouped by patient."
             : "Collect payments based on the doctor's prescription. Totals shown below."
         }
         onMenuClick={onOpenMenu}

@@ -13,7 +13,9 @@ import { useClinicOptions } from '../lib/admission';
 
 const LISTS = [
   { group: 'item', title: 'Items used during a stay', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true },
-  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the payment step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true }
+  { group: 'vitamin', title: 'Vitamins & supplements', help: 'Vitamins staff can tick when recording a transaction — these are charged at the clinic.', price: true },
+  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the payment step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true },
+  { group: 'consult_package', title: 'Consultation PhilHealth packages', help: 'Packages staff can tick in a transaction (antenatal care, postpartum care, vaccines). For reference only — availed through PhilHealth, not charged at the clinic.', price: true }
 ];
 const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
 

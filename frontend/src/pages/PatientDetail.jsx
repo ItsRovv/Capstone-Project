@@ -98,6 +98,22 @@ export function PatientDetail() {
     load();
   }, [id]);
 
+  // Deep link: ?tab=consultations&consultation=<id> opens that consultation's
+  // details once the list has loaded. Consumed once, then stripped from the URL.
+  useEffect(() => {
+    const consultId = searchParams.get('consultation');
+    if (!consultId || !consultations.length) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('consultation');
+    setSearchParams(next, { replace: true });
+    if (isStaff) { setTab('overview'); return; }
+    const match = consultations.find((c) => String(c.id) === String(consultId));
+    if (match) {
+      setTab('consultations');
+      setViewConsult(match);
+    }
+  }, [consultations, isStaff, searchParams, setSearchParams]);
+
   async function handleEdit(payload) {
     setEditSubmitting(true);
     try {
@@ -332,7 +348,7 @@ export function PatientDetail() {
           </Card>
         )}
 
-        {tab === 'consultations' && (
+        {tab === 'consultations' && !isStaff && (
           <Card padding="p-0" className="overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
               <p className="font-semibold text-ink-900">

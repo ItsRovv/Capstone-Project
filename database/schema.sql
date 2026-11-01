@@ -533,6 +533,28 @@ INSERT INTO clinic_options (option_group, code, label, price, category, sort_ord
   ('package', '99460', 'Newborn Care Package', 2950, 'philhealth', 3)
 ON CONFLICT (option_group, code) DO NOTHING;
 
+-- Vitamins charged at the clinic in Transactions, and the consultation
+-- PhilHealth packages (antenatal, postpartum, vaccines) shown for reference.
+-- Both lists are editable in Clinic Settings > Lists and prices.
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order) VALUES
+  ('vitamin', 'ferrous_sulfate', 'Ferrous Sulfate 325mg', 15, 'vitamin', 1),
+  ('vitamin', 'folic_acid', 'Folic Acid 400mcg', 10, 'vitamin', 2),
+  ('vitamin', 'calcium_carbonate', 'Calcium Carbonate 500mg', 20, 'vitamin', 3),
+  ('vitamin', 'vitamin_c', 'Vitamin C 500mg', 12, 'vitamin', 4),
+  ('vitamin', 'vitamin_d', 'Vitamin D 1000IU', 18, 'vitamin', 5),
+  ('vitamin', 'zinc', 'Zinc Sulfate 220mg', 14, 'vitamin', 6),
+  ('vitamin', 'iodine', 'Iodine (Potassium Iodide) 250mcg', 16, 'vitamin', 7),
+  ('vitamin', 'multivitamin_prenatal', 'Prenatal Multivitamin', 35, 'vitamin', 8),
+  ('vitamin', 'vitamin_b_complex', 'Vitamin B Complex', 22, 'vitamin', 9),
+  ('vitamin', 'vitamin_a', 'Vitamin A 5000IU', 13, 'vitamin', 10),
+  ('consult_package', 'ANV01', 'Antenatal Care — 1st Trimester', 1100, 'philhealth', 1),
+  ('consult_package', 'ANV02', 'Antenatal Care — 2nd Trimester', 1500, 'philhealth', 2),
+  ('consult_package', 'ANV03', 'Antenatal Care — 3rd Trimester', 3750, 'philhealth', 3),
+  ('consult_package', 'PPC01', 'Postpartum Care (3 visits)', 1350, 'philhealth', 4),
+  ('consult_package', 'TDAP1', 'Tetanus-Diphtheria-Pertussis Vaccine — 1st Dose', 150, 'philhealth', 5),
+  ('consult_package', 'TDAP2', 'Tetanus-Diphtheria-Pertussis Vaccine — 2nd Dose', 150, 'philhealth', 6)
+ON CONFLICT (option_group, code) DO NOTHING;
+
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
   ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),
   ('followup_offsets_hours', '72,168', 'Postpartum follow-up visits, hours after discharge (72 = 3 days, 168 = 7 days)'),

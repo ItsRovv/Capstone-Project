@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from './UI/Button';
 import { Textarea, Select } from './UI/Input';
 import { PHILHEALTH_PACKAGES } from '../constants/philhealthPackages';
 import { VITAMINS } from '../constants/vitamins';
+import { clinicService } from '../services/admissionService';
 
 function formatCurrency(n) {
   return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -33,14 +34,35 @@ export function TransactionForm({
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
 
+  // Vitamin and PhilHealth lists are managed in Clinic Settings; the constants
+  // stay as a fallback so the form still works if the lists can't be loaded.
+  const [vitamins, setVitamins] = useState(VITAMINS);
+  const [packages, setPackages] = useState(PHILHEALTH_PACKAGES);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      clinicService.options('vitamin').catch(() => null),
+      clinicService.options('consult_package').catch(() => null)
+    ]).then(([vits, pkgs]) => {
+      if (cancelled) return;
+      if (vits?.length) {
+        setVitamins(vits.map((o) => ({ id: o.code, label: o.label, price: Number(o.price || 0) })));
+      }
+      if (pkgs?.length) {
+        setPackages(pkgs.map((o) => ({ code: o.code, label: o.label, amount: Number(o.price || 0) })));
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const selectedPackages = useMemo(
-    () => PHILHEALTH_PACKAGES.filter((p) => selectedCodes.has(p.code)),
-    [selectedCodes]
+    () => packages.filter((p) => selectedCodes.has(p.code)),
+    [packages, selectedCodes]
   );
 
   const selectedVitamins = useMemo(
-    () => VITAMINS.filter((v) => selectedVitaminIds.has(v.id)),
-    [selectedVitaminIds]
+    () => vitamins.filter((v) => selectedVitaminIds.has(v.id)),
+    [vitamins, selectedVitaminIds]
   );
 
   // Total to pay = ONLY vitamins (PhilHealth is availed through PhilHealth, not the clinic)
@@ -160,7 +182,7 @@ export function TransactionForm({
           Vitamins &amp; Supplements <span className="text-xs font-normal text-ink-500">(paid at clinic)</span>
         </p>
         <div className="rounded-lg border border-ink-200 divide-y divide-ink-100 overflow-hidden">
-          {VITAMINS.map((v) => (
+          {vitamins.map((v) => (
             <label
               key={v.id}
               className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-ink-50/60 cursor-pointer"
@@ -242,7 +264,7 @@ export function TransactionForm({
           PhilHealth Packages <span className="text-xs font-normal text-ink-500">(availed through PhilHealth — not charged at clinic)</span>
         </p>
         <div className="rounded-lg border border-ink-200 divide-y divide-ink-100 overflow-hidden bg-ink-50/30">
-          {PHILHEALTH_PACKAGES.map((pkg) => (
+          {packages.map((pkg) => (
             <label
               key={pkg.code}
               className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-ink-50/60 cursor-pointer"

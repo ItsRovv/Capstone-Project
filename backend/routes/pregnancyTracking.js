@@ -53,13 +53,75 @@ async function syncPregnancyRows(rows) {
   return count;
 }
 
-// Get active pregnancies pre-filled for the tracking form.
+// Which trimester column a visit belongs in, from the month of pregnancy
+// (1-7 = one col each, month 8 = 2 cols, month 9 = 4 cols, postpartum = 2 cols).
+function trimesterCol(row, monthOfPregnancy) {
+  const t = row.trimester || [];
+  const pick = (cols) => cols.find((c) => !String(t[c] || '').trim());
+  if (monthOfPregnancy <= 7) return String(t[monthOfPregnancy - 1] || '').trim() ? null : monthOfPregnancy - 1;
+  if (monthOfPregnancy === 8) return pick([7, 8]);
+  if (monthOfPregnancy === 9) return pick([9, 10, 11, 12]);
+  return pick([13, 14]);
+}
+
+// A prenatal consultation writes itself into the patient's tracking row for the
+// month the visit happened — details plus the visit date in the right trimester col.
+async function recordPrenatalVisit(patientId, visitDate) {
+  const pid = Number(patientId);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const [patient, pregnancies] = await Promise.all([Patient.findById(pid), Pregnancy.findByPatientId(pid)]);
+  const active = (pregnancies || []).find(isActivePregnancy);
+  if (!patient || !active) return false;
+
+  const when = visitDate ? new Date(visitDate) : new Date();
+  if (Number.isNaN(when.getTime())) return false;
+  const monthYear = when.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const mmdd = `${String(when.getMonth() + 1).padStart(2, '0')}/${String(when.getDate()).padStart(2, '0')}`;
+  const monthOfPregnancy = active.weeks ? Math.max(1, Math.ceil(Number(active.weeks) / 4.345)) : 9;
+
+  const form = await PregnancyTrackingForm.findByMonthYear(monthYear);
+  const rows = form ? (typeof form.rows === 'string' ? JSON.parse(form.rows) : form.rows || []) : [];
+  let row = rows.find((r) => Number(r?.patient_id) === pid);
+  if (!row) {
+    row = {
+      patient_id: pid,
+      name: `${patient.first_name} ${patient.last_name}`,
+      address: patient.address || '',
+      age: patient.age ?? '',
+      cpNumber: patient.contact_number || '',
+      docSubmitted: false,
+      edd: active.edd || '',
+      obIndex: active.gp || active.ob_index || '',
+      trimester: Array(TOTAL_TRIMESTER_COLS).fill(''),
+      deliveryDate: ''
+    };
+    rows.push(row);
+  }
+  const col = trimesterCol(row, monthOfPregnancy);
+  if (col !== null && col !== undefined) row.trimester[col] = mmdd;
+  if (active.edd) row.edd = active.edd;
+  if (active.gp || active.ob_index) row.obIndex = active.gp || active.ob_index;
+
+  if (form) await PregnancyTrackingForm.update(monthYear, rows);
+  else await PregnancyTrackingForm.create(monthYear, rows);
+  return true;
+}
+
+module.exports.recordPrenatalVisit = recordPrenatalVisit;
+
+// Get active pregnancies pre-filled for the tracking form. isOld marks patients
+// with earlier records; deliveryInJlmc marks those set to deliver (or delivered) here.
 router.get('/active-pregnancies', async (req, res) => {
   try {
     const pregnancies = await Pregnancy.findActive();
+    const Consultation = require('../models/Consultation');
     const rows = await Promise.all(
       pregnancies.map(async (pr) => {
         const patient = await Patient.findById(pr.patient_id);
+        const consults = await Consultation.findByPatientId(pr.patient_id).catch(() => []);
+        const latest = (consults || [])[0] || null;
+        const isOld = (consults || []).length > 1 || pregnancies.filter((p) => p.patient_id === pr.patient_id).length > 1;
+        const deliveryInJlmc = ['JLMC', 'jlmc'].includes(String(latest?.delivery_location || '')) || latest === null;
         return {
           patient_id: pr.patient_id,
           name: patient ? `${patient.first_name} ${patient.last_name}` : '',
@@ -70,7 +132,9 @@ router.get('/active-pregnancies', async (req, res) => {
           edd: pr.edd || '',
           obIndex: pr.gp || '',
           trimester: Array(TOTAL_TRIMESTER_COLS).fill(''),
-          deliveryDate: ''
+          deliveryDate: '',
+          isOld,
+          deliveryInJlmc
         };
       })
     );

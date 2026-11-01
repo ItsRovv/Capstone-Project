@@ -131,6 +131,15 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
         console.warn('[consultations] could not add pregnancy record:', e.message);
       }
     }
+
+    // A prenatal visit writes itself into the patient's pregnancy tracking row.
+    if (String(value.consultation_type || 'normal') === 'prenatal') {
+      try {
+        await require('./pregnancyTracking').recordPrenatalVisit(value.patient_id, value.visit_date);
+      } catch (e) {
+        console.warn('[consultations] could not update tracking form:', e.message);
+      }
+    }
     res.status(201).json({
       id: consultationId,
       pregnancy_created: pregnancyCreated,

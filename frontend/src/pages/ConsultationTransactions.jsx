@@ -11,6 +11,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { patientService } from '../services/patientService';
 import { consultationService } from '../services/consultationService';
 import { consultationTransactionService } from '../services/consultationTransactionService';
+import { admissionService } from '../services/admissionService';
+import { Select } from '../components/UI/Input';
 import { TransactionForm } from '../components/TransactionForm';
 import { apiError } from '../services/api';
 
@@ -58,12 +60,11 @@ export function ConsultationTransactions() {
   const canManage = user?.role === 'admin' || user?.role === 'doctor';
   const [grouped, setGrouped] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [addModal, setAddModal] = useState({
-    open: false,
-    patientId: null,
-    patientName: '',
-    consultations: []
-  });
+  const [allPatients, setAllPatients] = useState([]);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [ctype, setCtype] = useState('all');
+  const emptyModal = { open: false, patientId: null, patientName: '', consultations: [], admissions: [], mode: null };
+  const [addModal, setAddModal] = useState(emptyModal);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [expandedPatients, setExpandedPatients] = useState(new Set());
@@ -76,6 +77,7 @@ export function ConsultationTransactions() {
         consultationTransactionService.listAll().catch(() => [])
       ]);
       const patients = patientsRes.data || [];
+      setAllPatients(patients);
       const txMap = new Map();
       for (const t of allTransactions) {
         if (!txMap.has(t.patient_id)) txMap.set(t.patient_id, []);
@@ -109,17 +111,23 @@ export function ConsultationTransactions() {
   }, []);
 
   async function openAddModal(patient) {
+    setCtype('all');
     setAddModal({
       open: true,
       patientId: patient.id,
       patientName: `${patient.first_name} ${patient.last_name}`,
-      consultations: []
+      consultations: [],
+      admissions: [],
+      mode: null
     });
     try {
-      const consultations = await consultationService.listForPatient(patient.id);
-      setAddModal((m) => (m.patientId === patient.id ? { ...m, consultations } : m));
+      const [consultations, admissions] = await Promise.all([
+        consultationService.listForPatient(patient.id).catch(() => []),
+        admissionService.forPatient(patient.id).catch(() => [])
+      ]);
+      setAddModal((m) => (m.patientId === patient.id ? { ...m, consultations, admissions } : m));
     } catch {
-      // Non-fatal — form still works without the optional consultation link.
+      // Non-fatal — form still works without the optional links.
     }
   }
 
@@ -128,7 +136,7 @@ export function ConsultationTransactions() {
     try {
       await consultationTransactionService.create(payload);
       toast.success('Transaction recorded');
-      setAddModal({ open: false, patientId: null, patientName: '', consultations: [] });
+      setAddModal(emptyModal);
       load();
     } catch (err) {
       toast.error(apiError(err, 'Could not save transaction'));
@@ -163,11 +171,9 @@ export function ConsultationTransactions() {
         onMenuClick={onOpenMenu}
         right={
           canManage ? (
-            <Link to="/patients">
-              <Button>
-                <Icon.Plus width={16} height={16} /> <span className="sm:hidden">New</span><span className="hidden sm:inline">New transaction</span>
-              </Button>
-            </Link>
+            <Button onClick={() => { setPatientSearch(''); setAddModal({ ...emptyModal, open: true }); }}>
+              <Icon.Plus width={16} height={16} /> <span className="sm:hidden">Add</span><span className="hidden sm:inline">Add transaction</span>
+            </Button>
           ) : undefined
         }
       />
@@ -391,17 +397,83 @@ export function ConsultationTransactions() {
 
       <Modal
         open={addModal.open}
-        onClose={() => setAddModal({ open: false, patientId: null, patientName: '', consultations: [] })}
-        title={`New transaction — ${addModal.patientName}`}
+        onClose={() => setAddModal(emptyModal)}
+        title={addModal.patientId ? `Add transaction — ${addModal.patientName}` : 'Add transaction'}
         size="lg"
       >
-        <TransactionForm
-          patientId={addModal.patientId}
-          consultations={addModal.consultations}
-          onSubmit={handleAddTransaction}
-          submitting={submitting}
-          onCancel={() => setAddModal({ open: false, patientId: null, patientName: '', consultations: [] })}
-        />
+        {!addModal.patientId ? (
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={patientSearch}
+              onChange={(e) => setPatientSearch(e.target.value)}
+              placeholder="Search patient…"
+              autoFocus
+              className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+            />
+            <div className="max-h-80 overflow-y-auto divide-y divide-ink-100 rounded-lg border border-ink-200">
+              {allPatients
+                .filter((p) => `${p.first_name} ${p.last_name}`.toLowerCase().includes(patientSearch.toLowerCase()))
+                .slice(0, 50)
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => openAddModal(p)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-primary-50 flex items-center gap-3 transition-colors"
+                  >
+                    <span className="w-8 h-8 flex-shrink-0 rounded-full bg-primary-100 text-primary-600 inline-flex items-center justify-center text-xs font-bold">
+                      {p.first_name?.charAt(0)?.toUpperCase()}
+                    </span>
+                    <span className="text-sm font-medium text-ink-900">{p.first_name} {p.last_name}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        ) : !addModal.mode ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setAddModal((m) => ({ ...m, mode: 'admission' }))}
+              className="rounded-xl border-2 border-ink-200 hover:border-primary-400 hover:bg-primary-50/40 p-5 text-left transition-colors"
+            >
+              <p className="font-bold text-ink-900">Admission and Discharge</p>
+              <p className="text-xs text-ink-500 mt-1">Transaction tied to the patient's stay (vitals, items, packages).</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddModal((m) => ({ ...m, mode: 'consultation' }))}
+              className="rounded-xl border-2 border-ink-200 hover:border-primary-400 hover:bg-primary-50/40 p-5 text-left transition-colors"
+            >
+              <p className="font-bold text-ink-900">Consultation</p>
+              <p className="text-xs text-ink-500 mt-1">Normal, pre-natal or post-natal visit.</p>
+            </button>
+          </div>
+        ) : (
+          <>
+            {addModal.mode === 'consultation' && (
+              <div className="mb-4">
+                <Select label="Consultation type" value={ctype} onChange={(e) => setCtype(e.target.value)}>
+                  <option value="all">All types</option>
+                  <option value="normal">Normal Consultation</option>
+                  <option value="prenatal">Pre-Natal Consultation</option>
+                  <option value="postnatal">Post-Natal Consultation</option>
+                </Select>
+              </div>
+            )}
+            <TransactionForm
+              patientId={addModal.patientId}
+              mode={addModal.mode}
+              consultations={addModal.consultations.filter(
+                (c) => ctype === 'all' || (c.consultation_type || 'normal') === ctype
+              )}
+              admissions={addModal.admissions}
+              onSubmit={handleAddTransaction}
+              submitting={submitting}
+              onCancel={() => setAddModal(emptyModal)}
+            />
+          </>
+        )}
       </Modal>
     </div>
   );

@@ -51,7 +51,9 @@ function normalizeRow(row) {
     trimester: Array.isArray(row.trimester) && row.trimester.length === TOTAL_TRIMESTER_COLS
       ? row.trimester.map((v) => (v == null ? '' : String(v)))
       : Array(TOTAL_TRIMESTER_COLS).fill(''),
-    deliveryDate: row.deliveryDate ?? ''
+    deliveryDate: row.deliveryDate ?? '',
+    isOld: row.isOld ?? false,
+    deliveryInJlmc: row.deliveryInJlmc ?? true
   };
 }
 
@@ -70,6 +72,8 @@ export function PregnancyTrackingForm() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(100);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [jlmcFilter, setJlmcFilter] = useState('all');
   const savingRef = useRef(false);
 
   // Load saved form for the selected month/year; if none exists, auto-fill from active pregnancies.
@@ -79,7 +83,14 @@ export function PregnancyTrackingForm() {
       setLoading(true);
       try {
         const saved = await pregnancyTrackingService.getByMonthYear(monthYear);
-        if (!cancelled) setRows(normalizeRows(saved.rows));
+        const flags = await pregnancyTrackingService.getActivePregnancies().catch(() => []);
+        if (!cancelled) {
+          const flagMap = new Map(flags.map((f) => [Number(f.patient_id), f]));
+          setRows(normalizeRows(saved.rows).map((r) => {
+            const f = r.patient_id ? flagMap.get(Number(r.patient_id)) : null;
+            return f ? { ...r, isOld: f.isOld, deliveryInJlmc: f.deliveryInJlmc } : r;
+          }));
+        }
       } catch (err) {
         if (err.response?.status === 404) {
           try {
@@ -363,6 +374,27 @@ export function PregnancyTrackingForm() {
                 <span className="text-[10px] text-ink-500 mt-0.5">Month & Year</span>
               </div>
 
+              <div className="flex items-center gap-2 print:hidden">
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-ink-200 text-xs outline-none focus:border-primary-400"
+                >
+                  <option value="all">All patients</option>
+                  <option value="new">New only</option>
+                  <option value="old">Old only</option>
+                </select>
+                <select
+                  value={jlmcFilter}
+                  onChange={(e) => setJlmcFilter(e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-ink-200 text-xs outline-none focus:border-primary-400"
+                >
+                  <option value="all">Any delivery site</option>
+                  <option value="jlmc">Delivery in JLMC</option>
+                  <option value="other">Delivery elsewhere</option>
+                </select>
+              </div>
+
               <div className="flex items-center gap-2">
                 <JLMCLogo size={40} />
                 <span className="text-lg font-bold text-ink-800 tracking-wide">JLMC</span>
@@ -426,7 +458,14 @@ export function PregnancyTrackingForm() {
                 </thead>
 
                 <tbody>
-                  {rows.map((row, rowIdx) => (
+                  {rows
+                    .map((row, rowIdx) => ({ row, rowIdx }))
+                    .filter(({ row }) =>
+                      !row.patient_id ||
+                      ((typeFilter === 'all' || (typeFilter === 'old') === !!row.isOld) &&
+                       (jlmcFilter === 'all' || (jlmcFilter === 'jlmc') === !!row.deliveryInJlmc))
+                    )
+                    .map(({ row, rowIdx }) => (
                     <tr key={rowIdx}>
                       <td className="border border-ink-800 text-center text-ink-700 font-medium h-10 text-xs">
                         {rowIdx + 1}

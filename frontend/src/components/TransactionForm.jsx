@@ -12,12 +12,15 @@ function formatCurrency(n) {
 export function TransactionForm({
   patientId,
   consultations = [],
+  admissions = [],
+  mode = 'consultation',
   initial,
   onSubmit,
   onCancel,
   submitting
 }) {
   const [consultationId, setConsultationId] = useState(initial?.consultation_id || '');
+  const [admissionId, setAdmissionId] = useState(initial?.admission_id || '');
   const [selectedCodes, setSelectedCodes] = useState(
     () => new Set((initial?.packages || []).map((p) => p.code))
   );
@@ -127,7 +130,8 @@ export function TransactionForm({
     ];
     onSubmit({
       patient_id: patientId,
-      consultation_id: consultationId || null,
+      consultation_id: mode === 'admission' ? null : consultationId || null,
+      admission_id: mode === 'admission' ? admissionId || null : null,
       packages: selectedPackages.map(({ code, label, amount }) => ({ code, label, amount })),
       vitamins: allVitamins,
       recommendations: recommendations || null,
@@ -138,7 +142,25 @@ export function TransactionForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {consultations.length > 0 && (
+      {mode === 'admission' && (
+        <Select
+          label="Link to an admission stay (optional)"
+          value={admissionId}
+          onChange={(e) => setAdmissionId(e.target.value)}
+        >
+          <option value="">— No specific stay —</option>
+          {admissions.map((a) => (
+            <option key={a.id} value={a.id}>
+              {new Date(a.admitted_at || a.created_at).toLocaleDateString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric'
+              })}
+              {a.status ? ` — ${a.status}` : ''}{a.bed_label ? ` — Bed ${a.bed_label}` : ''}
+            </option>
+          ))}
+        </Select>
+      )}
+
+      {mode !== 'admission' && consultations.length > 0 && (
         <Select
           label="Link to consultation visit (optional)"
           value={consultationId}

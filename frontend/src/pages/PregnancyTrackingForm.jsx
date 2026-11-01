@@ -7,6 +7,9 @@ import { pregnancyTrackingService } from '../services/pregnancyTrackingService';
 import { apiError } from '../services/api';
 
 const ROW_COUNT = 15;
+const ZOOM_MIN = 60;
+const ZOOM_MAX = 200;
+const ZOOM_STEP = 10;
 
 function getCurrentMonthYear() {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -66,6 +69,7 @@ export function PregnancyTrackingForm() {
   const [rows, setRows] = useState(initialRows);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [zoom, setZoom] = useState(100);
   const savingRef = useRef(false);
 
   // Load saved form for the selected month/year; if none exists, auto-fill from active pregnancies.
@@ -161,6 +165,34 @@ export function PregnancyTrackingForm() {
               )}
             </p>
             <div className="flex items-center gap-2">
+              <div className="inline-flex items-center rounded-lg border border-ink-200 bg-white overflow-hidden" role="group" aria-label="Zoom">
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
+                  disabled={zoom <= ZOOM_MIN}
+                  aria-label="Zoom out"
+                  className="px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom(100)}
+                  title="Reset zoom"
+                  className="px-2 py-2 text-xs font-medium text-ink-600 hover:bg-ink-50 min-w-[3.25rem] border-x border-ink-200"
+                >
+                  {zoom}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
+                  disabled={zoom >= ZOOM_MAX}
+                  aria-label="Zoom in"
+                  className="px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
               <button
                 onClick={() => handleSave(false)}
                 disabled={saving || loading}
@@ -202,7 +234,7 @@ export function PregnancyTrackingForm() {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto print:![zoom:1]" style={{ zoom: zoom / 100 }}>
               <table className="w-full border-collapse border border-ink-800 text-sm">
                 <thead>
                   {/* Main header row */}

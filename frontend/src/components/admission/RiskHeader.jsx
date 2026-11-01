@@ -38,7 +38,7 @@ export function RiskHeader({ admission, record, labelFor, canRecord, canReverse,
   }
 
   return (
-    <div className="sticky top-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-2.5 bg-white/95 backdrop-blur border-b border-ink-200 print:hidden">
+    <div className="-mx-4 md:-mx-8 px-4 md:px-8 py-2.5 bg-white border-b border-ink-200 print:hidden">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
         <span className="font-semibold text-ink-900">{admission.first_name} {admission.last_name}</span>
         <span className="text-ink-600">{admission.bed_number ? `Bed ${admission.bed_number}` : 'No bed'}</span>
@@ -52,7 +52,7 @@ export function RiskHeader({ admission, record, labelFor, canRecord, canReverse,
           <span className="inline-flex items-center rounded-full bg-red-600 px-2.5 py-0.5 text-xs font-semibold text-white">Referred</span>
         )}
         <span className="flex-1" />
-        {canRecord && open && (
+        {canRecord && open && flags.length > 0 && (
           <Button size="sm" variant="danger" onClick={() => onRefer('')}>Refer patient</Button>
         )}
         {canReverse && referred && (

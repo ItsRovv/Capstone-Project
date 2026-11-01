@@ -180,7 +180,10 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
             setForm((f) => ({ ...f, attending_user_id: e.target.value, attending_physician: person ? person.name : '' }));
           }}
         >
-          <option value="">{form.attending_physician && !form.attending_user_id ? `${form.attending_physician} (typed earlier)` : 'Choose…'}</option>
+          <option value="">Choose…</option>
+          {form.attending_physician && !form.attending_user_id && (
+            <option value="" disabled>{form.attending_physician}</option>
+          )}
           {staff.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
         </Select>
       </div>

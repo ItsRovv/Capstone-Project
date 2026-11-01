@@ -10,9 +10,9 @@ import { formatDay } from '../../lib/admission';
 
 // Same ink colours as the paper sheet: blue morning, black afternoon, red evening.
 const SHIFT_STYLE = {
-  morning: { text: 'text-blue-700', label: 'Morning shift (8 AM - 4 PM)' },
-  afternoon: { text: 'text-ink-900', label: 'Afternoon shift (4 PM - 12 AM)' },
-  evening: { text: 'text-red-700', label: 'Evening shift (12 AM - 8 AM)' }
+  morning: { text: 'text-blue-700', label: 'Morning shift (8 AM - 4 PM)', word: 'Morning' },
+  afternoon: { text: 'text-ink-900', label: 'Afternoon shift (4 PM - 12 AM)', word: 'Afternoon' },
+  evening: { text: 'text-red-700', label: 'Evening shift (12 AM - 8 AM)', word: 'Evening' }
 };
 
 const timeOf = (d) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -52,10 +52,10 @@ export function StepNotes({ admission, canEdit, isAdmin, userName }) {
   }
 
   async function saveCorrection() {
-    if (!editing?.description.trim()) return;
+    if (!editing?.description.trim() || editing.reason.trim().length < 3) return;
     setSaving(true);
     try {
-      await admissionService.correctNote(admission.id, editing.id, editing.description.trim());
+      await admissionService.correctNote(admission.id, editing.id, editing.description.trim(), editing.reason.trim());
       setEditing(null);
       toast.success('Note corrected');
       await load();
@@ -99,6 +99,7 @@ export function StepNotes({ admission, canEdit, isAdmin, userName }) {
               <tr>
                 <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Date</th>
                 <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Time</th>
+                <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Shift</th>
                 <th className="text-left px-3 py-2.5 font-semibold">Description</th>
                 <th className="text-left px-3 py-2.5 font-semibold">Initials</th>
               </tr>
@@ -110,21 +111,34 @@ export function StepNotes({ admission, canEdit, isAdmin, userName }) {
                   <tr key={n.id} className={shift.text} title={shift.label}>
                     <td className="px-3 py-2.5 whitespace-nowrap align-top">{formatDay(n.noted_at)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap align-top">{timeOf(n.noted_at)}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap align-top text-xs font-semibold">{shift.word}</td>
                     <td className="px-3 py-2.5 align-top whitespace-pre-line break-words">
                       {editing?.id === n.id ? (
                         <div className="space-y-2">
                           <Textarea rows={3} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
+                          <Textarea label="Reason for the correction" rows={2} value={editing.reason} onChange={(e) => setEditing({ ...editing, reason: e.target.value })} />
                           <div className="flex gap-2 justify-end">
                             <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
-                            <Button size="sm" onClick={saveCorrection} loading={saving}>Save correction</Button>
+                            <Button size="sm" onClick={saveCorrection} loading={saving} disabled={editing.reason.trim().length < 3}>Save correction</Button>
                           </div>
                         </div>
-                      ) : n.description}
+                      ) : (
+                        <>
+                          {n.description}
+                          {n.original_description && (
+                            <details className="mt-1 text-xs text-ink-600 font-normal">
+                              <summary className="cursor-pointer">Corrected {n.corrected_at ? `${formatDay(n.corrected_at)} ${timeOf(n.corrected_at)}` : ''}. See the original</summary>
+                              <p className="mt-1 whitespace-pre-line"><span className="font-semibold">Original:</span> {n.original_description}</p>
+                              <p className="mt-1"><span className="font-semibold">Reason:</span> {n.correction_reason}</p>
+                            </details>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 align-top whitespace-nowrap font-semibold" title={n.author_name || ''}>
                       {n.initials || '—'}
                       {isAdmin && editing?.id !== n.id && (
-                        <button type="button" className="ml-2 text-xs font-medium text-primary-700 hover:underline" onClick={() => setEditing({ id: n.id, description: n.description })}>
+                        <button type="button" className="ml-2 text-xs font-medium text-primary-700 hover:underline" onClick={() => setEditing({ id: n.id, description: n.description, reason: '' })}>
                           Correct
                         </button>
                       )}
@@ -136,7 +150,7 @@ export function StepNotes({ admission, canEdit, isAdmin, userName }) {
           </table>
         </div>
       )}
-      <p className="text-xs text-ink-500 mt-3">Colours follow the paper sheet: blue morning, black afternoon, red evening.</p>
+      <p className="text-xs text-ink-500 mt-3">The Shift column repeats the colour in words, so it still reads in print.</p>
     </Card>
   );
 }

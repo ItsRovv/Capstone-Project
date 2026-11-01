@@ -10,7 +10,7 @@ import { useToast } from '../UI/Toast';
 import { FollowupDoneModal } from './FollowupDoneModal';
 import { admissionService } from '../../services/admissionService';
 import { apiError } from '../../services/api';
-import { followupState, formatDateTime, formatDay, peso, referralLevelFlags } from '../../lib/admission';
+import { followupState, formatDateTime, formatDay, fromLocalInput, peso, referralLevelFlags, toLocalInput } from '../../lib/admission';
 
 function Row({ label, value }) {
   return (
@@ -36,6 +36,13 @@ function ChecklistItem({ ok, label, detail }) {
 }
 
 // Reasons for leaving that cannot go through the normal checklist (same list as the server).
+const INSTRUCTIONS_TEMPLATE = [
+  'Medicines: ',
+  'Rest: rest well and avoid heavy work for the first weeks.',
+  'Warning signs: heavy bleeding, fever, severe belly pain, foul-smelling discharge, trouble breathing, or a baby who feeds poorly. Come back or go to a hospital right away.',
+  'Come back for the check-up on the date below.'
+].join('\n');
+
 const CHECKLIST_EXEMPT = ['transferred', 'hama', 'absconded', 'expired'];
 
 // The "RESULTS" box at the bottom of the paper form. Radio groups; clicking a chosen
@@ -109,8 +116,8 @@ function PreDischargeChecklist({ admission, definition, value, hasDelivery, canE
             </label>
             {i.code === 'danger_signs_checked' && (
               <div className="ml-6 mt-2 space-y-1.5">
-                <p className="text-xs font-medium text-ink-600">Tick any danger sign that is present:</p>
-                <div className="grid sm:grid-cols-2 gap-1.5">
+                <p className="text-xs font-medium text-ink-600">{items.danger_signs_checked ? 'Tick any danger sign that is present:' : 'Tick "Observed for danger signs" first, then mark any sign you found.'}</p>
+                <div className={`grid sm:grid-cols-2 gap-1.5 ${items.danger_signs_checked ? '' : 'opacity-50 pointer-events-none'}`} aria-disabled={!items.danger_signs_checked}>
                   {(definition?.dangerSigns || []).map((d) => (
                     <label key={d.code} className={`flex items-start gap-2.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer ${signs.includes(d.code) ? 'border-red-300 bg-red-50 text-red-900' : 'border-ink-200 bg-white text-ink-700'}`}>
                       <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-ink-300 text-red-600" checked={signs.includes(d.code)} onChange={() => toggleSign(d.code)} />
@@ -142,7 +149,14 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
   const { admission, delivery, items, grandTotal, bed, discharge, followups, referral } = detail;
   const reasons = byGroup.discharge_reason || [];
 
-  const [form, setForm] = useState({ disposition: '', final_diagnosis: '', instructions: '', override_reason: '', results: [] });
+  const [form, setForm] = useState({
+    disposition: '',
+    // Pre-filled so staff review instead of retyping.
+    final_diagnosis: [admission.admitting_diagnosis, delivery ? `${labelFor('delivery_type', delivery.delivery_type) !== '—' ? labelFor('delivery_type', delivery.delivery_type) : 'Delivered'}` : null].filter(Boolean).join('. '),
+    instructions: INSTRUCTIONS_TEMPLATE,
+    override_reason: '', results: [],
+    mother_condition: '', newborn_condition: '', follow_up_date: '', death_of: '', death_cause: '', death_at: ''
+  });
   const [needReason, setNeedReason] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -174,6 +188,8 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
     setSaving(true);
     try {
       const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, Array.isArray(v) ? v : (v.trim() === '' ? null : v.trim())]));
+      if (payload.death_at) payload.death_at = fromLocalInput(payload.death_at);
+      if (form.disposition !== 'expired') { payload.death_of = null; payload.death_cause = null; payload.death_at = null; }
       const res = await admissionService.discharge(admission.id, payload);
       toast.success(res.followups ? `Patient discharged. ${res.followups} follow-up visits were scheduled.` : 'Patient discharged');
       setConfirmOpen(false);
@@ -185,7 +201,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
       const data = err?.response?.data;
       setConfirmOpen(false);
       if (data?.code === 'MIN_STAY' || data?.code === 'NO_BABY') setNeedReason(data.message);
-      else if (['CHECKLIST_INCOMPLETE', 'DANGER_SIGNS', 'RISK_UNRESOLVED'].includes(data?.code)) { toast.error(data.message); await onChanged(); }
+      else if (['CHECKLIST_INCOMPLETE', 'DANGER_SIGNS', 'RISK_UNRESOLVED', 'BAD_CONDITION'].includes(data?.code)) { toast.error(data.message); await onChanged(); }
       else toast.error(apiError(err, 'Could not discharge the patient'));
     } finally {
       setSaving(false);
@@ -278,10 +294,13 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
   }
 
   const exempt = CHECKLIST_EXEMPT.includes(form.disposition);
+  const died = form.disposition === 'expired';
+  const earliest = delivery?.delivered_at ? new Date(new Date(delivery.delivered_at).getTime() + 24 * 3600000) : null;
   const check = localChecklistStatus(detail.checklistDefinition, checklist, Boolean(delivery));
   const checklistBlocked = !exempt && (!check.complete || check.dangerPresent.length > 0);
   const unresolvedFlags = admission.risk_ack_reason ? [] : referralLevelFlags(admission.risk_flags);
-  const canDischargeNow = canEdit && form.disposition && !checklistBlocked && (!needReason || form.override_reason.trim()) && (exempt || unresolvedFlags.length === 0);
+  const deathReady = !died || (form.death_of && form.death_at && form.death_cause.trim());
+  const canDischargeNow = canEdit && form.disposition && deathReady && !checklistBlocked && (!needReason || form.override_reason.trim()) && (exempt || unresolvedFlags.length === 0);
 
   return (
     <div className="space-y-4">
@@ -306,13 +325,54 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
               <p>Routine discharge is blocked. Refer the patient, or record a reason to continue on the Admit step.</p>
             </div>
           )}
-          <Select label="Why is the patient going home?" value={form.disposition} onChange={set('disposition')}>
+          {earliest && (
+            <p className="text-sm text-ink-600">
+              Earliest routine discharge: <span className="font-semibold">{formatDateTime(earliest)}</span> (24 hours after birth). Leaving earlier needs a reason.
+            </p>
+          )}
+          <Select label="Discharge type" value={form.disposition} onChange={set('disposition')}>
             <option value="">Choose…</option>
             {reasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
           </Select>
+          {form.disposition === 'transferred' && (
+            <p className="text-sm text-ink-700 rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
+              A transfer is recorded with the referral form. Use "Refer patient" at the top of this page.
+            </p>
+          )}
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Select label="Mother's condition" value={form.mother_condition} onChange={set('mother_condition')}>
+              <option value="">Not recorded</option>
+              {!(died && form.death_of === 'mother') && <option value="improved">Improved</option>}
+              {!(died && form.death_of === 'mother') && <option value="unchanged">Unchanged</option>}
+              <option value="worse">Worse</option>
+            </Select>
+            <Select label="Newborn's condition" value={form.newborn_condition} onChange={set('newborn_condition')}>
+              <option value="">Not recorded</option>
+              {!(died && form.death_of === 'newborn') && <option value="well">Well</option>}
+              {!(died && form.death_of === 'newborn') && <option value="needs_monitoring">Needs monitoring</option>}
+              <option value="referred">Referred</option>
+              {died && form.death_of === 'newborn' && <option value="died">Died</option>}
+              <option value="na">Not applicable</option>
+            </Select>
+          </div>
+          {died && (
+            <div className="rounded-lg border border-red-200 bg-red-50/50 p-3 space-y-3">
+              <p className="text-sm font-semibold text-red-900">Passed away: details are required</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Select label="Who passed away?" value={form.death_of} onChange={(e) => setForm((f) => ({ ...f, death_of: e.target.value, mother_condition: '', newborn_condition: e.target.value === 'newborn' ? 'died' : f.newborn_condition }))}>
+                  <option value="">Choose…</option>
+                  <option value="mother">The mother</option>
+                  <option value="newborn">The newborn</option>
+                </Select>
+                <Input type="datetime-local" label="Time of death" max={toLocalInput()} value={form.death_at} onChange={set('death_at')} />
+              </div>
+              <Textarea label="Cause of death" rows={2} value={form.death_cause} onChange={set('death_cause')} />
+            </div>
+          )}
           <Input label="Final diagnosis" value={form.final_diagnosis} onChange={set('final_diagnosis')} />
           <ResultsPicker value={form.results} onChange={(r) => setForm((f) => ({ ...f, results: r }))} />
-          <Textarea label="Instructions for the patient" rows={3} hint="Medicines, rest, warning signs, when to come back." value={form.instructions} onChange={set('instructions')} />
+          <Textarea label="Instructions for the patient" rows={6} hint="Edit the template: medicines, rest, warning signs, when to come back." value={form.instructions} onChange={set('instructions')} />
+          <Input type="date" label="Follow-up date" min={new Date().toISOString().slice(0, 10)} value={form.follow_up_date} onChange={set('follow_up_date')} />
           {needReason && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-3">
               <p className="text-sm text-amber-900">{needReason}</p>

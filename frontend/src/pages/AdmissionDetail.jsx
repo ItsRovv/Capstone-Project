@@ -16,6 +16,7 @@ import { StepVitals } from '../components/admission/StepVitals';
 import { StepLabor } from '../components/admission/StepLabor';
 import { PatientRecordCard } from '../components/admission/PatientRecordCard';
 import { PrintSummary } from '../components/admission/PrintSummary';
+import { MedicationsCard } from '../components/admission/MedicationsCard';
 import { RiskHeader } from '../components/admission/RiskHeader';
 import { RiskAlert } from '../components/admission/RiskAlert';
 import { ReferralModal } from '../components/admission/ReferralModal';
@@ -137,9 +138,19 @@ export function AdmissionDetail() {
     return res;
   };
   const markInLabor = () => run('labor', () => admissionService.markInLabor(id), 'Marked as in labor');
-  const saveDelivery = () => {
+  const saveDelivery = async () => {
     if (!draft.delivered_at) return toast.error('Please enter the date and time of birth.');
-    return run('delivery', () => admissionService.saveDelivery(id, draftToPayload(draft)), 'Delivery saved. The pregnancy was marked as completed.');
+    const missingSex = draft.newborns.findIndex((b) => b.birth_status !== 'stillbirth' && !b.sex && (b.name || b.weight_grams !== '' || b.apgar_5 !== ''));
+    if (missingSex >= 0) return toast.error('Choose the baby\'s sex. It is required for a live birth.');
+    if (!draft.saved) {
+      const labor = await admissionService.labor(id).catch(() => []);
+      if (!labor.length && !window.confirm('No labor entries recorded yet. Continue anyway?')) return null;
+    }
+    const res = await run('delivery', () => admissionService.saveDelivery(id, draftToPayload(draft)), 'Delivery saved. The pregnancy was marked as completed.');
+    if (res?.referralPrompt?.length && window.confirm(`Needs attention: ${res.referralPrompt.join(', ')}.\n\nCreate a referral now?`)) {
+      openRefer(`Delivery: ${res.referralPrompt.join(', ')}`);
+    }
+    return res;
   };
 
   return (
@@ -234,7 +245,7 @@ export function AdmissionDetail() {
             <Card><p className="text-sm text-ink-600">Midwives' notes are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
           ))}
           {step === 'vitals' && (canRecord ? (
-            <StepVitals admission={admission} canEdit={canEdit} onRefer={openRefer} />
+            <StepVitals admission={admission} canEdit={canEdit} onRefer={openRefer} deliveredAt={delivery?.delivered_at} />
           ) : (
             <Card><p className="text-sm text-ink-600">Vital signs are clinical records. Midwives, nurses and doctors can read and write them.</p></Card>
           ))}
@@ -246,7 +257,7 @@ export function AdmissionDetail() {
           {step === 'delivery' && (
             <StepDelivery
               draft={draft} setDraft={setDraft} byGroup={byGroup}
-              canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery}
+              canEdit={canEdit} saving={saving === 'delivery'} onSave={saveDelivery} onRefer={canRecord ? openRefer : undefined}
             />
           )}
           {step === 'baby' && (
@@ -258,6 +269,7 @@ export function AdmissionDetail() {
               canEdit={canEditItems} onChanged={() => load()}
             />
           )}
+          {step === 'items' && canRecord && <MedicationsCard admission={admission} canEdit={canEdit} />}
           {step === 'discharge' && (
             <StepDischarge
               detail={detail} byGroup={byGroup} labelFor={labelFor} canEdit={canEdit} isAdmin={isAdmin}

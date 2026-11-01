@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Card } from '../UI/Card';
 import { Button } from '../UI/Button';
-import { Input } from '../UI/Input';
+import { Input, Select } from '../UI/Input';
 import { Spinner } from '../UI/Spinner';
 import { useToast } from '../UI/Toast';
 import { admissionService } from '../../services/admissionService';
 import { apiError } from '../../services/api';
 import { formatDay } from '../../lib/admission';
 
-const EMPTY = { bp_systolic: '', bp_diastolic: '', pulse: '', resp_rate: '', temperature: '', spo2: '', fetal_heart_rate: '' };
+const EMPTY = { phase: 'admission', bp_systolic: '', bp_diastolic: '', pulse: '', resp_rate: '', temperature: '', spo2: '', bleeding: '', uterus: '', perineum: '' };
+const NUMERIC = ['bp_systolic', 'bp_diastolic', 'pulse', 'resp_rate', 'temperature', 'spo2'];
+const PHASES = { admission: 'Admission', labor: 'Labor', postpartum: 'Postpartum' };
+const BLEEDING = { none: 'None', light: 'Light', moderate: 'Moderate', heavy: 'Heavy' };
+// Default, to be confirmed by the clinic midwife/doctor (backend/config/clinicalThresholds.js).
+const POSTPARTUM_EVERY_MIN = 15;
+const POSTPARTUM_FOR_HOURS = 2;
 
 const REQUIRED = [
   ['bp_systolic', 'BP top (systolic)'],
@@ -34,17 +40,22 @@ function Cell({ value, points = 0, children }) {
   return <td className={`px-3 py-2.5 text-center whitespace-nowrap ${CELL[points] || ''}`}>{children ?? show(value)}</td>;
 }
 
-export function StepVitals({ admission, canEdit, onRefer }) {
+export function StepVitals({ admission, canEdit, onRefer, deliveredAt }) {
   const toast = useToast();
   const [rows, setRows] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [alertReasons, setAlertReasons] = useState([]);
+  const [babyBeat, setBabyBeat] = useState(null);
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const load = useCallback(async () => {
     try {
       setRows(await admissionService.vitals(admission.id));
+      // Baby's heartbeat is recorded on the Labor chart; the latest value is shown here read-only.
+      const labor = await admissionService.labor(admission.id).catch(() => []);
+      const withBeat = labor.filter((l) => l.fetal_heart_rate);
+      setBabyBeat(withBeat.length ? withBeat[withBeat.length - 1] : null);
     } catch (err) {
       toast.error(apiError(err, 'Could not load the vital signs'));
       setRows([]);
@@ -55,11 +66,12 @@ export function StepVitals({ admission, canEdit, onRefer }) {
   useEffect(() => { load(); }, [load]);
 
   async function save() {
-    const payload = Object.fromEntries(Object.entries(form).filter(([, v]) => String(v).trim() !== '').map(([k, v]) => [k, Number(v)]));
+    const payload = Object.fromEntries(Object.entries(form).filter(([, v]) => String(v).trim() !== '').map(([k, v]) => [k, NUMERIC.includes(k) ? Number(v) : v]));
+    if (form.phase !== 'postpartum') { delete payload.bleeding; delete payload.uterus; delete payload.perineum; }
     setSaving(true);
     try {
       const res = await admissionService.addVitals(admission.id, payload);
-      setForm(EMPTY);
+      setForm((f) => ({ ...EMPTY, phase: f.phase }));
       setAlertReasons(res.referralReasons || []);
       toast[res.score?.level === 'urgent' ? 'error' : 'success'](
         res.score?.level === 'urgent' ? 'Saved. One or more signs need attention now.' : 'Vital signs saved'
@@ -74,7 +86,11 @@ export function StepVitals({ admission, canEdit, onRefer }) {
 
   const latest = rows?.length ? rows[rows.length - 1] : null;
   const level = latest ? LEVEL_META[latest.score.level] : null;
-  const hasInput = Object.values(form).some((v) => String(v).trim() !== '');
+  const hasInput = NUMERIC.some((k) => String(form[k]).trim() !== '');
+  const sinceBirthMin = deliveredAt ? (Date.now() - new Date(deliveredAt).getTime()) / 60000 : null;
+  const postpartumDue = form.phase === 'postpartum' && sinceBirthMin !== null && sinceBirthMin <= POSTPARTUM_FOR_HOURS * 60;
+  const lastPostpartum = [...(rows || [])].reverse().find((r) => r.phase === 'postpartum');
+  const minutesSincePostpartum = lastPostpartum ? (Date.now() - new Date(lastPostpartum.recorded_at).getTime()) / 60000 : null;
   const missingNow = REQUIRED.filter(([key]) => String(form[key]).trim() === '').map(([, label]) => label);
 
   return (
@@ -112,14 +128,46 @@ export function StepVitals({ admission, canEdit, onRefer }) {
       {canEdit && (
         <div className="mb-5 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Select label="This reading is for" value={form.phase} onChange={set('phase')}>
+              {Object.entries(PHASES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
             <Input label="BP top (systolic)" inputMode="numeric" placeholder="e.g. 110" value={form.bp_systolic} onChange={set('bp_systolic')} />
             <Input label="BP bottom (diastolic)" inputMode="numeric" placeholder="e.g. 70" value={form.bp_diastolic} onChange={set('bp_diastolic')} />
             <Input label="Pulse (per min)" inputMode="numeric" value={form.pulse} onChange={set('pulse')} />
             <Input label="Breathing (per min)" inputMode="numeric" value={form.resp_rate} onChange={set('resp_rate')} />
             <Input label="Temperature (°C)" inputMode="decimal" value={form.temperature} onChange={set('temperature')} />
             <Input label="Oxygen (SpO2 %)" inputMode="numeric" value={form.spo2} onChange={set('spo2')} />
-            <Input label="Baby's heartbeat (per min)" inputMode="numeric" value={form.fetal_heart_rate} onChange={set('fetal_heart_rate')} />
+            <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2 text-sm">
+              <p className="text-xs text-ink-500">Baby's heartbeat (from the Labor chart)</p>
+              <p className="font-semibold text-ink-900">{babyBeat ? `${babyBeat.fetal_heart_rate} per min` : 'Not recorded'}</p>
+            </div>
           </div>
+          {form.phase === 'postpartum' && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Select label="Vaginal bleeding" value={form.bleeding} onChange={set('bleeding')}>
+                <option value="">Not recorded</option>
+                {Object.entries(BLEEDING).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </Select>
+              <Select label="Uterus" value={form.uterus} onChange={set('uterus')}>
+                <option value="">Not recorded</option>
+                <option value="firm">Firm</option>
+                <option value="soft">Soft</option>
+              </Select>
+              <Select label="Perineum" value={form.perineum} onChange={set('perineum')}>
+                <option value="">Not recorded</option>
+                <option value="intact">Intact</option>
+                <option value="swollen">Swollen</option>
+                <option value="tear">Tear</option>
+                <option value="stitched">Stitched</option>
+              </Select>
+            </div>
+          )}
+          {postpartumDue && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              First {POSTPARTUM_FOR_HOURS} hours after birth: check BP, pulse, bleeding and uterus every {POSTPARTUM_EVERY_MIN} minutes.
+              {minutesSincePostpartum !== null && minutesSincePostpartum >= POSTPARTUM_EVERY_MIN ? ` Last check was ${Math.round(minutesSincePostpartum)} minutes ago.` : ''}
+            </p>
+          )}
           {hasInput && missingNow.length > 0 && (
             <p className="text-xs text-amber-800">Still needed before you can save: {missingNow.join(', ')}.</p>
           )}
@@ -144,7 +192,8 @@ export function StepVitals({ admission, canEdit, onRefer }) {
                 <th className="px-3 py-2.5 font-semibold">Breathing</th>
                 <th className="px-3 py-2.5 font-semibold">Temp</th>
                 <th className="px-3 py-2.5 font-semibold">SpO2</th>
-                <th className="px-3 py-2.5 font-semibold">Baby</th>
+                <th className="px-3 py-2.5 font-semibold">Phase</th>
+                <th className="text-left px-3 py-2.5 font-semibold">Postpartum</th>
                 <th className="text-left px-3 py-2.5 font-semibold">By</th>
               </tr>
             </thead>
@@ -161,7 +210,10 @@ export function StepVitals({ admission, canEdit, onRefer }) {
                     <Cell value={r.resp_rate} points={s.resp_rate} />
                     <Cell value={r.temperature} points={s.temperature} />
                     <Cell value={r.spo2} points={s.spo2} />
-                    <Cell value={r.fetal_heart_rate} points={r.score.fetalAlert ? 2 : 0} />
+                    <td className="px-3 py-2.5 text-center whitespace-nowrap text-ink-600">{PHASES[r.phase] || 'Admission'}</td>
+                    <td className="px-3 py-2.5 text-xs text-ink-700">
+                      {[r.bleeding ? `Bleeding ${BLEEDING[r.bleeding]?.toLowerCase()}` : null, r.uterus ? `Uterus ${r.uterus}` : null, r.perineum ? `Perineum ${r.perineum}` : null].filter(Boolean).join(', ') || '—'}
+                    </td>
                     <td className="px-3 py-2.5 whitespace-nowrap text-ink-600">{r.recorded_by_name || '—'}</td>
                   </tr>
                 );

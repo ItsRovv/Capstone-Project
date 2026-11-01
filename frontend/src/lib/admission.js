@@ -94,10 +94,12 @@ export const MODULE_LISTS = {
     { code: 'expired', label: 'Passed away' },
     { code: 'well_baby', label: 'Well baby - discharged with mother' }
   ],
+  // "assisted" and "other" only stay so old records keep their wording; the form does not offer them.
   delivery_type: [
-    { code: 'nsd', label: 'Normal delivery' },
-    { code: 'assisted', label: 'Assisted delivery' },
-    { code: 'other', label: 'Other' }
+    { code: 'nsd', label: 'Normal spontaneous delivery (NSD)' },
+    { code: 'referred', label: 'Referred during labor/delivery' },
+    { code: 'assisted', label: 'Assisted delivery', legacy: true },
+    { code: 'other', label: 'Other', legacy: true }
   ],
   // Keep in step with RISK_FLAGS in backend/services/admissionService.js.
   risk_flag: [
@@ -122,7 +124,12 @@ export const MODULE_LISTS = {
     { code: 'drying', label: 'Dried and wrapped right away' },
     { code: 'skin_to_skin', label: 'Skin-to-skin with mother' },
     { code: 'cord_care', label: 'Cord clamped and cared for' },
-    { code: 'breastfeeding', label: 'Breastfeeding started' }
+    { code: 'breastfeeding', label: 'Breastfeeding started' },
+    { code: 'vitamin_k', label: 'Vitamin K injection given' },
+    { code: 'bcg', label: 'BCG vaccine given' },
+    { code: 'hepatitis_b', label: 'Hepatitis B vaccine given' },
+    { code: 'newborn_screening', label: 'Newborn screening done' },
+    { code: 'eye_prophylaxis', label: 'Eye ointment given' }
   ]
 };
 

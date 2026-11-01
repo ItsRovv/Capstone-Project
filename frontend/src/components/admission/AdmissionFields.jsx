@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Input, Select, Textarea } from '../UI/Input';
+import { admissionService } from '../../services/admissionService';
 import { BedPicker } from './BedPicker';
 import { REFERRAL_LEVEL_FLAGS } from '../../lib/admission';
 
@@ -8,7 +10,42 @@ export const ADMISSION_TYPE_OPTIONS = [
   { value: 'former_opd', label: 'Former OPD patient' }
 ];
 
+export const COVERAGE_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'philhealth_member', label: 'PhilHealth (member)' },
+  { value: 'philhealth_dependent', label: 'PhilHealth (dependent)' },
+  { value: 'sss', label: 'SSS' },
+  { value: 'gsis', label: 'GSIS' },
+  { value: 'owwa', label: 'OWWA' },
+  { value: 'indigent', label: 'Indigent' },
+  { value: 'private', label: 'Private HMO/insurance' },
+  { value: 'others', label: 'Others' }
+];
+
+// Short obstetric list. To be verified by the clinic doctor. The field stays optional.
+export const ICD_OBSTETRIC = [
+  { code: 'O80', label: 'Single spontaneous delivery' },
+  { code: 'O60', label: 'Preterm labor' },
+  { code: 'O14', label: 'Pre-eclampsia' },
+  { code: 'O15', label: 'Eclampsia' },
+  { code: 'O44', label: 'Placenta previa' },
+  { code: 'O72', label: 'Postpartum hemorrhage' },
+  { code: 'O62', label: 'Abnormalities of forces of labor' },
+  { code: 'O42', label: 'Premature rupture of membranes' }
+];
+
+export const CONSENT_SIGNERS = [
+  { value: 'patient', label: 'Patient' },
+  { value: 'partner', label: 'Husband or partner' },
+  { value: 'guardian', label: 'Guardian' },
+  { value: 'other', label: 'Other' }
+];
+
 export const emptyAdmissionForm = {
+  philhealth_pin: '',
+  consent_signer_type: '',
+  consent_relationship: '',
+  attending_user_id: '',
   bed_number: '',
   admission_type: '',
   attending_physician: '',
@@ -17,7 +54,7 @@ export const emptyAdmissionForm = {
   social_service_class: '',
   hospitalization_plan: '',
   health_insurance_name: '',
-  medicare: '',
+  medicare: 'none',
   medicare_other: '',
   informant_name: '',
   informant_address: '',
@@ -45,7 +82,11 @@ export function admissionToForm(a = {}) {
     social_service_class: a.social_service_class || '',
     hospitalization_plan: a.hospitalization_plan || '',
     health_insurance_name: a.health_insurance_name || '',
-    medicare: a.medicare || '',
+    medicare: a.medicare || 'none',
+    philhealth_pin: a.philhealth_pin || '',
+    consent_signer_type: a.consent_signer_type || '',
+    consent_relationship: a.consent_relationship || '',
+    attending_user_id: a.attending_user_id ?? '',
     medicare_other: a.medicare_other || '',
     informant_name: a.informant_name || '',
     informant_address: a.informant_address || '',
@@ -77,7 +118,11 @@ export function formToPayload(form) {
     social_service_class: text(form.social_service_class),
     hospitalization_plan: text(form.hospitalization_plan),
     health_insurance_name: text(form.health_insurance_name),
-    medicare: text(form.medicare),
+    medicare: text(form.medicare) || 'none',
+    philhealth_pin: String(form.medicare || '').startsWith('philhealth') ? text(form.philhealth_pin) : null,
+    consent_signer_type: form.consent_signed ? text(form.consent_signer_type) : null,
+    consent_relationship: form.consent_signed ? text(form.consent_relationship) : null,
+    attending_user_id: String(form.attending_user_id ?? '').trim() === '' ? null : Number(form.attending_user_id),
     medicare_other: form.medicare === 'others' ? text(form.medicare_other) : null,
     informant_name: text(form.informant_name),
     informant_address: text(form.informant_address),
@@ -104,6 +149,8 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
       risk_flags: f.risk_flags.includes(code) ? f.risk_flags.filter((c) => c !== code) : [...f.risk_flags, code]
     }));
   const flags = byGroup.risk_flag || [];
+  const [staff, setStaff] = useState([]);
+  useEffect(() => { admissionService.staff().then(setStaff).catch(() => setStaff([])); }, []);
 
   return (
     <fieldset disabled={disabled} className="space-y-5 disabled:opacity-80">
@@ -125,77 +172,71 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
           <option value="">Choose…</option>
           {ADMISSION_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
-        <Input
-          label="Attending physician"
-          placeholder="Name of the doctor"
-          value={form.attending_physician}
-          onChange={set('attending_physician')}
-        />
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Input
-          label="Referred by (physician or agency)"
-          value={form.referred_by}
-          onChange={set('referred_by')}
-          placeholder="Leave empty if she came on her own"
-        />
-        <Input label="ICD code" value={form.icd_code} onChange={set('icd_code')} placeholder="e.g. Z34.0" />
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-3">
         <Select
-          label="Social service classification"
-          value={form.social_service_class}
-          onChange={set('social_service_class')}
+          label="Attending physician"
+          value={form.attending_user_id}
+          onChange={(e) => {
+            const person = staff.find((m) => String(m.id) === e.target.value);
+            setForm((f) => ({ ...f, attending_user_id: e.target.value, attending_physician: person ? person.name : '' }));
+          }}
         >
-          <option value="">Not classified</option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
-          <option value="D">D</option>
+          <option value="">{form.attending_physician && !form.attending_user_id ? `${form.attending_physician} (typed earlier)` : 'Choose…'}</option>
+          {staff.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
         </Select>
-        <Select label="Medicare" value={form.medicare} onChange={set('medicare')}>
-          <option value="">None</option>
-          <option value="sss">SSS</option>
-          <option value="gsis">GSIS</option>
-          <option value="owwa">OWWA</option>
-          <option value="indigent">Indigent</option>
-          <option value="others">Others</option>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Select label="Coverage / benefits" value={form.medicare} onChange={set('medicare')}>
+          {COVERAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
+        {String(form.medicare).startsWith('philhealth') && (
+          <Input label="PhilHealth member PIN" placeholder="e.g. 12-345678901-2" hint={form.philhealth_pin ? undefined : 'Needed before a PhilHealth package can be ticked.'} value={form.philhealth_pin} onChange={set('philhealth_pin')} />
+        )}
       </div>
       {form.medicare === 'others' && (
-        <Input label="Medicare - please specify" value={form.medicare_other} onChange={set('medicare_other')} />
+        <Input label="Coverage - please specify" value={form.medicare_other} onChange={set('medicare_other')} />
       )}
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Input
-          label="Hospitalization plan / company"
-          value={form.hospitalization_plan}
-          onChange={set('hospitalization_plan')}
-        />
-        <Input
-          label="Health insurance name"
-          value={form.health_insurance_name}
-          onChange={set('health_insurance_name')}
-        />
-      </div>
-
-      <div className="rounded-lg border border-ink-200 p-3">
-        <p className="text-sm font-medium text-ink-700 mb-2">Data furnished by (informant)</p>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Input label="Name" value={form.informant_name} onChange={set('informant_name')} />
-          <Input
-            label="Relationship to patient"
-            value={form.informant_relationship}
-            onChange={set('informant_relationship')}
-            placeholder="Husband, mother, herself…"
-          />
-          <div className="sm:col-span-2">
-            <Input label="Address of informant" value={form.informant_address} onChange={set('informant_address')} />
+      <details className="rounded-lg border border-ink-200 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-ink-700">More details (optional)</summary>
+        <div className="mt-3 space-y-4">
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Referred by (physician or agency)"
+              value={form.referred_by}
+              onChange={set('referred_by')}
+              placeholder="Leave empty if she came on her own"
+            />
+            <div>
+              <Input label="ICD code (to be verified by the clinic doctor)" list="icd-obstetric" value={form.icd_code} onChange={set('icd_code')} placeholder="Search, e.g. O80" />
+              <datalist id="icd-obstetric">
+                {ICD_OBSTETRIC.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </datalist>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Select label="Social service classification" value={form.social_service_class} onChange={set('social_service_class')}>
+              <option value="">Not classified</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </Select>
+            <Input label="Hospitalization plan / company" value={form.hospitalization_plan} onChange={set('hospitalization_plan')} />
+            <Input label="Health insurance name" value={form.health_insurance_name} onChange={set('health_insurance_name')} />
+          </div>
+          <div className="rounded-lg border border-ink-200 p-3">
+            <p className="text-sm font-medium text-ink-700 mb-2">Data furnished by (informant)</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Input label="Name" value={form.informant_name} onChange={set('informant_name')} />
+              <Input label="Relationship to patient" value={form.informant_relationship} onChange={set('informant_relationship')} placeholder="e.g. husband, mother" />
+              <div className="sm:col-span-2">
+                <Input label="Address of informant" value={form.informant_address} onChange={set('informant_address')} />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
 
       <Textarea
         label="Why did the patient come in?"
@@ -208,7 +249,7 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
       <div>
         <p className="text-sm font-medium text-ink-700 mb-2">Check-up on arrival</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Input label="Blood pressure" placeholder="110/70" value={form.bp} onChange={set('bp')} />
+          <Input label="Blood pressure" placeholder="e.g. 110/70" value={form.bp} onChange={set('bp')} />
           <Input label="Pulse (per min)" inputMode="numeric" value={form.pulse} onChange={set('pulse')} />
           <Input label="Breathing (per min)" inputMode="numeric" value={form.resp_rate} onChange={set('resp_rate')} />
           <Input label="Temperature (°C)" inputMode="decimal" value={form.temperature} onChange={set('temperature')} />
@@ -283,7 +324,20 @@ export function AdmissionFields({ form, setForm, byGroup, ward, currentAdmission
           </span>
         </label>
         {form.consent_signed && (
-          <Input label="Signed by" placeholder="Full name" value={form.consent_by} onChange={set('consent_by')} />
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Select label="Signed by" value={form.consent_signer_type} onChange={set('consent_signer_type')}>
+              <option value="">Choose…</option>
+              {CONSENT_SIGNERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+            <Input label="Name" placeholder="e.g. Maria Santos" value={form.consent_by} onChange={set('consent_by')} />
+            <Input
+              label="Relationship to patient"
+              hint={form.consent_signer_type === 'guardian' ? 'Required for a guardian.' : undefined}
+              placeholder="e.g. mother"
+              value={form.consent_relationship}
+              onChange={set('consent_relationship')}
+            />
+          </div>
         )}
       </div>
 

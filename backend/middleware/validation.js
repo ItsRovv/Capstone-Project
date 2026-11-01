@@ -1,5 +1,5 @@
 const Joi = require('joi');
-const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS } = require('../services/admissionService');
+const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS, ITEM_UNITS } = require('../services/admissionService');
 const { sanitizeObject, sanitizeDeep } = require('../utils/sanitizer');
 const { REQUIRED_VITALS } = require('../config/clinicalThresholds');
 
@@ -219,9 +219,19 @@ const admissionItemSchema = Joi.object({
   option_id: Joi.number().integer().positive().allow(null, ''),
   label: Joi.string().trim().max(150),
   unit_price: Joi.number().min(0).max(1000000),
-  quantity: Joi.number().greater(0).max(1000).default(1),
-  given_at: Joi.date()
+  quantity: Joi.number().integer().greater(0).max(1000).default(1),
+  given_at: Joi.date(),
+  unit: Joi.string().valid(...ITEM_UNITS),
+  used_for: Joi.string().pattern(/^(mother|baby_[1-6])$/).default('mother'),
+  confirm_large: Joi.boolean(),
+  allergy_reason: Joi.string().trim().min(3).max(500)
 }).or('option_id', 'label').unknown(false);
+
+const itemQuantitySchema = Joi.object({
+  quantity: Joi.number().integer().greater(0).max(1000).required(),
+  reason: Joi.string().trim().min(3).max(500).required(),
+  confirm_large: Joi.boolean()
+}).unknown(false);
 
 const dischargeSchema = Joi.object({
   disposition: Joi.string().trim().max(60).required(),
@@ -240,7 +250,7 @@ const referralSchema = Joi.object({
   notes: shortText(2000)
 }).unknown(false);
 
-const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item', 'vitamin', 'consult_package'];
+const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item', 'vitamin', 'consult_package', 'bundle'];
 
 const clinicOptionSchema = Joi.object({
   option_group: Joi.string().valid(...OPTION_GROUPS).required(),
@@ -248,6 +258,13 @@ const clinicOptionSchema = Joi.object({
   label: Joi.string().trim().min(1).max(150).required(),
   price: Joi.number().min(0).max(1000000).allow(null, ''),
   category: shortText(40),
+  unit: Joi.string().valid(...ITEM_UNITS).allow(null, ''),
+  charged: Joi.boolean(),
+  allergy_tags: shortText(200),
+  bundle_items: Joi.array().items(Joi.object({
+    code: Joi.string().trim().max(60).required(),
+    quantity: Joi.number().integer().min(1).max(100).required()
+  })).max(30).allow(null),
   active: Joi.boolean(),
   sort_order: Joi.number().integer().min(0).max(10000)
 }).unknown(false);
@@ -336,7 +353,8 @@ function validateDelivery(data) {
   if (!result.error) result.value.newborns = result.value.newborns.map((n) => sanitizeObject(n, ['notes', 'name']));
   return result;
 }
-function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label']); }
+function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label', 'allergy_reason']); }
+function validateItemQuantity(data) { return runValidation(itemQuantitySchema, data, ['reason']); }
 function validateDischarge(data) { return runValidation(dischargeSchema, data, ['disposition', 'final_diagnosis', 'instructions', 'override_reason']); }
 function validateReferral(data) { return runValidation(referralSchema, data, ['facility', 'reason', 'transport', 'notes']); }
 function validateClinicOption(data) { return runValidation(clinicOptionSchema, data, ['label', 'category']); }
@@ -364,6 +382,7 @@ module.exports = {
   validateMidwifeNote,
   validateVitals,
   validateReason,
+  validateItemQuantity,
   validateLaborEntry,
   validateChecklist,
   OPTION_GROUPS,

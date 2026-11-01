@@ -396,6 +396,28 @@ ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
 ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reverse_reason TEXT;
 
+-- Item usage tracking: every item used is item + quantity + unit + time + who. No stock levels.
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS unit VARCHAR(20);
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS charged BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS allergy_tags TEXT;
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS bundle_items JSONB;
+
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS unit VARCHAR(20);
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS charged BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS price_missing BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS used_for VARCHAR(20) NOT NULL DEFAULT 'mother';
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS unlisted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS ref_key VARCHAR(60);
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS note TEXT;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS voided_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS void_reason TEXT;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS legacy BOOLEAN NOT NULL DEFAULT FALSE;
+-- A newborn-care entry (for example vitamin K for baby 1) creates one usage line, never two.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_admission_items_ref
+  ON admission_items (admission_id, ref_key) WHERE ref_key IS NOT NULL AND voided_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_items_given ON admission_items (given_at);
+
 -- "Continue at clinic" decision for a referral-level warning sign (reason, who, when).
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_reason TEXT;
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
@@ -594,6 +616,55 @@ INSERT INTO clinic_options (option_group, code, label, price, category, sort_ord
   ('item', 'baby_bottle', 'Baby bottle (Nature)', NULL, 'supply', 23),
   ('item', 'feeding_bottles', 'Feeding bottles (3-in-1)', NULL, 'supply', 24)
 ON CONFLICT (option_group, code) DO NOTHING;
+
+-- Item list for usage tracking (verify names, units and the charged flag with the clinic).
+-- Consumable supplies start as "not charged": they are recorded and reported but add 0 to the total.
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order, unit, charged, allergy_tags) VALUES
+  ('item', 'amoxicillin', 'Amoxicillin', NULL, 'antibiotic', 30, 'pc', TRUE, 'penicillin,amoxicillin'),
+  ('item', 'paracetamol', 'Paracetamol', NULL, 'medicine', 31, 'pc', TRUE, 'paracetamol'),
+  ('item', 'mefenamic_acid', 'Mefenamic acid', NULL, 'medicine', 32, 'pc', TRUE, 'nsaid,aspirin'),
+  ('item', 'bcg_vaccine', 'BCG vaccine', NULL, 'medicine', 33, 'vial', TRUE, NULL),
+  ('item', 'hepb_vaccine', 'Hepatitis B vaccine', NULL, 'medicine', 34, 'vial', TRUE, NULL),
+  ('item', 'eye_ointment', 'Newborn eye ointment', NULL, 'medicine', 35, 'pc', TRUE, NULL),
+  ('item', 'gloves', 'Disposable gloves', NULL, 'supply', 40, 'pair', FALSE, NULL),
+  ('item', 'gauze', 'Gauze', NULL, 'supply', 41, 'pack', FALSE, NULL),
+  ('item', 'cotton', 'Cotton', NULL, 'supply', 42, 'pack', FALSE, NULL),
+  ('item', 'alcohol', 'Alcohol', NULL, 'supply', 43, 'bottle', FALSE, NULL),
+  ('item', 'povidone_iodine', 'Povidone-iodine', NULL, 'supply', 44, 'bottle', FALSE, NULL),
+  ('item', 'syringe', 'Syringe', NULL, 'supply', 45, 'pc', FALSE, NULL),
+  ('item', 'iv_set', 'IV set and cannula', NULL, 'supply', 46, 'set', FALSE, NULL),
+  ('item', 'cord_clamp', 'Umbilical cord clamp', NULL, 'supply', 47, 'pc', FALSE, NULL),
+  ('item', 'underpad', 'Underpad', NULL, 'supply', 48, 'pc', FALSE, NULL),
+  ('item', 'maternity_pad', 'Maternity pad', NULL, 'supply', 49, 'pack', FALSE, NULL),
+  ('item', 'diaper_newborn', 'Baby diaper (newborn size)', NULL, 'supply', 50, 'pc', FALSE, NULL),
+  ('item', 'diaper_small', 'Baby diaper (small)', NULL, 'supply', 51, 'pc', FALSE, NULL)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order, unit, bundle_items) VALUES
+  ('bundle', 'normal_delivery_pack', 'Normal delivery pack', NULL, 'bundle', 1, 'set',
+   '[{"code":"gloves","quantity":4},{"code":"gauze","quantity":2},{"code":"cotton","quantity":1},{"code":"underpad","quantity":2},{"code":"cord_clamp","quantity":1},{"code":"syringe","quantity":2}]'::jsonb)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+-- Units for the items that existed before usage tracking (only where not set yet).
+UPDATE clinic_options SET unit = CASE code
+    WHEN 'birthing_fee' THEN 'set' WHEN 'iv_fluids' THEN 'bottle' WHEN 'oxytocin' THEN 'ampule'
+    WHEN 'antibiotic' THEN 'pc' WHEN 'pain_reliever' THEN 'pc' WHEN 'suture_set' THEN 'set'
+    WHEN 'newborn_vitamin_k' THEN 'ampule' WHEN 'newborn_vaccines' THEN 'vial' WHEN 'newborn_screening' THEN 'set'
+    ELSE 'pc' END
+  WHERE option_group = 'item' AND unit IS NULL;
+UPDATE clinic_options SET allergy_tags = 'nsaid,aspirin' WHERE option_group = 'item' AND code = 'pain_reliever' AND allergy_tags IS NULL;
+
+-- One-time: old stays keep their items as legacy usage lines; the combined vaccine item is
+-- replaced by separate BCG and Hepatitis B items (the old one stays readable on old stays).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM clinic_settings WHERE setting_key = 'migr_item_usage_v1') THEN
+    UPDATE admission_items SET legacy = TRUE;
+    UPDATE clinic_options SET active = FALSE WHERE option_group = 'item' AND code = 'newborn_vaccines';
+    INSERT INTO clinic_settings (setting_key, setting_value, description)
+    VALUES ('migr_item_usage_v1', 'done', 'Internal marker');
+  END IF;
+END $$;
 
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
   ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),

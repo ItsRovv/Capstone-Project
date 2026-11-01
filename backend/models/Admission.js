@@ -12,6 +12,7 @@ const DISCHARGE_ENC = ['final_diagnosis', 'instructions', 'override_reason'];
 const REFERRAL_ENC = ['reason', 'notes', 'reverse_reason'];
 const FOLLOWUP_ENC = ['notes'];
 const NOTE_ENC = ['description'];
+const ITEM_ENC = ['note', 'void_reason'];
 
 const enc = (obj, fields) => encryptObject(obj, fields);
 const dec = (obj, fields) => decryptObject(obj, fields);
@@ -188,28 +189,92 @@ class Admission {
   }
 
   // ── Items used ────────────────────────────────────────────────────────
+  // Every line, voided ones included (they stay visible in history).
   static async listItems(admissionId) {
     const [rows] = await db.execute(
-      `SELECT i.*, u.name AS given_by_name FROM admission_items i
+      `SELECT i.*, u.name AS given_by_name, v.name AS voided_by_name FROM admission_items i
        LEFT JOIN users u ON u.id = i.given_by
+       LEFT JOIN users v ON v.id = i.voided_by
        WHERE i.admission_id = ? ORDER BY i.given_at, i.id`,
       [admissionId]
     );
-    return rows;
+    return rows.map((r) => dec(r, ITEM_ENC));
   }
 
-  static async addItem(admissionId, { option_id, label, unit_price, quantity, given_at }, userId) {
-    const [result] = await db.execute(
-      `INSERT INTO admission_items (admission_id, option_id, label, unit_price, quantity, given_at, given_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [admissionId, option_id ?? null, label, unit_price ?? 0, quantity ?? 1, given_at ?? new Date(), userId ?? null]
+  static async findItem(admissionId, itemId) {
+    const [rows] = await db.execute('SELECT * FROM admission_items WHERE id = ? AND admission_id = ?', [itemId, admissionId]);
+    return rows[0] ? dec(rows[0], ITEM_ENC) : null;
+  }
+
+  static async addItem(admissionId, line, userId, runner = db) {
+    const d = enc({ note: line.note }, ITEM_ENC);
+    const [result] = await runner.execute(
+      `INSERT INTO admission_items
+         (admission_id, option_id, label, unit_price, quantity, given_at, given_by, unit, charged, price_missing, used_for, unlisted, ref_key, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [admissionId, line.option_id ?? null, line.label, line.unit_price ?? 0, line.quantity ?? 1, line.given_at ?? new Date(),
+        userId ?? null, line.unit ?? null, line.charged ?? true, line.price_missing ?? false, line.used_for ?? 'mother',
+        line.unlisted ?? false, line.ref_key ?? null, clean(d.note)]
     );
     return result.insertId;
   }
 
-  static async removeItem(admissionId, itemId) {
-    const [result] = await db.execute('DELETE FROM admission_items WHERE id = ? AND admission_id = ?', [itemId, admissionId]);
+  // Nothing is hard-deleted: a removed line is voided with a reason, who and when.
+  static async voidItem(admissionId, itemId, reason, userId, runner = db) {
+    const d = enc({ void_reason: reason }, ITEM_ENC);
+    const [result] = await runner.execute(
+      'UPDATE admission_items SET voided_at = NOW(), voided_by = ?, void_reason = ? WHERE id = ? AND admission_id = ? AND voided_at IS NULL',
+      [userId ?? null, d.void_reason, itemId, admissionId]
+    );
     return result.affectedRows > 0;
+  }
+
+  // Editing a quantity voids the old line and adds a corrected one, so history is kept.
+  static async replaceItem(admissionId, itemId, quantity, reason, userId) {
+    return db.transaction(async (tx) => {
+      const [rows] = await tx.execute('SELECT * FROM admission_items WHERE id = ? AND admission_id = ? AND voided_at IS NULL', [itemId, admissionId]);
+      const old = rows[0];
+      if (!old) return null;
+      await Admission.voidItem(admissionId, itemId, reason, userId, tx);
+      return Admission.addItem(admissionId, {
+        option_id: old.option_id, label: old.label, unit_price: old.unit_price, quantity, given_at: old.given_at,
+        unit: old.unit, charged: old.charged, price_missing: old.price_missing, used_for: old.used_for,
+        unlisted: old.unlisted, ref_key: old.ref_key, note: old.note ? dec({ note: old.note }, ITEM_ENC).note : null
+      }, userId, tx);
+    });
+  }
+
+  // The live (not voided) line created from a newborn-care entry, if any.
+  static async findItemByRef(admissionId, refKey) {
+    const [rows] = await db.execute(
+      'SELECT * FROM admission_items WHERE admission_id = ? AND ref_key = ? AND voided_at IS NULL', [admissionId, refKey]
+    );
+    return rows[0] || null;
+  }
+
+  static async liveRefKeys(admissionId) {
+    const [rows] = await db.execute(
+      'SELECT id, ref_key FROM admission_items WHERE admission_id = ? AND ref_key IS NOT NULL AND voided_at IS NULL', [admissionId]
+    );
+    return rows;
+  }
+
+  // Usage by item for a date range (live lines only). Amount is for reference.
+  static async itemUsageReport({ from, to, category } = {}) {
+    const conditions = ['i.voided_at IS NULL', "(i.given_at AT TIME ZONE 'Asia/Manila')::date BETWEEN ?::date AND ?::date"];
+    const values = [from, to];
+    if (category) { conditions.push('COALESCE(o.category, \'other\') = ?'); values.push(category); }
+    const [rows] = await db.execute(
+      `SELECT COALESCE(o.category, 'other') AS category, i.label, COALESCE(i.unit, o.unit) AS unit,
+              SUM(i.quantity) AS total_quantity, COUNT(DISTINCT i.admission_id) AS admissions,
+              SUM(CASE WHEN i.charged THEN i.unit_price * i.quantity ELSE 0 END) AS amount, BOOL_OR(i.charged) AS charged
+       FROM admission_items i LEFT JOIN clinic_options o ON o.id = i.option_id
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY COALESCE(o.category, 'other'), i.label, COALESCE(i.unit, o.unit)
+       ORDER BY total_quantity DESC, i.label`,
+      values
+    );
+    return rows;
   }
 
   // ── Discharge + follow-ups ───────────────────────────────────────────

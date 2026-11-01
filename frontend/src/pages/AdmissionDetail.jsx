@@ -112,7 +112,7 @@ export function AdmissionDetail() {
     labor: ['in_labor', 'delivered', 'discharged'].includes(admission.status) || Boolean(delivery),
     delivery: Boolean(delivery),
     baby: Boolean(delivery?.newborns?.length),
-    items: items.length > 0,
+    items: items.some((it) => !it.voided_at),
     discharge: ['discharged', 'referred'].includes(admission.status)
   };
 
@@ -254,7 +254,7 @@ export function AdmissionDetail() {
           )}
           {step === 'items' && (
             <StepItems
-              admission={admission} items={items} itemsTotal={detail.itemsTotal} bed={detail.bed} grandTotal={detail.grandTotal} packages={detail.packages} philhealthTotal={detail.philhealthTotal} byGroup={byGroup}
+              admission={admission} items={items} itemsTotal={detail.itemsTotal} totalStatus={detail.totalStatus} babyCount={delivery?.newborns?.length || 0} bed={detail.bed} grandTotal={detail.grandTotal} packages={detail.packages} philhealthTotal={detail.philhealthTotal} byGroup={byGroup}
               canEdit={canEditItems} onChanged={() => load()}
             />
           )}

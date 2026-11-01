@@ -25,8 +25,62 @@ function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
+const isVoided = (item) => Boolean(item.voided_at);
+
+// A voided line or a "not charged" item (for example diapers) adds nothing to the total.
 function lineTotal(item) {
+  if (isVoided(item) || item.charged === false) return 0;
   return round2(Number(item.unit_price || 0) * Number(item.quantity || 0));
+}
+
+const ITEM_UNITS = ['pc', 'pair', 'ampule', 'vial', 'bottle', 'pack', 'box', 'set'];
+const LARGE_QUANTITY = 20;
+
+// Quantities are whole numbers above zero. An unusually large one needs a confirmation.
+function checkQuantity(quantity, { confirmLarge = false } = {}) {
+  const q = Number(quantity);
+  if (!Number.isFinite(q) || q <= 0 || !Number.isInteger(q)) {
+    return { ok: false, code: 'BAD_QUANTITY', message: 'Quantity must be a whole number greater than zero.' };
+  }
+  if (q > LARGE_QUANTITY && !confirmLarge) {
+    return { ok: false, code: 'LARGE_QUANTITY', message: `${q} is a lot. Confirm the quantity is correct.` };
+  }
+  return { ok: true };
+}
+
+// True while any charged line has no price, or the bed has no price: the total is not final.
+function incompleteTotal(items = [], bed = null) {
+  const unpriced = items.filter((it) => !isVoided(it) && it.charged !== false && it.price_missing);
+  const bedUnpriced = Boolean(bed && bed.number && !bed.priceSet);
+  return { incomplete: unpriced.length > 0 || bedUnpriced, unpricedLabels: unpriced.map((it) => it.label), bedUnpriced };
+}
+
+// A patient who is allergic to a drug class must not get the item without a recorded reason.
+// Allergy words are matched against the item's name and its class tags (for example aspirin ~ NSAID).
+const ALLERGY_ALIASES = {
+  aspirin: ['aspirin', 'nsaid'],
+  nsaid: ['nsaid', 'aspirin'],
+  nsaids: ['nsaid', 'aspirin'],
+  ibuprofen: ['nsaid'],
+  mefenamic: ['nsaid', 'mefenamic'],
+  penicillin: ['penicillin', 'amoxicillin', 'ampicillin'],
+  amoxicillin: ['penicillin', 'amoxicillin'],
+  sulfa: ['sulfa', 'cotrimoxazole'],
+  sulfonamide: ['sulfa', 'cotrimoxazole']
+};
+
+function allergyConflict(allergies, item) {
+  const terms = String(allergies || '').toLowerCase().split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+  if (!terms.length) return null;
+  const haystack = [
+    String(item.label || '').toLowerCase(),
+    ...String(item.allergy_tags || '').toLowerCase().split(',').map((s) => s.trim())
+  ].filter(Boolean);
+  for (const term of terms) {
+    const wanted = [term, ...(ALLERGY_ALIASES[term.replace(/s$/, '')] || ALLERGY_ALIASES[term] || [])];
+    if (wanted.some((w) => haystack.some((h) => h === w || h.includes(w)))) return term;
+  }
+  return null;
 }
 
 function itemsTotal(items = []) {
@@ -84,8 +138,9 @@ function firstFreeBed(totalBeds, takenBeds) {
 
 // Split items into clinic-charged lines and PhilHealth package reference for Transactions.
 function buildTransactionPayload({ items, packages: packageList = [], bed }) {
+  // Voided lines and "not charged" items stay in usage records but not in the summary.
   const vitamins = items
-    .filter((it) => lineTotal(it) > 0 || it.label)
+    .filter((it) => !isVoided(it) && it.charged !== false && (lineTotal(it) > 0 || it.label))
     .map((it) => ({
       id: it.option_id ? `item_${it.option_id}` : `custom_${it.id}`,
       label: Number(it.quantity) === 1 ? it.label : `${it.label} x${Number(it.quantity)}`,
@@ -335,8 +390,36 @@ const NEWBORN_CARE = [
   { code: 'drying', label: 'Dried and wrapped right away' },
   { code: 'skin_to_skin', label: 'Skin-to-skin with mother' },
   { code: 'cord_care', label: 'Cord clamped and cared for' },
-  { code: 'breastfeeding', label: 'Breastfeeding started' }
+  { code: 'breastfeeding', label: 'Breastfeeding started' },
+  { code: 'vitamin_k', label: 'Vitamin K injection given' },
+  { code: 'bcg', label: 'BCG vaccine given' },
+  { code: 'hepatitis_b', label: 'Hepatitis B vaccine given' },
+  { code: 'newborn_screening', label: 'Newborn screening done' },
+  { code: 'eye_prophylaxis', label: 'Eye ointment given' }
 ];
+
+// Newborn care recorded on the Baby step -> the item it uses. Recorded once; the matching
+// usage line is created from it (never typed twice, never counted twice).
+const NEWBORN_ITEM_MAP = {
+  vitamin_k: 'newborn_vitamin_k',
+  bcg: 'bcg_vaccine',
+  hepatitis_b: 'hepb_vaccine',
+  newborn_screening: 'newborn_screening',
+  eye_prophylaxis: 'eye_ointment'
+};
+
+// What usage lines the babies' care calls for, keyed so a re-save updates instead of duplicating.
+function newbornItemRefs(newborns = []) {
+  const refs = [];
+  newborns.forEach((baby, i) => {
+    for (const care of baby.essential_care || []) {
+      if (NEWBORN_ITEM_MAP[care]) {
+        refs.push({ ref_key: `baby${i + 1}:${care}`, item_code: NEWBORN_ITEM_MAP[care], used_for: `baby_${i + 1}` });
+      }
+    }
+  });
+  return refs;
+}
 
 // -- Pre-discharge checklist --------------------------------------------------
 // From the clinic's checklist, column "Within 24 hours and before discharge".
@@ -420,6 +503,12 @@ module.exports = {
   isActiveStatus,
   lineTotal,
   itemsTotal,
+  ITEM_UNITS,
+  NEWBORN_ITEM_MAP,
+  newbornItemRefs,
+  checkQuantity,
+  incompleteTotal,
+  allergyConflict,
   countNights,
   bedCharge,
   firstFreeBed,

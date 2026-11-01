@@ -27,11 +27,11 @@ class ClinicOption {
     return rows[0] || null;
   }
 
-  static async create({ option_group, code, label, price, category, active, sort_order }) {
+  static async create({ option_group, code, label, price, category, active, sort_order, unit, charged, allergy_tags, bundle_items }) {
     const finalCode = code || slugify(label);
     const [result] = await db.execute(
-      `INSERT INTO clinic_options (option_group, code, label, price, category, active, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO clinic_options (option_group, code, label, price, category, active, sort_order, unit, charged, allergy_tags, bundle_items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)`,
       [
         option_group,
         finalCode,
@@ -39,20 +39,30 @@ class ClinicOption {
         price === '' || price === undefined ? null : price,
         category || null,
         active ?? true,
-        sort_order ?? 999
+        sort_order ?? 999,
+        unit || null,
+        charged ?? true,
+        allergy_tags || null,
+        bundle_items ? JSON.stringify(bundle_items) : null
       ]
     );
     return result.insertId;
   }
 
   static async update(id, data) {
-    const columns = ['label', 'price', 'category', 'active', 'sort_order'];
+    const columns = ['label', 'price', 'category', 'active', 'sort_order', 'unit', 'charged', 'allergy_tags', 'bundle_items'];
     const sets = [];
     const values = [];
     for (const col of columns) {
       if (data[col] === undefined) continue;
+      if (col === 'bundle_items') {
+        sets.push('bundle_items = ?::jsonb');
+        values.push(data[col] ? JSON.stringify(data[col]) : null);
+        continue;
+      }
       sets.push(`${col} = ?`);
-      values.push(col === 'price' && data[col] === '' ? null : data[col]);
+      const empty = data[col] === '';
+      values.push(empty && ['price', 'unit', 'allergy_tags'].includes(col) ? null : data[col]);
     }
     if (!sets.length) return false;
     values.push(id);

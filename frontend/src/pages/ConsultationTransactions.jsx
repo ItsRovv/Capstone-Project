@@ -157,8 +157,8 @@ export function ConsultationTransactions() {
         title="Transactions"
         subtitle={
           canManage
-            ? "Payment records for consultations and admissions — vitamins charged at clinic & PhilHealth packages (for reference), grouped by patient."
-            : "Collect payments based on the doctor's prescription. Totals shown below."
+            ? "Summary of consultation and admission items and PhilHealth packages (for reference), grouped by patient."
+            : "Summary of items based on the doctor's prescription. Totals shown below."
         }
         onMenuClick={onOpenMenu}
         right={
@@ -307,7 +307,7 @@ export function ConsultationTransactions() {
                                         ))}
                                       </ul>
                                       <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center justify-between">
-                                        <span className="text-xs font-bold text-emerald-800">Total to pay</span>
+                                        <span className="text-xs font-bold text-emerald-800">Total (for reference)</span>
                                         <span className="text-sm font-bold text-emerald-700">{formatCurrency(t.total_amount)}</span>
                                       </div>
                                     </div>

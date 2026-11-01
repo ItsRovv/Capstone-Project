@@ -274,6 +274,47 @@ describe('vital signs early warning', () => {
   });
 });
 
+describe('item usage rules', () => {
+  test('voided and not-charged lines add nothing to totals or to the transaction', () => {
+    const items = [
+      { id: 1, label: 'Oxytocin', unit_price: 100, quantity: 2, charged: true },
+      { id: 2, label: 'Diaper', unit_price: 5, quantity: 6, charged: false },
+      { id: 3, label: 'Mistake', unit_price: 50, quantity: 1, charged: true, voided_at: new Date() }
+    ];
+    expect(svc.itemsTotal(items)).toBe(200);
+    expect(svc.buildTransactionPayload({ items }).vitamins.map((v) => v.label)).toEqual(['Oxytocin x2']);
+  });
+
+  test('incomplete total while a charged item or the bed has no price', () => {
+    expect(svc.incompleteTotal([{ label: 'A', charged: true, price_missing: true }]).incomplete).toBe(true);
+    expect(svc.incompleteTotal([{ label: 'A', charged: false, price_missing: true }]).incomplete).toBe(false);
+    expect(svc.incompleteTotal([{ label: 'A', charged: true, price_missing: true, voided_at: new Date() }]).incomplete).toBe(false);
+    expect(svc.incompleteTotal([], { number: 1, priceSet: false }).bedUnpriced).toBe(true);
+    expect(svc.incompleteTotal([], { number: 1, priceSet: true }).incomplete).toBe(false);
+  });
+
+  test('quantity checks', () => {
+    expect(svc.checkQuantity(3).ok).toBe(true);
+    for (const bad of [0, -1, 1.5, 'x', null]) expect(svc.checkQuantity(bad).code).toBe('BAD_QUANTITY');
+    expect(svc.checkQuantity(25).code).toBe('LARGE_QUANTITY');
+    expect(svc.checkQuantity(25, { confirmLarge: true }).ok).toBe(true);
+  });
+
+  test('allergy matching by name and drug class', () => {
+    expect(svc.allergyConflict('Aspirin', { label: 'Mefenamic acid', allergy_tags: 'nsaid,aspirin' })).toBe('aspirin');
+    expect(svc.allergyConflict('NSAIDs', { label: 'Pain reliever', allergy_tags: 'nsaid' })).toBe('nsaids');
+    expect(svc.allergyConflict('penicillin, latex', { label: 'Amoxicillin', allergy_tags: 'penicillin,amoxicillin' })).toBe('penicillin');
+    expect(svc.allergyConflict('shellfish', { label: 'Mefenamic acid', allergy_tags: 'nsaid' })).toBeNull();
+    expect(svc.allergyConflict('', { label: 'Anything' })).toBeNull();
+  });
+
+  test('newborn care creates one keyed usage line per baby and item', () => {
+    const refs = svc.newbornItemRefs([{ essential_care: ['vitamin_k', 'drying', 'bcg'] }, { essential_care: ['vitamin_k'] }]);
+    expect(refs.map((r) => r.ref_key)).toEqual(['baby1:vitamin_k', 'baby1:bcg', 'baby2:vitamin_k']);
+    expect(refs[2]).toMatchObject({ item_code: 'newborn_vitamin_k', used_for: 'baby_2' });
+  });
+});
+
 describe('risk flags and discharge gating', () => {
   test('referral-level flags block a normal delivery until a reason is recorded', () => {
     expect(svc.deliveryRiskConflict({ riskFlags: ['placenta_previa'], ackReason: null, deliveryType: 'nsd' }).labels[0]).toMatch(/placenta/i);

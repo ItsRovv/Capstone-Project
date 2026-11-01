@@ -597,6 +597,127 @@ describe('Risk flags, referral reversal and discharge gating', () => {
   });
 });
 
+describe('Item usage tracking', () => {
+  const nsaid = { id: 3, option_group: 'item', active: true, label: 'Mefenamic acid', price: 12, unit: 'pc', charged: true, allergy_tags: 'nsaid,aspirin' };
+  const diaper = { id: 4, option_group: 'item', active: true, label: 'Baby diaper (newborn size)', price: null, unit: 'pc', charged: false };
+  const openStay = () => Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
+
+  test('records item, quantity, unit and who; a baby can be the one it was used for', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1, allergies: '' });
+    ClinicOption.findById.mockResolvedValue(diaper);
+    Admission.addItem.mockResolvedValue(21);
+    const res = await as('midwife', 'post', '/admissions/10/items').send({ option_id: 4, quantity: 3, used_for: 'baby_1' });
+    expect(res.status).toBe(201);
+    expect(Admission.addItem).toHaveBeenCalledWith('10', expect.objectContaining({ label: 'Baby diaper (newborn size)', quantity: 3, unit: 'pc', charged: false, used_for: 'baby_1', price_missing: false }), 5);
+  });
+
+  test('zero, negative, fractional and text quantities are rejected; a large one asks for confirmation', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1 });
+    ClinicOption.findById.mockResolvedValue(nsaid);
+    for (const quantity of [0, -2, 1.5, 'abc']) {
+      expect((await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity })).status).toBe(400);
+    }
+    const large = await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 60 });
+    expect(large.status).toBe(409);
+    expect(large.body.code).toBe('LARGE_QUANTITY');
+    Admission.addItem.mockResolvedValue(22);
+    expect((await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 60, confirm_large: true })).status).toBe(201);
+  });
+
+  test('an NSAID for an aspirin-allergic patient is stopped until a reason is given', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1, allergies: 'Aspirin' });
+    ClinicOption.findById.mockResolvedValue(nsaid);
+    Admission.addItem.mockResolvedValue(23);
+    const blocked = await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1 });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('ALLERGY');
+    expect(Admission.addItem).not.toHaveBeenCalled();
+    const ok = await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1, allergy_reason: 'Doctor ordered, tolerated before' });
+    expect(ok.status).toBe(201);
+    expect(Admission.addItem.mock.calls[0][1].note).toMatch(/Allergy warning \(aspirin\) confirmed/);
+  });
+
+  test('an unpriced charged item is flagged as missing its price', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1 });
+    ClinicOption.findById.mockResolvedValue({ ...nsaid, price: null, allergy_tags: null });
+    Admission.addItem.mockResolvedValue(24);
+    await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1 });
+    expect(Admission.addItem.mock.calls[0][1]).toMatchObject({ price_missing: true, unit_price: 0 });
+  });
+
+  test('removing a line voids it with a reason instead of deleting it', async () => {
+    openStay();
+    Admission.voidItem.mockResolvedValue(true);
+    expect((await as('nurse', 'post', '/admissions/10/items/21/void').send({})).status).toBe(400);
+    const res = await as('nurse', 'post', '/admissions/10/items/21/void').send({ reason: 'Entered by mistake' });
+    expect(res.status).toBe(200);
+    expect(Admission.voidItem).toHaveBeenCalledWith('10', '21', 'Entered by mistake', 5);
+  });
+
+  test('correcting a quantity needs a reason and validates the new number', async () => {
+    openStay();
+    Admission.replaceItem.mockResolvedValue(30);
+    expect((await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 0, reason: 'fix' })).status).toBe(400);
+    expect((await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 2 })).status).toBe(400);
+    const res = await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 2, reason: 'Typed 3 by mistake' });
+    expect(res.status).toBe(200);
+    expect(Admission.replaceItem).toHaveBeenCalledWith('10', '21', 2, 'Typed 3 by mistake', 5);
+  });
+
+  test('Send to Transactions asks to confirm an incomplete total, and a zero total needs a reason', async () => {
+    openStay();
+    Admission.getDischarge.mockResolvedValue(null);
+    Admission.getReferral.mockResolvedValue(null);
+    Admission.listItems.mockResolvedValue([{ id: 1, label: 'Antibiotic', unit_price: 0, quantity: 1, charged: true, price_missing: true }]);
+    const incomplete = await as('nurse', 'post', '/admissions/10/transaction').send({});
+    expect(incomplete.status).toBe(409);
+    expect(incomplete.body.code).toBe('INCOMPLETE_TOTAL');
+
+    Admission.listItems.mockResolvedValue([{ id: 2, label: 'Diaper', unit_price: 0, quantity: 3, charged: false }]);
+    const zero = await as('nurse', 'post', '/admissions/10/transaction').send({});
+    expect(zero.body.code).toBe('ZERO_TOTAL');
+  });
+
+  test('vitamin K on the Baby step creates exactly one usage line, even when saved twice', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    ClinicOption.findByGroupCode.mockResolvedValue({ id: 8, label: 'Newborn vitamin K injection', price: 90, unit: 'ampule', charged: true, active: true });
+    Admission.addItem.mockResolvedValue(40);
+    const body = { delivered_at: '2026-10-31T03:00:00Z', newborns: [{ sex: 'Female', essential_care: ['vitamin_k', 'drying'] }] };
+
+    Admission.liveRefKeys.mockResolvedValue([]);
+    expect((await as('midwife', 'put', '/admissions/10/delivery').send(body)).status).toBe(200);
+    expect(Admission.addItem).toHaveBeenCalledTimes(1);
+    expect(Admission.addItem.mock.calls[0][1]).toMatchObject({ ref_key: 'baby1:vitamin_k', used_for: 'baby_1', label: 'Newborn vitamin K injection' });
+
+    Admission.addItem.mockClear();
+    Admission.liveRefKeys.mockResolvedValue([{ id: 40, ref_key: 'baby1:vitamin_k' }]);
+    await as('midwife', 'put', '/admissions/10/delivery').send(body);
+    expect(Admission.addItem).not.toHaveBeenCalled();
+
+    Admission.liveRefKeys.mockResolvedValue([{ id: 40, ref_key: 'baby1:vitamin_k' }]);
+    Admission.voidItem.mockResolvedValue(true);
+    await as('midwife', 'put', '/admissions/10/delivery').send({ ...body, newborns: [{ sex: 'Female', essential_care: ['drying'] }] });
+    expect(Admission.voidItem).toHaveBeenCalledWith(10, 40, expect.any(String), 5);
+  });
+
+  test('the usage report is for admin and doctor, validates dates and can be exported as CSV', async () => {
+    Admission.itemUsageReport.mockResolvedValue([{ category: 'supply', label: 'Gloves', unit: 'pair', total_quantity: '8', admissions: '3', amount: 0, charged: false }]);
+    expect((await as('midwife', 'get', '/admissions/reports/item-usage')).status).toBe(403);
+    expect((await as('doctor', 'get', '/admissions/reports/item-usage?from=bad&to=2026-10-31')).status).toBe(400);
+    const json = await as('doctor', 'get', '/admissions/reports/item-usage?from=2026-10-01&to=2026-10-31');
+    expect(json.body.rows[0].label).toBe('Gloves');
+    const csv = await as('admin', 'get', '/admissions/reports/item-usage?from=2026-10-01&to=2026-10-31&format=csv');
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.text).toContain('"Gloves","pair","8","3","Not charged"');
+  });
+});
+
 const FULL_VITALS = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
 
 describe('Vital signs', () => {

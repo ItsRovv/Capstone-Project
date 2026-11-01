@@ -13,7 +13,7 @@ const { requireAdmissionAccess, requireClinical } = require('../middleware/role'
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
   validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist,
-  validateReason
+  validateReason, validateItemQuantity
 } = require('../middleware/validation');
 const svc = require('../services/admissionService');
 const { onDelivered } = require('../services/admissionSync');
@@ -74,6 +74,74 @@ function stayBed(admission, discharge, referral) {
   return svc.bedCharge({
     bedNumber: admission.bed_number, pricePerNight: admission.bed_price, start: admission.admitted_at, end
   });
+}
+
+// Turns the request for one item into the line to save: price, unit and charged flag come from the
+// clinic's list; quantity and allergy rules are checked here, not only on the screen.
+async function buildItemLine(value, admission) {
+  const q = svc.checkQuantity(value.quantity, { confirmLarge: value.confirm_large });
+  if (!q.ok) return { fail: { status: q.code === 'LARGE_QUANTITY' ? 409 : 400, body: { code: q.code, message: q.message } } };
+  let { label, unit_price: unitPrice, unit } = value;
+  let charged = true;
+  let priceMissing = false;
+  let allergyTags = null;
+  let unlisted = false;
+  if (value.option_id) {
+    const option = await ClinicOption.findById(value.option_id);
+    if (!option || option.option_group !== 'item' || !option.active) {
+      return { fail: { status: 400, body: { message: 'That item is not available. Please choose from the list.' } } };
+    }
+    label = option.label;
+    unit = unit || option.unit || null;
+    charged = option.charged !== false;
+    allergyTags = option.allergy_tags;
+    if (unitPrice === undefined) {
+      priceMissing = charged && (option.price === null || option.price === undefined);
+      unitPrice = priceMissing ? 0 : Number(option.price);
+    }
+  } else {
+    unlisted = true;
+    if (unitPrice === undefined) priceMissing = true;
+  }
+  let note = null;
+  const patient = await Patient.findById(admission.patient_id);
+  const allergy = svc.allergyConflict(svc.buildPatientRecord(patient)?.allergies, { label, allergy_tags: allergyTags });
+  if (allergy) {
+    if (!value.allergy_reason) {
+      return { fail: { status: 409, body: { code: 'ALLERGY', allergy, message: `Allergy warning: the patient is allergic to ${allergy}, and ${label} may contain or belong to it. Confirm with a reason to continue.` } } };
+    }
+    note = `Allergy warning (${allergy}) confirmed: ${value.allergy_reason}`;
+  }
+  return {
+    line: {
+      option_id: value.option_id || null, label, unit_price: unitPrice ?? 0, quantity: Number(value.quantity), given_at: value.given_at,
+      unit, charged, price_missing: priceMissing, used_for: value.used_for || 'mother', unlisted, note
+    }
+  };
+}
+
+// Keeps usage lines in step with newborn care ticked on the Baby step: one line per baby and care item.
+async function syncNewbornItems(admission, newborns, userId) {
+  const wanted = svc.newbornItemRefs(newborns);
+  const live = (await Admission.liveRefKeys(admission.id)) || [];
+  const liveKeys = new Set(live.map((r) => r.ref_key));
+  for (const ref of wanted) {
+    if (liveKeys.has(ref.ref_key)) continue;
+    const option = await ClinicOption.findByGroupCode('item', ref.item_code);
+    if (!option || !option.active) continue;
+    const priceMissing = option.charged !== false && (option.price === null || option.price === undefined);
+    await Admission.addItem(admission.id, {
+      option_id: option.id, label: option.label, unit_price: priceMissing ? 0 : Number(option.price), quantity: 1,
+      unit: option.unit || null, charged: option.charged !== false, price_missing: priceMissing,
+      used_for: ref.used_for, ref_key: ref.ref_key
+    }, userId);
+  }
+  const wantedKeys = new Set(wanted.map((r) => r.ref_key));
+  for (const row of live) {
+    if (/^baby\d+:/.test(row.ref_key) && !wantedKeys.has(row.ref_key)) {
+      await Admission.voidItem(admission.id, row.id, 'Removed from the baby\'s care record', userId);
+    }
+  }
 }
 
 // Loads :id into req.admission. Records of finished stays are locked for non-admins.
@@ -139,6 +207,32 @@ router.get('/patient/:patientId', async (req, res) => {
   try {
     const rows = await Admission.list({ patientId: req.params.patientId });
     res.json(isFrontDesk(req) ? rows.map(svc.redactAdmission) : rows);
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Item usage report ────────────────────────────────────────────────────
+// How many diapers, gloves, gauze or ampules were used between two dates. Usage only, no stock.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+router.get('/reports/item-usage', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const weekAgo = new Date(Date.now() + 8 * 3600000 - 6 * 86400000).toISOString().slice(0, 10);
+    const { from = weekAgo, to = today, category } = req.query;
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return res.status(400).json({ message: 'from and to must look like 2026-10-31' });
+    if (from > to) return res.status(400).json({ message: 'The start date must be before the end date.' });
+    const rows = await Admission.itemUsageReport({ from, to, category: category || undefined });
+    if (req.query.format === 'csv') {
+      const lines = [['Category', 'Item', 'Unit', 'Quantity used', 'Admissions', 'Amount (for reference)'].map(csvCell).join(',')];
+      for (const r of rows) {
+        lines.push([r.category, r.label, r.unit, r.total_quantity, r.admissions, r.charged ? r.amount : 'Not charged'].map(csvCell).join(','));
+      }
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename="item-usage-${from}-to-${to}.csv"`);
+      return res.send(lines.join('\r\n'));
+    }
+    res.json({ from, to, rows });
   } catch (err) { routeError(res, err); }
 });
 
@@ -269,10 +363,11 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     }
     const bed = stayBed(a, discharge, referral);
     const itemsSum = svc.itemsTotal(items);
+    const totalStatus = svc.incompleteTotal(items, bed);
     const packages = await resolvePackages(a.philhealth_packages);
     const record = svc.buildPatientRecord(await Patient.findById(a.patient_id));
     const bundle = {
-      admission: a, record, delivery, items, itemsTotal: itemsSum, bed, wardName: settings.ward_name || 'Ward',
+      admission: a, record, delivery, items, itemsTotal: itemsSum, totalStatus, bed, wardName: settings.ward_name || 'Ward',
       packages, philhealthTotal: Math.round((packages.reduce((s, p) => s + p.amount, 0) + Number.EPSILON) * 100) / 100,
       grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
       discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status),
@@ -358,6 +453,7 @@ router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) =
       });
     }
     const deliveryId = await Admission.saveDelivery(a.id, value);
+    await syncNewbornItems(a, value.newborns, req.user.id).catch((e) => console.warn('[admission] newborn items sync failed:', e.message));
     await audit(req, 'UPDATE', a.id, undefined, { delivery: value }, 'deliveries');
     onDelivered(a, { delivered_at: value.delivered_at }).catch((e) => console.warn('[admission] pregnancy sync failed:', e.message));
     res.json({ id: deliveryId, message: 'Delivery recorded' });
@@ -458,30 +554,67 @@ router.post('/:id/items', requireClinical, loadAdmission({ allowLockedFor: ['*']
     }
     const { error, value } = validateAdmissionItem(req.body);
     if (error) return bad(res, error);
-    let { label, unit_price: unitPrice } = value;
-    if (value.option_id) {
-      const option = await ClinicOption.findById(value.option_id);
-      if (!option || option.option_group !== 'item' || !option.active) {
-        return res.status(400).json({ message: 'That item is not available. Please choose from the list.' });
-      }
-      label = option.label;
-      if (unitPrice === undefined) unitPrice = option.price === null ? 0 : Number(option.price);
-    }
-    const id = await Admission.addItem(req.params.id, { ...value, label, unit_price: unitPrice ?? 0 }, req.user.id);
-    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), label, unit_price: unitPrice, quantity: value.quantity }, 'admission_items');
+    const built = await buildItemLine(value, req.admission);
+    if (built.fail) return res.status(built.fail.status).json(built.fail.body);
+    const id = await Admission.addItem(req.params.id, built.line, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), label: built.line.label, quantity: built.line.quantity }, 'admission_items');
     res.status(201).json({ id, message: 'Item added' });
   } catch (err) { routeError(res, err); }
 });
 
-router.delete('/:id/items/:itemId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+// Apply a bundle (for example the "Normal delivery pack") as separate usage lines.
+router.post('/:id/items/bundle/:optionId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    if (req.admission.status === 'referred' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to add items.' });
+    }
+    const bundle = await ClinicOption.findById(req.params.optionId);
+    if (!bundle || bundle.option_group !== 'bundle' || !bundle.active || !Array.isArray(bundle.bundle_items)) {
+      return res.status(404).json({ message: 'That bundle is not available.' });
+    }
+    const added = [];
+    for (const part of bundle.bundle_items) {
+      const option = await ClinicOption.findByGroupCode('item', part.code);
+      if (!option || !option.active) continue;
+      // No allergy override here: a bundle containing something she is allergic to is refused.
+      const built = await buildItemLine({ option_id: option.id, quantity: part.quantity, used_for: 'mother' }, req.admission);
+      if (built.fail) return res.status(built.fail.status).json(built.fail.body);
+      added.push(await Admission.addItem(req.params.id, built.line, req.user.id));
+    }
+    await audit(req, 'CREATE', Number(req.params.id), undefined, { bundle: bundle.code, lines: added.length }, 'admission_items');
+    res.status(201).json({ added: added.length, message: `${bundle.label} added (${added.length} items)` });
+  } catch (err) { routeError(res, err); }
+});
+
+// Correct a quantity: the old line is voided (with a reason) and a corrected one is added.
+router.put('/:id/items/:itemId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    if (req.admission.status === 'referred' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to change items.' });
+    }
+    const { error, value } = validateItemQuantity(req.body);
+    if (error) return bad(res, error);
+    const check = svc.checkQuantity(value.quantity, { confirmLarge: value.confirm_large });
+    if (!check.ok) return res.status(check.code === 'LARGE_QUANTITY' ? 409 : 400).json({ code: check.code, message: check.message });
+    const newId = await Admission.replaceItem(req.params.id, req.params.itemId, value.quantity, value.reason, req.user.id);
+    if (!newId) return res.status(404).json({ message: 'Item not found or already voided' });
+    await audit(req, 'UPDATE', Number(req.params.itemId), undefined, { admission_id: Number(req.params.id), quantity: value.quantity, reason: value.reason }, 'admission_items');
+    res.json({ id: newId, message: 'Quantity corrected. The old line stays in the history as voided.' });
+  } catch (err) { routeError(res, err); }
+});
+
+// "Remove" never deletes: the line is voided with a reason, who and when, and leaves the totals.
+router.post('/:id/items/:itemId/void', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
   try {
     if (req.admission.status === 'referred' && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to remove items.' });
     }
-    const ok = await Admission.removeItem(req.params.id, req.params.itemId);
-    if (!ok) return res.status(404).json({ message: 'Item not found' });
-    await audit(req, 'DELETE', Number(req.params.itemId), { admission_id: Number(req.params.id) }, undefined, 'admission_items');
-    res.json({ message: 'Item removed' });
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    const ok = await Admission.voidItem(req.params.id, req.params.itemId, value.reason, req.user.id);
+    if (!ok) return res.status(404).json({ message: 'Item not found or already voided' });
+    await audit(req, 'DELETE', Number(req.params.itemId), { admission_id: Number(req.params.id) }, { voided: true, reason: value.reason }, 'admission_items');
+    res.json({ message: 'Item voided. It stays in the history.' });
   } catch (err) { routeError(res, err); }
 });
 
@@ -516,6 +649,18 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
       return res.status(400).json({ message: 'Add at least one item used (or choose a PhilHealth package, or set the bed price) first.' });
     }
     const payload = svc.buildTransactionPayload({ items, packages, bed });
+    const incomplete = svc.incompleteTotal(items, bed);
+    if (incomplete.incomplete && !req.body?.confirm_incomplete) {
+      return res.status(409).json({
+        code: 'INCOMPLETE_TOTAL',
+        message: 'Some items or the bed have no price yet, so this total is not final. Confirm to send it anyway.',
+        unpriced: incomplete.unpricedLabels, bedUnpriced: incomplete.bedUnpriced
+      });
+    }
+    const waivedReason = typeof req.body?.waived_reason === 'string' ? req.body.waived_reason.trim().slice(0, 300) : '';
+    if (payload.total_amount === 0 && !packages.length && !incomplete.incomplete && !waivedReason) {
+      return res.status(409).json({ code: 'ZERO_TOTAL', message: 'The total is 0. Confirm with a reason (for example free or waived) to send it.' });
+    }
 
     const existing = (await ConsultationTransaction.findByAdmissionId(a.id))[0];
     let transactionId;
@@ -527,7 +672,7 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
     } else {
       transactionId = await ConsultationTransaction.create({
         patient_id: a.patient_id, admission_id: a.id, created_by: req.user.id,
-        recommendations: `Admission #${a.id}: items used during stay`, ...payload
+        recommendations: `Admission #${a.id}: items used during stay${waivedReason ? `. Total waived: ${waivedReason}` : ''}`, ...payload
       });
     }
     await audit(req, existing ? 'UPDATE' : 'CREATE', transactionId, undefined, { admission_id: a.id, ...payload }, 'consultation_transactions');

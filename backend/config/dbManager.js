@@ -52,6 +52,9 @@ function buildPrimaryPool() {
     keepAliveInitialDelayMillis: 10000,
     allowExitOnIdle: true,
     application_name: 'lying-in-clinic-api',
+    // statement_timeout set at connection startup — firing a SET query in the
+    // connect hook races other queries on the client (pg@9 deprecation warning).
+    options: `-c statement_timeout=${Math.floor(QUERY_TIMEOUT_MS)}`,
   };
 
   const pool = PRIMARY_URL
@@ -67,9 +70,6 @@ function buildPrimaryPool() {
 
   pool.on('error', (err) => {
     console.error('[dbManager] Primary pool error:', err.message);
-  });
-  pool.on('connect', (client) => {
-    client.query(`SET statement_timeout = ${Math.floor(QUERY_TIMEOUT_MS)}`).catch(() => {});
   });
 
   return pool;
@@ -91,13 +91,11 @@ function buildFallbackPool() {
     keepAliveInitialDelayMillis: 10000,
     allowExitOnIdle: true,
     application_name: 'lying-in-clinic-api-fallback',
+    options: `-c statement_timeout=${Math.floor(QUERY_TIMEOUT_MS)}`,
   });
 
   pool.on('error', (err) => {
     console.error('[dbManager] Fallback pool error:', err.message);
-  });
-  pool.on('connect', (client) => {
-    client.query(`SET statement_timeout = ${Math.floor(QUERY_TIMEOUT_MS)}`).catch(() => {});
   });
 
   return pool;

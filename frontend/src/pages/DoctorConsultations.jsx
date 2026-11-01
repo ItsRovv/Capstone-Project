@@ -13,6 +13,8 @@ import { consultationTransactionService } from '../services/consultationTransact
 import { patientService } from '../services/patientService';
 import { pregnancyService } from '../services/pregnancyService';
 import { ConsultationForm } from '../components/ConsultationForm';
+import { PrenatalConsultationForm } from '../components/PrenatalConsultationForm';
+import { PostnatalConsultationForm } from '../components/PostnatalConsultationForm';
 import { matchPrescriptionToVitamins, calculateVitaminsTotal } from '../utils/prescriptionMatcher';
 import { apiError } from '../services/api';
 
@@ -32,6 +34,21 @@ function StatusBadge({ status }) {
   );
 }
 
+const CONSULTATION_TYPES = {
+  normal: { label: 'Normal', className: 'bg-ink-100 text-ink-600' },
+  prenatal: { label: 'Prenatal', className: 'bg-pink-100 text-pink-700' },
+  postnatal: { label: 'Postnatal', className: 'bg-violet-100 text-violet-700' }
+};
+
+export function ConsultationTypeBadge({ type }) {
+  const t = CONSULTATION_TYPES[type] || CONSULTATION_TYPES.normal;
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${t.className}`}>
+      {t.label}
+    </span>
+  );
+}
+
 function QueueChip({ q, onClick, actionLabel, accent = 'primary' }) {
   const accents = {
     primary: 'bg-primary-100 text-primary-700 hover:border-primary-300 hover:bg-primary-50/30',
@@ -47,6 +64,9 @@ function QueueChip({ q, onClick, actionLabel, accent = 'primary' }) {
         <p className="text-xs font-medium text-ink-900 truncate">
           {q.first_name} {q.last_name}
         </p>
+        {q.consultation_type && q.consultation_type !== 'normal' && (
+          <ConsultationTypeBadge type={q.consultation_type} />
+        )}
       </div>
       {onClick && (
         <Button size="sm" variant="ghost" onClick={onClick} className="text-xs px-2 py-0.5">
@@ -69,8 +89,13 @@ export function DoctorConsultations() {
   const [patientMap, setPatientMap] = useState({});
   const [pregnancyContext, setPregnancyContext] = useState(null);
   const [serveConfirm, setServeConfirm] = useState({ open: false, queueId: null });
+  const [consultationType, setConsultationType] = useState('normal');
 
   const currentServing = queue.find((q) => q.status === 'serving') || null;
+
+  useEffect(() => {
+    setConsultationType(currentServing?.consultation_type || 'normal');
+  }, [currentServing?.id]);
   const nextWaiting = queue.find((q) => q.status === 'waiting') || null;
   const waitingList = queue.filter((q) => q.status === 'waiting');
   const doneList = queue.filter((q) => q.status === 'done');
@@ -146,10 +171,11 @@ export function DoctorConsultations() {
       // 1. Save consultation
       const consultResult = await consultationService.create({
         ...payload,
-        patient_id: currentServing.patient_id
+        patient_id: currentServing.patient_id,
+        consultation_type: payload.consultation_type || consultationType
       });
       const consultationId = consultResult?.id || null;
-      if (consultResult?.pregnancy_created) toast.info('Added to Pregnancy Tracking: she plans to deliver at JLMC.');
+      if (consultResult?.pregnancy_created) toast.info('Added to Pregnancy Tracking: delivery location recorded.');
 
       // 2. Mark queue done
       await queueService.updateStatus(currentServing.id, 'done');
@@ -312,19 +338,52 @@ export function DoctorConsultations() {
                   {/* Center: SOAP consultation form (7 cols) */}
                   <div className="xl:col-span-7">
                     <Card padding="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-ink-800">Consultation — S.O.A.P. Notes</h3>
-                        <span className="text-xs text-ink-400">
-                          {currentServing.first_name} {currentServing.last_name}
-                        </span>
+                      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                        <h3 className="text-sm font-semibold text-ink-800">
+                          {consultationType === 'prenatal'
+                            ? 'Prenatal Consultation'
+                            : consultationType === 'postnatal'
+                            ? 'Postnatal Consultation'
+                            : 'Consultation — S.O.A.P. Notes'}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <ConsultationTypeBadge type={consultationType} />
+                          <select
+                            value={consultationType}
+                            onChange={(e) => setConsultationType(e.target.value)}
+                            className="input-base !py-1 !w-auto text-xs"
+                            title="Consultation type"
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="prenatal">Prenatal</option>
+                            <option value="postnatal">Postnatal</option>
+                          </select>
+                        </div>
                       </div>
-                      <ConsultationForm
-                        patientId={currentServing.patient_id}
-                        onSubmit={handleDone}
-                        submitting={submitting}
-                        onCancel={null}
-                        pregnancyContext={pregnancyContext}
-                      />
+                      {consultationType === 'prenatal' ? (
+                        <PrenatalConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                          pregnancyContext={pregnancyContext}
+                        />
+                      ) : consultationType === 'postnatal' ? (
+                        <PostnatalConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                        />
+                      ) : (
+                        <ConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                          pregnancyContext={pregnancyContext}
+                        />
+                      )}
                     </Card>
                   </div>
 

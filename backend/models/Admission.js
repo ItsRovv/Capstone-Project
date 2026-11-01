@@ -607,6 +607,20 @@ class Admission {
     );
     return rows;
   }
+
+  // Latest delivery for a patient (used to prefill postpartum/postnatal care).
+  static async findLatestDeliveryByPatient(patientId) {
+    const query = `
+      SELECT d.id, d.admission_id, d.delivered_at, d.delivery_type, a.patient_id, a.pregnancy_id
+      FROM deliveries d
+      JOIN admissions a ON a.id = d.admission_id
+      WHERE a.patient_id = ?
+      ORDER BY d.delivered_at DESC
+      LIMIT 1
+    `;
+    const [rows] = await db.execute(query, [patientId]);
+    return rows[0] || null;
+  }
 }
 
 module.exports = Admission;

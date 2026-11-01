@@ -110,7 +110,11 @@ CREATE TABLE IF NOT EXISTS consultations (
   objective TEXT,                        -- S.O.A.P. — exam findings, vitals, measurements
   assessment TEXT,                       -- S.O.A.P. — clinical assessment/diagnosis
   plan TEXT,                             -- S.O.A.P. — treatment/follow-up plan
-  delivery_location VARCHAR(50),          -- Where patient plans to deliver (e.g., 'jlmc', 'other')
+  delivery_location VARCHAR(100),          -- Where patient plans to deliver (e.g., 'JLMC' or a custom uppercase facility name)
+  consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal'
+    CHECK (consultation_type IN ('normal', 'prenatal', 'postnatal')),
+  prenatal_data TEXT,                      -- Encrypted JSON: per-visit prenatal checkup fields
+  postnatal_data TEXT,                     -- Encrypted JSON: per-visit postpartum care fields
   ai_summary_used BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -122,7 +126,10 @@ ALTER TABLE consultations ADD COLUMN IF NOT EXISTS subjective TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS objective TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS assessment TEXT;
 ALTER TABLE consultations ADD COLUMN IF NOT EXISTS plan TEXT;
-ALTER TABLE consultations ADD COLUMN IF NOT EXISTS delivery_location VARCHAR(50);
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS delivery_location VARCHAR(100);
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal';
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS prenatal_data TEXT;
+ALTER TABLE consultations ADD COLUMN IF NOT EXISTS postnatal_data TEXT;
 
 -- ── consultation_transactions ────────────────────────────────────────────────
 -- Records PhilHealth package charges and the doctor's vitamin/medicine
@@ -199,9 +206,12 @@ CREATE TABLE IF NOT EXISTS pregnancies (
   weeks VARCHAR(20),
   status VARCHAR(30),
   notes TEXT,
+  pregnancy_history JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE pregnancies ADD COLUMN IF NOT EXISTS pregnancy_history JSONB NOT NULL DEFAULT '[]';
 
 -- ── updated_at trigger for pregnancies ────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_pregnancies_updated_at ON pregnancies;
@@ -261,6 +271,8 @@ CREATE TABLE IF NOT EXISTS queue_entries (
   entry_date DATE NOT NULL DEFAULT CURRENT_DATE,
   status VARCHAR(20) NOT NULL DEFAULT 'waiting'
     CHECK (status IN ('waiting', 'serving', 'done', 'skipped')),
+  consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal'
+    CHECK (consultation_type IN ('normal', 'prenatal', 'postnatal')),
   served_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -272,6 +284,8 @@ CREATE TRIGGER trg_queue_entries_updated_at BEFORE UPDATE ON queue_entries
 
 CREATE INDEX IF NOT EXISTS idx_queue_entries_date ON queue_entries (entry_date, status, queue_number);
 CREATE INDEX IF NOT EXISTS idx_queue_entries_patient ON queue_entries (patient_id, entry_date DESC);
+
+ALTER TABLE queue_entries ADD COLUMN IF NOT EXISTS consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal';
 
 -- ── Admission, delivery & discharge ───────────────────────────────────────────
 -- Clinic-editable lists (discharge reasons, risk checklist, items used, packages).

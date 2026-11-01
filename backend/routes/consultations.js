@@ -11,7 +11,7 @@ const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
 const { requireStaff } = require('../middleware/role');
 const { routeError } = require('../utils/routeError');
-const { ensurePregnancyForJlmcDelivery } = require('../services/admissionSync');
+const { ensurePregnancyForDelivery } = require('../services/admissionSync');
 
 // Clinic staff only.
 router.use(auth, requireStaff);
@@ -89,6 +89,11 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
+    // Normalize delivery location to uppercase for consistent storage
+    if (value.delivery_location) {
+      value.delivery_location = value.delivery_location.toUpperCase();
+    }
+
     // Auto-assign the current doctor
     const consultationId = await Consultation.create({
       ...value,
@@ -112,14 +117,14 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
 
     // Best-effort: never fail a saved consultation because of this follow-up step.
     let pregnancyCreated = false;
-    if (value.delivery_location === 'jlmc') {
+    if (value.delivery_location) {
       try {
-        const pregnancyId = await ensurePregnancyForJlmcDelivery(value.patient_id);
+        const pregnancyId = await ensurePregnancyForDelivery(value.patient_id, value.delivery_location);
         if (pregnancyId) {
           pregnancyCreated = true;
           await AuditLog.create({
             userId: req.user?.id, action: 'CREATE', tableName: 'pregnancies', recordId: pregnancyId,
-            newData: { patient_id: value.patient_id, source: 'consultation_jlmc_delivery' }, ipAddress: req.ip
+            newData: { patient_id: value.patient_id, source: 'consultation_delivery_location' }, ipAddress: req.ip
           });
         }
       } catch (e) {
@@ -143,6 +148,11 @@ router.put('/:id', requireRole('admin', 'doctor'), async (req, res) => {
     const { error, value } = validateConsultation(req.body);
     if (error) {
       return res.status(400).json({ message: error.details[0].message });
+    }
+
+    // Normalize delivery location to uppercase for consistent storage
+    if (value.delivery_location) {
+      value.delivery_location = value.delivery_location.toUpperCase();
     }
 
     const oldConsultation = await Consultation.findById(req.params.id);

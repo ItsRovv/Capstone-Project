@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Textarea } from './UI/Input';
+import { Input, Select, Textarea } from './UI/Input';
 import { Button } from './UI/Button';
 import { useToast } from './UI/Toast';
 
@@ -22,6 +22,58 @@ function AutoTextarea({ value, onChange, placeholder, className = '' }) {
       placeholder={placeholder}
       rows={1}
     />
+  );
+}
+
+export function DeliveryLocationField({ value, onChange }) {
+  const normalizedValue = (value || '').toUpperCase();
+  const isOther = normalizedValue && normalizedValue !== 'JLMC';
+
+  const [selectValue, setSelectValue] = useState(isOther ? 'Others' : normalizedValue);
+  const [otherValue, setOtherValue] = useState(isOther ? normalizedValue : '');
+
+  useEffect(() => {
+    const nextIsOther = normalizedValue && normalizedValue !== 'JLMC';
+    setSelectValue(nextIsOther ? 'Others' : normalizedValue);
+    setOtherValue(nextIsOther ? normalizedValue : '');
+  }, [normalizedValue]);
+
+  function handleSelect(e) {
+    const val = e.target.value;
+    setSelectValue(val);
+    if (val === 'Others') {
+      onChange(otherValue);
+    } else {
+      setOtherValue('');
+      onChange(val);
+    }
+  }
+
+  function handleOther(e) {
+    const val = e.target.value.toUpperCase();
+    setOtherValue(val);
+    onChange(val);
+  }
+
+  return (
+    <div className="rounded-lg border border-ink-200 p-3 space-y-3">
+      <Select label="Planned delivery location" value={selectValue} onChange={handleSelect}>
+        <option value="">Not specified</option>
+        <option value="JLMC">JLMC</option>
+        <option value="Others">Others</option>
+      </Select>
+      {selectValue === 'Others' && (
+        <Input
+          label="Specify delivery location"
+          value={otherValue}
+          onChange={handleOther}
+          placeholder="e.g. BICOL MEDICAL CENTER"
+        />
+      )}
+      <p className="text-xs text-ink-500">
+        Select JLMC if the patient will give birth at Jean Lying-In Maternity Clinic for pregnancy tracking.
+      </p>
+    </div>
   );
 }
 
@@ -119,7 +171,7 @@ export function ConsultationForm({
       plan: structured.plan || null,
       diagnosis: structured.diagnosis || null,
       prescription: structured.prescription || null,
-      delivery_location: structured.deliveryLocation === 'jlmc' ? 'jlmc' : null,
+      delivery_location: structured.deliveryLocation || null,
       ai_summary_used: false
     };
     onSubmit(payload);
@@ -232,20 +284,10 @@ export function ConsultationForm({
       </div>
 
       {/* Delivery location */}
-      <div className="rounded-lg border border-ink-200 p-3">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={structured.deliveryLocation === 'jlmc'}
-            onChange={(e) => setStructured((s) => ({ ...s, deliveryLocation: e.target.checked ? 'jlmc' : '' }))}
-            className="w-5 h-5 mt-0.5 accent-primary-600"
-          />
-          <div>
-            <p className="text-sm font-medium text-ink-900">Plan to deliver at JLMC</p>
-            <p className="text-xs text-ink-500">Check this if the patient will give birth at Jean Lying-In Maternity Clinic for pregnancy tracking.</p>
-          </div>
-        </label>
-      </div>
+      <DeliveryLocationField
+        value={structured.deliveryLocation}
+        onChange={(value) => setStructured((s) => ({ ...s, deliveryLocation: value }))}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Input
@@ -255,10 +297,11 @@ export function ConsultationForm({
           placeholder="Final diagnosis or clinical impression"
         />
         <Input
-          label="Follow-up"
+          type="date"
+          label="Follow-up check-up date"
           value={structured.followUp}
           onChange={update('followUp')}
-          placeholder="e.g. Return in 4 weeks (16 weeks AOG)"
+          placeholder="Select follow-up date"
         />
       </div>
 

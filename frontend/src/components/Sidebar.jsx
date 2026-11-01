@@ -10,7 +10,8 @@ const STAFF_NAV = [
   { to: '/consultations', label: 'Daily Queue' },
   { to: '/transactions', label: 'Transactions' },
   { to: '/admissions', label: 'Admission and Discharge' },
-  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' },
+  { to: '/monitoring', label: 'Monitoring' }
 ];
 
 const DOCTOR_NAV = [
@@ -20,7 +21,8 @@ const DOCTOR_NAV = [
   { to: '/transactions', label: 'Transactions' },
   { to: '/admissions', label: 'Admission and Discharge' },
   { to: '/reports', label: 'Reports' },
-  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' }
+  { to: '/pregnancy-tracking', label: 'Pregnancy Tracking' },
+  { to: '/monitoring', label: 'Monitoring' }
 ];
 
 const MIDWIFE_NAV = [

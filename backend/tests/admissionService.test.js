@@ -12,7 +12,7 @@ describe('admission status flow', () => {
     ['in_labor', 'delivered', true],
     ['in_labor', 'discharged', false],
     ['delivered', 'discharged', true],
-    ['delivered', 'referred', false],
+    ['delivered', 'referred', true],
     ['discharged', 'admitted', false],
     ['referred', 'discharged', false]
   ])('%s -> %s allowed=%s', (from, to, allowed) => {
@@ -228,9 +228,15 @@ describe("Midwives' Notes helpers", () => {
   });
 
   test('shift follows the paper sheet in Philippine time', () => {
-    expect(svc.shiftOf('2026-10-31T00:30:00Z')).toBe('morning');
-    expect(svc.shiftOf('2026-10-31T08:30:00Z')).toBe('afternoon');
-    expect(svc.shiftOf('2026-10-31T16:30:00Z')).toBe('evening');
+    expect(svc.shiftOf('2026-10-31T00:30:00Z')).toBe('morning');   // 08:30 PHT
+    expect(svc.shiftOf('2026-10-31T03:59:00Z')).toBe('morning');   // 11:59 PHT
+    expect(svc.shiftOf('2026-10-31T04:00:00Z')).toBe('afternoon'); // 12:00 PHT
+    expect(svc.shiftOf('2026-10-31T08:30:00Z')).toBe('afternoon'); // 16:30 PHT
+    expect(svc.shiftOf('2026-10-31T09:59:00Z')).toBe('afternoon'); // 17:59 PHT
+    expect(svc.shiftOf('2026-10-31T10:00:00Z')).toBe('evening');    // 18:00 PHT
+    expect(svc.shiftOf('2026-10-31T14:10:00Z')).toBe('evening');   // 22:10 PHT
+    expect(svc.shiftOf('2026-10-31T21:59:00Z')).toBe('evening');    // 05:59 PHT
+    expect(svc.shiftOf('2026-10-31T22:00:00Z')).toBe('morning');    // 06:00 PHT
   });
 });
 
@@ -255,7 +261,85 @@ describe('vital signs early warning', () => {
   test('blank values are ignored and an empty reading is not accepted', () => {
     expect(svc.scoreVitals({ pulse: '', resp_rate: null }).total).toBe(0);
     expect(validateVitals({}).error).toBeDefined();
-    expect(validateVitals({ pulse: 80 }).error).toBeUndefined();
-    expect(validateVitals({ pulse: 900 }).error).toBeDefined();
+    const full = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
+    expect(validateVitals(full).error).toBeUndefined();
+    expect(validateVitals({ ...full, pulse: 900 }).error).toBeDefined();
+  });
+
+  test('a reading without all required signs is incomplete, never "normal"', () => {
+    expect(svc.scoreVitals({ pulse: 80 })).toMatchObject({ level: 'incomplete' });
+    expect(svc.missingVitals({ pulse: 80 })).toEqual(['BP top (systolic)', 'BP bottom (diastolic)', 'breathing', 'temperature']);
+    expect(validateVitals({ pulse: 80 }).error.message).toMatch(/Incomplete reading/);
+    expect(svc.scoreVitals({ bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 }).level).toBe('normal');
+  });
+
+  test('red readings give referral reasons from the configured limits', () => {
+    expect(svc.vitalsReferralReasons({ bp_systolic: 165, fetal_heart_rate: 90, spo2: 90, temperature: 38.2 }))
+      .toEqual(expect.arrayContaining(['Severe high blood pressure', "Baby's heartbeat outside the normal range", 'Low oxygen level', 'Fever']));
+    expect(svc.vitalsReferralReasons({ bp_systolic: 120, bp_diastolic: 80, pulse: 80 })).toEqual([]);
+  });
+});
+
+describe('item usage rules', () => {
+  test('voided and not-charged lines add nothing to totals or to the transaction', () => {
+    const items = [
+      { id: 1, label: 'Oxytocin', unit_price: 100, quantity: 2, charged: true },
+      { id: 2, label: 'Diaper', unit_price: 5, quantity: 6, charged: false },
+      { id: 3, label: 'Mistake', unit_price: 50, quantity: 1, charged: true, voided_at: new Date() }
+    ];
+    expect(svc.itemsTotal(items)).toBe(200);
+    expect(svc.buildTransactionPayload({ items }).vitamins.map((v) => v.label)).toEqual(['Oxytocin x2']);
+  });
+
+  test('incomplete total while a charged item or the bed has no price', () => {
+    expect(svc.incompleteTotal([{ label: 'A', charged: true, price_missing: true }]).incomplete).toBe(true);
+    expect(svc.incompleteTotal([{ label: 'A', charged: false, price_missing: true }]).incomplete).toBe(false);
+    expect(svc.incompleteTotal([{ label: 'A', charged: true, price_missing: true, voided_at: new Date() }]).incomplete).toBe(false);
+    expect(svc.incompleteTotal([], { number: 1, priceSet: false }).bedUnpriced).toBe(true);
+    expect(svc.incompleteTotal([], { number: 1, priceSet: true }).incomplete).toBe(false);
+  });
+
+  test('quantity checks', () => {
+    expect(svc.checkQuantity(3).ok).toBe(true);
+    for (const bad of [0, -1, 1.5, 'x', null]) expect(svc.checkQuantity(bad).code).toBe('BAD_QUANTITY');
+    expect(svc.checkQuantity(25).code).toBe('LARGE_QUANTITY');
+    expect(svc.checkQuantity(25, { confirmLarge: true }).ok).toBe(true);
+  });
+
+  test('allergy matching by name and drug class', () => {
+    expect(svc.allergyConflict('Aspirin', { label: 'Mefenamic acid', allergy_tags: 'nsaid,aspirin' })).toBe('aspirin');
+    expect(svc.allergyConflict('NSAIDs', { label: 'Pain reliever', allergy_tags: 'nsaid' })).toBe('nsaids');
+    expect(svc.allergyConflict('penicillin, latex', { label: 'Amoxicillin', allergy_tags: 'penicillin,amoxicillin' })).toBe('penicillin');
+    expect(svc.allergyConflict('shellfish', { label: 'Mefenamic acid', allergy_tags: 'nsaid' })).toBeNull();
+    expect(svc.allergyConflict('', { label: 'Anything' })).toBeNull();
+  });
+
+  test('newborn care creates one keyed usage line per baby and item', () => {
+    const refs = svc.newbornItemRefs([{ essential_care: ['vitamin_k', 'drying', 'bcg'] }, { essential_care: ['vitamin_k'] }]);
+    expect(refs.map((r) => r.ref_key)).toEqual(['baby1:vitamin_k', 'baby1:bcg', 'baby2:vitamin_k']);
+    expect(refs[2]).toMatchObject({ item_code: 'newborn_vitamin_k', used_for: 'baby_2' });
+  });
+});
+
+describe('risk flags and discharge gating', () => {
+  test('referral-level flags block a normal delivery until a reason is recorded', () => {
+    expect(svc.deliveryRiskConflict({ riskFlags: ['placenta_previa'], ackReason: null, deliveryType: 'nsd' }).labels[0]).toMatch(/placenta/i);
+    expect(svc.deliveryRiskConflict({ riskFlags: ['previous_cs'], ackReason: '', deliveryType: undefined })).not.toBeNull();
+    expect(svc.deliveryRiskConflict({ riskFlags: ['placenta_previa'], ackReason: 'Doctor reviewed', deliveryType: 'nsd' })).toBeNull();
+    expect(svc.deliveryRiskConflict({ riskFlags: ['diabetes'], ackReason: null, deliveryType: 'nsd' })).toBeNull();
+  });
+
+  test('routine discharge is blocked without baby details or with an unresolved flag', () => {
+    const noBaby = svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: [], disposition: 'improved', hasOverride: false });
+    expect(noBaby.map((b) => b.code)).toEqual(['NO_BABY']);
+    expect(svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: [], disposition: 'improved', hasOverride: true })).toEqual([]);
+    const risky = svc.dischargeBlockers({ delivery: { newborns: [{}] }, riskFlags: ['breech'], riskAckReason: '', disposition: 'improved' });
+    expect(risky[0].code).toBe('RISK_UNRESOLVED');
+    expect(svc.dischargeBlockers({ delivery: { newborns: [] }, riskFlags: ['breech'], disposition: 'transferred' })).toEqual([]);
+  });
+
+  test('newborn alerts for low weight and low 5-minute APGAR', () => {
+    expect(svc.newbornReferralReasons({ weight_grams: 2300, apgar_5: 6 })).toEqual(['Low birth weight', 'Low 5-minute APGAR']);
+    expect(svc.newbornReferralReasons({ weight_grams: 3100, apgar_5: 9 })).toEqual([]);
   });
 });

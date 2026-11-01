@@ -18,6 +18,7 @@ import { ManageUsers } from './pages/ManageUsers';
 import { Admissions } from './pages/Admissions';
 import { AdmissionDetail } from './pages/AdmissionDetail';
 import { ClinicSettings } from './pages/ClinicSettings';
+import { Monitoring } from './pages/Monitoring';
 import { NotFound } from './pages/NotFound';
 
 export default function App() {
@@ -89,6 +90,7 @@ export default function App() {
           }
         />
         <Route path="pregnancy-tracking" element={<ProtectedRoute roles={STAFF_ROLES}><PregnancyTrackingForm /></ProtectedRoute>} />
+        <Route path="monitoring" element={<ProtectedRoute roles={STAFF_ROLES}><Monitoring /></ProtectedRoute>} />
         <Route path="admissions" element={<Admissions />} />
         <Route path="admissions/:id" element={<AdmissionDetail />} />
         <Route

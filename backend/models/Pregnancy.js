@@ -68,6 +68,21 @@ class Pregnancy {
     return result.affectedRows > 0;
   }
 
+  // Partial update used by the Pregnancy Tracking Form: only the fields the form
+  // carries are touched, and LMP is filled in (from the EDD) only when still empty.
+  static async updateTracking(id, { edd, obIndex, lmpIfMissing, status } = {}) {
+    const sets = [];
+    const values = [];
+    if (edd) { sets.push('edd = ?'); values.push(edd); }
+    if (obIndex) { sets.push('ob_index = ?', 'gp = ?'); values.push(obIndex, obIndex); }
+    if (lmpIfMissing) { sets.push('lmp = COALESCE(lmp, ?)'); values.push(lmpIfMissing); }
+    if (status) { sets.push('status = ?'); values.push(status); }
+    if (!sets.length) return false;
+    values.push(id);
+    const [result] = await db.execute(`UPDATE pregnancies SET ${sets.join(', ')} WHERE id = ?`, values);
+    return result.affectedRows > 0;
+  }
+
   static async delete(id) {
     const [result] = await db.execute('DELETE FROM pregnancies WHERE id = ?', [id]);
     return result.affectedRows > 0;

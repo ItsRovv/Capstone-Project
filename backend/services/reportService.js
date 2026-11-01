@@ -3,6 +3,22 @@ const Pregnancy = require('../models/Pregnancy');
 const Report = require('../models/Report');
 const summaryService = require('./summaryService');
 const db = require('../config/db');
+const Admission = require('../models/Admission');
+
+// Admissions, births, referrals and the most-used items for a period. Never blocks a report.
+async function admissionStats(from, to) {
+  try {
+    const [stats, usage] = await Promise.all([Admission.statsForRange(from, to), Admission.itemUsageReport({ from, to })]);
+    if (!stats) return null;
+    return {
+      ...stats,
+      topItems: (usage || []).slice(0, 5).map((r) => ({ label: r.label, unit: r.unit, quantity: Number(r.total_quantity) }))
+    };
+  } catch (err) {
+    console.warn('[reports] admission stats skipped:', err.message);
+    return null;
+  }
+}
 
 /**
  * Count occurrences and return sorted [value, count] pairs.
@@ -171,6 +187,8 @@ async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, pr
     dateISO, isWeekly, reportRange?.start, reportRange?.end || dateISO
   );
 
+  const admissions = await admissionStats(reportRange?.start || dateISO, reportRange?.end || dateISO);
+
   return {
     date: dateLabel,
     totalPatients,
@@ -181,7 +199,8 @@ async function buildAnalytics(consultations, dateLabel, dateISO, prevDateISO, pr
     peakHour: busiestHour,
     trend,
     followUpAlerts,
-    pregnancy
+    pregnancy,
+    admissions
   };
 }
 
@@ -336,6 +355,7 @@ async function generateMonthlyCensusReport(monthYear) {
       byTrimester: trimesterCounts,
       byStatus: statusCounts
     },
+    admissions: await admissionStats(startISO, endISO),
     monthly: true
   };
 

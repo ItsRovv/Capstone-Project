@@ -97,14 +97,14 @@ export function PrintSummary({ detail, labelFor }) {
                   <td className="py-1 text-right">{peso(bed.amount)}</td>
                 </tr>
               )}
-              {items.map((it) => (
+              {items.filter((it) => !it.voided_at).map((it) => (
                 <tr key={it.id} className="border-b border-gray-300">
-                  <td className="py-1">{it.label} × {Number(it.quantity)}</td>
-                  <td className="py-1 text-right">{peso(Number(it.unit_price) * Number(it.quantity))}</td>
+                  <td className="py-1">{it.label} × {Number(it.quantity)}{it.unit ? ` ${it.unit}` : ''}</td>
+                  <td className="py-1 text-right">{it.charged === false ? 'Not charged' : peso(Number(it.unit_price) * Number(it.quantity))}</td>
                 </tr>
               ))}
               <tr>
-                <td className="pt-2 font-bold">Total to pay</td>
+                <td className="pt-2 font-bold">Total of items and services (for reference)</td>
                 <td className="pt-2 text-right font-bold">{peso(grandTotal)}</td>
               </tr>
             </tbody>

@@ -12,26 +12,27 @@ import { apiError } from '../services/api';
 import { useClinicOptions } from '../lib/admission';
 
 const LISTS = [
-  { group: 'item', title: 'Items used during a stay', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true },
+  { group: 'item', title: 'Items used during a stay', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true, usage: true },
   { group: 'vitamin', title: 'Vitamins & supplements', help: 'Vitamins staff can tick when recording a transaction — these are charged at the clinic.', price: true },
-  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the payment step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true },
+  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the Items step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true },
   { group: 'consult_package', title: 'Consultation PhilHealth packages', help: 'Packages staff can tick in a transaction (antenatal care, postpartum care, vaccines). For reference only — availed through PhilHealth, not charged at the clinic.', price: true }
 ];
+const UNITS = ['pc', 'pair', 'ampule', 'vial', 'bottle', 'pack', 'box', 'set'];
 const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'antibiotic', label: 'Antibiotic' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
 
 function OptionRow({ option, list, onSaved }) {
   const toast = useToast();
-  const initial = { label: option.label, price: option.price === null ? '' : String(option.price), category: option.category || '' };
+  const initial = { label: option.label, price: option.price === null ? '' : String(option.price), category: option.category || '', unit: option.unit || '', charged: option.charged !== false, allergy_tags: option.allergy_tags || '' };
   const [form, setForm] = useState(initial);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setForm(initial); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [option.id, option.label, option.price, option.category]);
-  const dirty = form.label !== initial.label || form.price !== initial.price || form.category !== initial.category;
+  }, [option.id, option.label, option.price, option.category, option.unit, option.charged, option.allergy_tags]);
+  const dirty = form.label !== initial.label || form.price !== initial.price || form.category !== initial.category || form.unit !== initial.unit || form.charged !== initial.charged || form.allergy_tags !== initial.allergy_tags;
 
   async function save(patch = {}) {
     setBusy(true);
     try {
-      const body = { label: form.label.trim(), ...(list.price ? { price: form.price.trim() === '' ? null : Number(form.price) } : {}), ...(list.category ? { category: form.category || null } : {}), ...patch };
+      const body = { label: form.label.trim(), ...(list.price ? { price: form.price.trim() === '' ? null : Number(form.price) } : {}), ...(list.category ? { category: form.category || null } : {}), ...(list.usage ? { unit: form.unit || null, charged: form.charged, allergy_tags: form.allergy_tags.trim() || null } : {}), ...patch };
       await clinicService.updateOption(option.id, body);
       toast.success('Saved');
       await onSaved();
@@ -62,6 +63,19 @@ function OptionRow({ option, list, onSaved }) {
           {option.active ? 'Hide' : 'Show again'}
         </Button>
       </div>
+      {list.usage && (
+        <div className="sm:col-span-full grid gap-2 sm:grid-cols-[8rem_1fr_auto] items-end">
+          <Select label="Unit" value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
+            <option value="">Not set</option>
+            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </Select>
+          <Input label="Allergy class (for warnings)" placeholder="e.g. nsaid,aspirin" value={form.allergy_tags} onChange={(e) => setForm((f) => ({ ...f, allergy_tags: e.target.value }))} />
+          <label className="flex items-center gap-2 text-sm text-ink-700 h-10 cursor-pointer">
+            <input type="checkbox" className="h-4 w-4 rounded border-ink-300 text-primary-600" checked={form.charged} onChange={(e) => setForm((f) => ({ ...f, charged: e.target.checked }))} />
+            Charged (adds to the total)
+          </label>
+        </div>
+      )}
     </li>
   );
 }
@@ -69,7 +83,7 @@ function OptionRow({ option, list, onSaved }) {
 function AddRow({ list, onAdded }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ label: '', price: '', category: '' });
+  const [form, setForm] = useState({ label: '', price: '', category: '', unit: 'pc', charged: true });
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
@@ -80,10 +94,11 @@ function AddRow({ list, onAdded }) {
         option_group: list.group,
         label: form.label.trim(),
         ...(list.price && form.price.trim() !== '' ? { price: Number(form.price) } : {}),
-        ...(list.category && form.category ? { category: form.category } : {})
+        ...(list.category && form.category ? { category: form.category } : {}),
+        ...(list.usage ? { unit: form.unit, charged: form.charged } : {})
       });
       toast.success('Added');
-      setForm({ label: '', price: '', category: '' });
+      setForm({ label: '', price: '', category: '', unit: 'pc', charged: true });
       setOpen(false);
       await onAdded();
     } catch (err) {
@@ -108,6 +123,17 @@ function AddRow({ list, onAdded }) {
         )}
       </div>
       {list.price && <Input label="Price (₱)" inputMode="decimal" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} />}
+      {list.usage && (
+        <div className="sm:col-span-full grid gap-3 sm:grid-cols-[8rem_auto] items-end">
+          <Select label="Unit" value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
+            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </Select>
+          <label className="flex items-center gap-2 text-sm text-ink-700 h-10 cursor-pointer">
+            <input type="checkbox" className="h-4 w-4 rounded border-ink-300 text-primary-600" checked={form.charged} onChange={(e) => setForm((f) => ({ ...f, charged: e.target.checked }))} />
+            Charged (adds to the total)
+          </label>
+        </div>
+      )}
       <div className="flex gap-2">
         <Button type="submit" size="sm" loading={busy} disabled={!form.label.trim()}>Add</Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
@@ -204,6 +230,19 @@ export function ClinicSettings() {
               <div className="rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">
                 Hiding a choice only removes it from the forms. Old records keep what was saved. A price change applies to new records only.
               </div>
+              {(() => {
+                const missing = options
+                  .filter((o) => o.active && o.price === null && o.charged !== false && LISTS.some((l) => l.group === o.option_group && l.price))
+                  .map((o) => o.label);
+                const bedMissing = !String(settings.bed_price_per_night ?? '').trim();
+                if (!missing.length && !bedMissing) return null;
+                return (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-3 text-sm text-amber-900">
+                    <p className="font-semibold">Missing prices ({missing.length + (bedMissing ? 1 : 0)})</p>
+                    <p className="mt-1">Totals stay "incomplete" until these have a price: {[...(bedMissing ? ['Bed per night (Ward and rules tab)'] : []), ...missing].join(', ')}.</p>
+                  </div>
+                );
+              })()}
               {LISTS.map((list) => {
                 const rows = options.filter((o) => o.option_group === list.group);
                 const unpriced = list.price ? rows.filter((o) => o.active && o.price === null).length : 0;

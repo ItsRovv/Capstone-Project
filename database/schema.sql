@@ -391,6 +391,118 @@ CREATE TABLE IF NOT EXISTS referrals (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Referral reversal (a doctor can reopen a referred stay with a reason).
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reversed_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE referrals ADD COLUMN IF NOT EXISTS reverse_reason TEXT;
+
+-- Item usage tracking: every item used is item + quantity + unit + time + who. No stock levels.
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS unit VARCHAR(20);
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS charged BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS allergy_tags TEXT;
+ALTER TABLE clinic_options ADD COLUMN IF NOT EXISTS bundle_items JSONB;
+
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS unit VARCHAR(20);
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS charged BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS price_missing BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS used_for VARCHAR(20) NOT NULL DEFAULT 'mother';
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS unlisted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS ref_key VARCHAR(60);
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS note TEXT;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS voided_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS void_reason TEXT;
+ALTER TABLE admission_items ADD COLUMN IF NOT EXISTS legacy BOOLEAN NOT NULL DEFAULT FALSE;
+-- A newborn-care entry (for example vitamin K for baby 1) creates one usage line, never two.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_admission_items_ref
+  ON admission_items (admission_id, ref_key) WHERE ref_key IS NOT NULL AND voided_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_items_given ON admission_items (given_at);
+
+-- Medications given (clinical record, separate from the items/summary list).
+CREATE TABLE IF NOT EXISTS medications_given (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  drug VARCHAR(150) NOT NULL,
+  dose VARCHAR(80),
+  route VARCHAR(40),
+  given_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  given_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  item_id BIGINT REFERENCES admission_items(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_medications_given_admission ON medications_given (admission_id, given_at);
+
+-- Bed changes during a stay (from, to, when, who).
+CREATE TABLE IF NOT EXISTS bed_moves (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  admission_id BIGINT NOT NULL REFERENCES admissions(id) ON DELETE CASCADE,
+  from_bed INT,
+  to_bed INT,
+  moved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  moved_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Midwives' notes: a correction keeps the original text, the reason, who and when.
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS original_description TEXT;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS corrected_at TIMESTAMPTZ;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS corrected_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE midwife_notes ADD COLUMN IF NOT EXISTS correction_reason TEXT;
+
+-- Vitals: which phase the reading belongs to, plus postpartum observations.
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS phase VARCHAR(12) NOT NULL DEFAULT 'admission';
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS bleeding VARCHAR(10);
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS uterus VARCHAR(10);
+ALTER TABLE admission_vitals ADD COLUMN IF NOT EXISTS perineum VARCHAR(20);
+
+-- Labor: richer water-bag options, station, contraction numbers, and the time it happened.
+ALTER TABLE labor_entries DROP CONSTRAINT IF EXISTS labor_entries_membranes_check;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS station VARCHAR(20);
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS contraction_freq INT;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS contraction_secs INT;
+ALTER TABLE labor_entries ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ;
+
+-- Delivery: problems checklist, mother-side fields, several attendants.
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS problems JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS placenta VARCHAR(12);
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS placenta_at TIMESTAMPTZ;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS blood_loss_ml INT;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS perineum VARCHAR(20);
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS oxytocin_given BOOLEAN;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS oxytocin_at TIMESTAMPTZ;
+ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS attendant_ids JSONB NOT NULL DEFAULT '[]';
+
+-- Babies: live birth or stillbirth, and each baby's own birth time.
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS birth_status VARCHAR(12) NOT NULL DEFAULT 'live';
+ALTER TABLE newborns ADD COLUMN IF NOT EXISTS born_at TIMESTAMPTZ;
+
+-- Discharge: type, mother and newborn condition, follow-up date, death details.
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS mother_condition VARCHAR(12);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS newborn_condition VARCHAR(20);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS follow_up_date DATE;
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_of VARCHAR(10);
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_cause TEXT;
+ALTER TABLE discharges ADD COLUMN IF NOT EXISTS death_at TIMESTAMPTZ;
+
+-- Admit step: coverage list (PhilHealth added, None default), consent signer, staff dropdown ids.
+ALTER TABLE admissions DROP CONSTRAINT IF EXISTS admissions_medicare_check;
+ALTER TABLE admissions ADD CONSTRAINT admissions_medicare_check
+  CHECK (medicare IS NULL OR medicare IN ('none', 'philhealth_member', 'philhealth_dependent', 'sss', 'gsis', 'owwa', 'indigent', 'private', 'others'));
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS philhealth_pin VARCHAR(30);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_signer_type VARCHAR(20);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_relationship VARCHAR(100);
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS attending_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+
+-- Staff who may sign clinical entries (midwife, nurse, doctor and admin by role).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_sign_clinical BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE users SET can_sign_clinical = TRUE WHERE role = 'admin' AND can_sign_clinical = FALSE;
+
+-- "Continue at clinic" decision for a referral-level warning sign (reason, who, when).
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_reason TEXT;
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_at TIMESTAMPTZ;
+
 -- Midwives' Notes: one row per entry. Date and time are set by the server and the author is
 -- the logged-in user, so an entry cannot be backdated or signed by someone else.
 CREATE TABLE IF NOT EXISTS midwife_notes (
@@ -584,6 +696,55 @@ INSERT INTO clinic_options (option_group, code, label, price, category, sort_ord
   ('item', 'baby_bottle', 'Baby bottle (Nature)', NULL, 'supply', 23),
   ('item', 'feeding_bottles', 'Feeding bottles (3-in-1)', NULL, 'supply', 24)
 ON CONFLICT (option_group, code) DO NOTHING;
+
+-- Item list for usage tracking (verify names, units and the charged flag with the clinic).
+-- Consumable supplies start as "not charged": they are recorded and reported but add 0 to the total.
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order, unit, charged, allergy_tags) VALUES
+  ('item', 'amoxicillin', 'Amoxicillin', NULL, 'antibiotic', 30, 'pc', TRUE, 'penicillin,amoxicillin'),
+  ('item', 'paracetamol', 'Paracetamol', NULL, 'medicine', 31, 'pc', TRUE, 'paracetamol'),
+  ('item', 'mefenamic_acid', 'Mefenamic acid', NULL, 'medicine', 32, 'pc', TRUE, 'nsaid,aspirin'),
+  ('item', 'bcg_vaccine', 'BCG vaccine', NULL, 'medicine', 33, 'vial', TRUE, NULL),
+  ('item', 'hepb_vaccine', 'Hepatitis B vaccine', NULL, 'medicine', 34, 'vial', TRUE, NULL),
+  ('item', 'eye_ointment', 'Newborn eye ointment', NULL, 'medicine', 35, 'pc', TRUE, NULL),
+  ('item', 'gloves', 'Disposable gloves', NULL, 'supply', 40, 'pair', FALSE, NULL),
+  ('item', 'gauze', 'Gauze', NULL, 'supply', 41, 'pack', FALSE, NULL),
+  ('item', 'cotton', 'Cotton', NULL, 'supply', 42, 'pack', FALSE, NULL),
+  ('item', 'alcohol', 'Alcohol', NULL, 'supply', 43, 'bottle', FALSE, NULL),
+  ('item', 'povidone_iodine', 'Povidone-iodine', NULL, 'supply', 44, 'bottle', FALSE, NULL),
+  ('item', 'syringe', 'Syringe', NULL, 'supply', 45, 'pc', FALSE, NULL),
+  ('item', 'iv_set', 'IV set and cannula', NULL, 'supply', 46, 'set', FALSE, NULL),
+  ('item', 'cord_clamp', 'Umbilical cord clamp', NULL, 'supply', 47, 'pc', FALSE, NULL),
+  ('item', 'underpad', 'Underpad', NULL, 'supply', 48, 'pc', FALSE, NULL),
+  ('item', 'maternity_pad', 'Maternity pad', NULL, 'supply', 49, 'pack', FALSE, NULL),
+  ('item', 'diaper_newborn', 'Baby diaper (newborn size)', NULL, 'supply', 50, 'pc', FALSE, NULL),
+  ('item', 'diaper_small', 'Baby diaper (small)', NULL, 'supply', 51, 'pc', FALSE, NULL)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+INSERT INTO clinic_options (option_group, code, label, price, category, sort_order, unit, bundle_items) VALUES
+  ('bundle', 'normal_delivery_pack', 'Normal delivery pack', NULL, 'bundle', 1, 'set',
+   '[{"code":"gloves","quantity":4},{"code":"gauze","quantity":2},{"code":"cotton","quantity":1},{"code":"underpad","quantity":2},{"code":"cord_clamp","quantity":1},{"code":"syringe","quantity":2}]'::jsonb)
+ON CONFLICT (option_group, code) DO NOTHING;
+
+-- Units for the items that existed before usage tracking (only where not set yet).
+UPDATE clinic_options SET unit = CASE code
+    WHEN 'birthing_fee' THEN 'set' WHEN 'iv_fluids' THEN 'bottle' WHEN 'oxytocin' THEN 'ampule'
+    WHEN 'antibiotic' THEN 'pc' WHEN 'pain_reliever' THEN 'pc' WHEN 'suture_set' THEN 'set'
+    WHEN 'newborn_vitamin_k' THEN 'ampule' WHEN 'newborn_vaccines' THEN 'vial' WHEN 'newborn_screening' THEN 'set'
+    ELSE 'pc' END
+  WHERE option_group = 'item' AND unit IS NULL;
+UPDATE clinic_options SET allergy_tags = 'nsaid,aspirin' WHERE option_group = 'item' AND code = 'pain_reliever' AND allergy_tags IS NULL;
+
+-- One-time: old stays keep their items as legacy usage lines; the combined vaccine item is
+-- replaced by separate BCG and Hepatitis B items (the old one stays readable on old stays).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM clinic_settings WHERE setting_key = 'migr_item_usage_v1') THEN
+    UPDATE admission_items SET legacy = TRUE;
+    UPDATE clinic_options SET active = FALSE WHERE option_group = 'item' AND code = 'newborn_vaccines';
+    INSERT INTO clinic_settings (setting_key, setting_value, description)
+    VALUES ('migr_item_usage_v1', 'done', 'Internal marker');
+  END IF;
+END $$;
 
 INSERT INTO clinic_settings (setting_key, setting_value, description) VALUES
   ('min_stay_hours', '24', 'Reminder: minimum hours of stay after delivery before discharge'),

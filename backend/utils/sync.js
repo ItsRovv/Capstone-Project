@@ -1,151 +1,127 @@
 /**
- * Data sync utilities for Supabase ↔ local PostgreSQL failover.
+ * Data sync utilities for Supabase <-> local PostgreSQL failover.
  *
- * snapshotToLocal: Full copy of all tables from primary (Supabase) → fallback (local).
- * reverseSync:    Push rows created/updated during failover back to primary.
+ * snapshotToLocal: copy every table from primary (Supabase) to the fallback (local).
+ * reverseSync:     push rows created or changed on the fallback during an outage back to primary.
+ *
+ * Columns are read from each database at run time (the ones both sides have), so a new
+ * column added in schema.sql is covered without editing this file. A NEW TABLE must be
+ * added to TABLES below, after the tables it references.
  */
 
+// Parents before children, so foreign keys are satisfied when rows are inserted.
 const TABLES = [
   'users',
   'patients',
-  'consultations',
   'pregnancies',
+  'clinic_options',
+  'clinic_settings',
+  'consultations',
   'pregnancy_tracking_forms',
   'clinic_reports',
+  'queue_entries',
+  'admissions',
+  'consultation_transactions',
+  'deliveries',
+  'newborns',
+  'admission_items',
+  'medications_given',
+  'bed_moves',
+  'discharges',
+  'postpartum_followups',
+  'referrals',
+  'midwife_notes',
+  'labor_entries',
+  'discharge_checklists',
+  'admission_vitals',
   'audit_logs',
 ];
 
-// Columns for each table (excluding auto-generated id and created_at)
-const TABLE_COLUMNS = {
-  users: [
-    'name', 'email', 'password_hash', 'role', 'google_id', 'apple_id',
-    'failed_login_attempts', 'locked_until', 'email_verified',
-    'otp_code_hash', 'otp_expires_at', 'otp_purpose', 'otp_attempts',
-    'updated_at',
-  ],
-  patients: [
-    'first_name', 'last_name', 'date_of_birth', 'age', 'sex',
-    'address', 'contact_number', 'emergency_contact', 'allergies',
-    'created_at', 'updated_at',
-  ],
-  consultations: [
-    'patient_id', 'doctor_id', 'visit_date', 'raw_notes', 'structured_notes',
-    'chief_complaint', 'diagnosis', 'prescription', 'ai_summary_used',
-    'created_at', 'updated_at',
-  ],
-  pregnancies: [
-    'patient_id', 'lmp', 'edd', 'gp', 'trimester', 'weeks',
-    'status', 'notes', 'created_at', 'updated_at',
-  ],
-  pregnancy_tracking_forms: [
-    'month_year', 'rows', 'created_at', 'updated_at',
-  ],
-  clinic_reports: [
-    'report_date', 'report_type', 'ai_generated_text', 'total_patients',
-    'metrics', 'created_at',
-  ],
-  audit_logs: [
-    'user_id', 'action', 'table_name', 'record_id', 'old_data',
-    'new_data', 'ip_address', 'created_at',
-  ],
+// Rows made on the fallback get ids from this number up, so they cannot collide with
+// ids Supabase hands out in the meantime.
+const FALLBACK_ID_FLOOR = 1000000;
+
+async function tableColumns(pool, table) {
+  const { rows } = await pool.query(
+    `SELECT column_name, data_type FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1`,
+    [table]
+  );
+  return new Map(rows.map((r) => [r.column_name, r.data_type]));
+}
+
+// Columns present on both sides, id first. Returns null when a table is missing on either side.
+async function sharedColumns(sourcePool, targetPool, table) {
+  const [src, dst] = await Promise.all([tableColumns(sourcePool, table), tableColumns(targetPool, table)]);
+  if (!src.size || !dst.size || !src.has('id') || !dst.has('id')) return null;
+  const columns = [...src.keys()].filter((c) => dst.has(c));
+  return { columns: ['id', ...columns.filter((c) => c !== 'id')], types: src };
+}
+
+// pg turns JS arrays into Postgres arrays, which breaks jsonb columns that hold arrays.
+const toParam = (value, type) => {
+  if (value === undefined || value === null) return null;
+  return type === 'jsonb' || type === 'json' ? JSON.stringify(value) : value;
 };
 
-/**
- * Full snapshot: copy all rows from source pool → target pool.
- * Uses INSERT ... ON CONFLICT (id) DO UPDATE for idempotency.
- */
-async function snapshotToLocal(sourcePool, targetPool) {
-  console.log('[sync] Starting snapshot to local DB...');
-  let totalRows = 0;
+async function copyTable(sourcePool, targetPool, table, { sequenceFloor }) {
+  const shared = await sharedColumns(sourcePool, targetPool, table);
+  if (!shared) return { skipped: true, count: 0 };
+  const { columns, types } = shared;
+  const colList = columns.join(', ');
+  const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+  const updateSet = columns.filter((c) => c !== 'id').map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  const conflict = updateSet ? `DO UPDATE SET ${updateSet}` : 'DO NOTHING';
 
+  const { rows } = await sourcePool.query(`SELECT ${colList} FROM ${table} ORDER BY id`);
+  let count = 0;
+  for (const row of rows) {
+    try {
+      await targetPool.query(
+        `INSERT INTO ${table} (${colList}) OVERRIDING SYSTEM VALUE VALUES (${placeholders})
+         ON CONFLICT (id) ${conflict}`,
+        columns.map((c) => toParam(row[c], types.get(c)))
+      );
+      count++;
+    } catch (err) {
+      console.error(`[sync] Row ${row.id} in ${table} failed: ${err.message}`);
+    }
+  }
+
+  // Keep the next generated id past everything copied (and past the floor on the fallback).
+  const { rows: maxRows } = await targetPool.query(`SELECT COALESCE(MAX(id), 0) AS max_id FROM ${table}`);
+  const next = Math.max(Number(maxRows[0].max_id), sequenceFloor);
+  if (next > 0) {
+    await targetPool.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), $1)`, [next]);
+  }
+  return { skipped: false, count };
+}
+
+async function run(label, sourcePool, targetPool, options) {
+  console.log(`[sync] ${label}...`);
+  let total = 0;
   for (const table of TABLES) {
     try {
-      const columns = TABLE_COLUMNS[table];
-      const colList = ['id', ...columns].join(', ');
-      const placeholders = ['id', ...columns].map((_, i) => `$${i + 1}`).join(', ');
-      const updateSet = columns.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
-
-      // Read all rows from source
-      const { rows } = await sourcePool.query(`SELECT ${colList} FROM ${table} ORDER BY id`);
-
-      if (rows.length === 0) {
-        console.log(`[sync] ${table}: 0 rows (skipped)`);
-        continue;
-      }
-
-      // Batch insert/update into target
-      for (const row of rows) {
-        const values = ['id', ...columns].map((c) => row[c] ?? null);
-        await targetPool.query(
-          `INSERT INTO ${table} (${colList}) VALUES (${placeholders})
-           ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
-          values
-        );
-      }
-
-      // Sync the identity sequence so new local rows don't collide
-      const { rows: maxRows } = await targetPool.query(`SELECT MAX(id) AS max_id FROM ${table}`);
-      const maxId = maxRows[0]?.max_id || 1;
-      await targetPool.query(
-        `SELECT setval(pg_get_serial_sequence('${table}', 'id'), GREATEST(${maxId}, 1000000))`
-      );
-
-      totalRows += rows.length;
-      console.log(`[sync] ${table}: ${rows.length} rows copied`);
+      const { skipped, count } = await copyTable(sourcePool, targetPool, table, options);
+      if (skipped) console.log(`[sync] ${table}: not on both databases (skipped)`);
+      else console.log(`[sync] ${table}: ${count} rows`);
+      total += count;
     } catch (err) {
       console.error(`[sync] Error syncing table ${table}: ${err.message}`);
     }
   }
-
-  console.log(`[sync] Snapshot complete — ${totalRows} total rows`);
+  console.log(`[sync] ${label} complete: ${total} total rows`);
+  return total;
 }
 
-/**
- * Reverse sync: push rows created/updated in fallback back to primary.
- * Uses updated_at to find rows that changed during failover.
- */
+/** Full snapshot: primary -> fallback. Idempotent (ON CONFLICT (id) DO UPDATE). */
+async function snapshotToLocal(sourcePool, targetPool) {
+  return run('Snapshot to local DB', sourcePool, targetPool, { sequenceFloor: FALLBACK_ID_FLOOR });
+}
+
+/** Reverse sync: fallback -> primary, including every admission table. */
 async function reverseSync(fallbackPool, primaryPool) {
-  console.log('[sync] Starting reverse sync to Supabase...');
-
-  // Record the sync start time — we'll use this to detect what changed
-  const syncStart = new Date();
-  let totalSynced = 0;
-
-  for (const table of TABLES) {
-    try {
-      const columns = TABLE_COLUMNS[table];
-      const colList = ['id', ...columns].join(', ');
-      const placeholders = ['id', ...columns].map((_, i) => `$${i + 1}`).join(', ');
-      const updateSet = columns.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
-
-      // Get all rows from fallback (they were all potentially modified during failover)
-      const { rows } = await fallbackPool.query(`SELECT ${colList} FROM ${table} ORDER BY id`);
-
-      if (rows.length === 0) continue;
-
-      let tableCount = 0;
-      for (const row of rows) {
-        const values = ['id', ...columns].map((c) => row[c] ?? null);
-        try {
-          await primaryPool.query(
-            `INSERT INTO ${table} (${colList}) VALUES (${placeholders})
-             ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
-            values
-          );
-          tableCount++;
-        } catch (err) {
-          console.error(`[sync] Row ${row.id} in ${table} failed: ${err.message}`);
-        }
-      }
-
-      totalSynced += tableCount;
-      console.log(`[sync] ${table}: ${tableCount} rows pushed to primary`);
-    } catch (err) {
-      console.error(`[sync] Reverse sync error for ${table}: ${err.message}`);
-    }
-  }
-
-  console.log(`[sync] Reverse sync complete — ${totalSynced} total rows synced`);
+  return run('Reverse sync to Supabase', fallbackPool, primaryPool, { sequenceFloor: 0 });
 }
 
-module.exports = { snapshotToLocal, reverseSync, TABLES };
+module.exports = { snapshotToLocal, reverseSync, TABLES, FALLBACK_ID_FLOOR };

@@ -53,7 +53,20 @@ export function PatientRecordCard({ record, pregnancy }) {
             <Field label="Last menstrual period" value={pregnancy.lmp ? formatDay(pregnancy.lmp) : null} />
             <Field label="Expected delivery date" value={pregnancy.edd ? formatDay(pregnancy.edd) : null} />
             <Field label="Age of gestation" value={pregnancy.weeks} />
+            <Field label="Gravida/Para" value={pregnancy.gp} />
+            <Field label="OB index" value={pregnancy.ob_index || pregnancy.tracking?.obIndex} />
           </>
+        )}
+        {pregnancy?.tracking && (
+          <div className="col-span-2 md:col-span-4 rounded-md border border-sky-100 bg-sky-50/60 px-3 py-2 text-xs text-sky-900">
+            Pregnancy tracking ({pregnancy.tracking.month_year}):{' '}
+            {[
+              pregnancy.tracking.edd && `EDD ${formatDay(pregnancy.tracking.edd)}`,
+              pregnancy.tracking.obIndex && `OB index ${pregnancy.tracking.obIndex}`,
+              pregnancy.tracking.docSubmitted ? 'documents submitted' : null,
+              pregnancy.tracking.deliveryDate && `delivered ${formatDay(pregnancy.tracking.deliveryDate)}`
+            ].filter(Boolean).join(' · ') || 'on file'}
+          </div>
         )}
       </div>
     </div>

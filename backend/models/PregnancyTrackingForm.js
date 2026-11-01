@@ -18,6 +18,20 @@ class PregnancyTrackingForm {
     const [result] = await db.execute(query, [JSON.stringify(rows), monthYear]);
     return result.affectedRows > 0;
   }
+
+  // The newest row saved for one patient in any monthly form.
+  static async findLatestRowForPatient(patientId) {
+    const [forms] = await db.execute('SELECT month_year, rows FROM pregnancy_tracking_forms ORDER BY created_at DESC', []);
+    for (const f of forms) {
+      let rows = f.rows;
+      if (typeof rows === 'string') {
+        try { rows = JSON.parse(rows); } catch { rows = []; }
+      }
+      const row = (rows || []).find((r) => Number(r?.patient_id) === Number(patientId));
+      if (row) return { month_year: f.month_year, ...row };
+    }
+    return null;
+  }
 }
 
 module.exports = PregnancyTrackingForm;

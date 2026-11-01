@@ -54,6 +54,24 @@ class AuditLog {
   }
 
   /**
+   * Who did what, and when, on one admission. Only action, table and time are returned,
+   * not the record contents, so the history view does not spread clinical text around.
+   */
+  static async forAdmission(admissionId, limit = 200) {
+    const id = Number(admissionId);
+    const [rows] = await db.execute(
+      `SELECT a.id, a.action, a.table_name, a.created_at, u.name AS user_name,
+              COALESCE(a.new_data->>'reason', a.new_data->>'override_reason') AS reason
+       FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
+       WHERE (a.table_name = 'admissions' AND a.record_id = ?)
+          OR (a.new_data->>'admission_id') = ?::text OR (a.old_data->>'admission_id') = ?::text
+       ORDER BY a.created_at DESC LIMIT ${Math.min(Math.max(limit, 1), 500)}`,
+      [id, String(id), String(id)]
+    );
+    return rows;
+  }
+
+  /**
    * Count audit logs matching filters.
    */
   static async count({ tableName, recordId, userId } = {}) {

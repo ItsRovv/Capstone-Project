@@ -5,15 +5,18 @@ const ClinicOption = require('../models/ClinicOption');
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
 const Pregnancy = require('../models/Pregnancy');
+const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const requireRole = require('../middleware/role');
-const { requireAdmissionAccess, requireClinical } = require('../middleware/role');
+const { requireAdmissionAccess, requireClinical, requireClinicalSigner } = require('../middleware/role');
 const {
   validateAdmission, validateAdmissionUpdate, validateDelivery, validateAdmissionItem,
-  validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist
+  validateDischarge, validateReferral, validatePackages, validateMidwifeNote, validateVitals, validateLaborEntry, validateChecklist,
+  validateReason, validateItemQuantity, validateNoteCorrection, validateMedication
 } = require('../middleware/validation');
+const User = require('../models/User');
 const svc = require('../services/admissionService');
 const { onDelivered } = require('../services/admissionSync');
 const { routeError } = require('../utils/routeError');
@@ -73,6 +76,86 @@ function stayBed(admission, discharge, referral) {
   return svc.bedCharge({
     bedNumber: admission.bed_number, pricePerNight: admission.bed_price, start: admission.admitted_at, end
   });
+}
+
+// Turns the request for one item into the line to save: price, unit and charged flag come from the
+// clinic's list; quantity and allergy rules are checked here, not only on the screen.
+async function buildItemLine(value, admission) {
+  const q = svc.checkQuantity(value.quantity, { confirmLarge: value.confirm_large });
+  if (!q.ok) return { fail: { status: q.code === 'LARGE_QUANTITY' ? 409 : 400, body: { code: q.code, message: q.message } } };
+  let { label, unit_price: unitPrice, unit } = value;
+  let charged = true;
+  let priceMissing = false;
+  let allergyTags = null;
+  let unlisted = false;
+  if (value.option_id) {
+    const option = await ClinicOption.findById(value.option_id);
+    if (!option || option.option_group !== 'item' || !option.active) {
+      return { fail: { status: 400, body: { message: 'That item is not available. Please choose from the list.' } } };
+    }
+    label = option.label;
+    unit = unit || option.unit || null;
+    charged = option.charged !== false;
+    allergyTags = option.allergy_tags;
+    if (unitPrice === undefined) {
+      priceMissing = charged && (option.price === null || option.price === undefined);
+      unitPrice = priceMissing ? 0 : Number(option.price);
+    }
+  } else {
+    unlisted = true;
+    if (unitPrice === undefined) priceMissing = true;
+  }
+  let note = null;
+  const patient = await Patient.findById(admission.patient_id);
+  const allergy = svc.allergyConflict(svc.buildPatientRecord(patient)?.allergies, { label, allergy_tags: allergyTags });
+  if (allergy) {
+    if (!value.allergy_reason) {
+      return { fail: { status: 409, body: { code: 'ALLERGY', allergy, message: `Allergy warning: the patient is allergic to ${allergy}, and ${label} may contain or belong to it. Confirm with a reason to continue.` } } };
+    }
+    note = `Allergy warning (${allergy}) confirmed: ${value.allergy_reason}`;
+  }
+  return {
+    line: {
+      option_id: value.option_id || null, label, unit_price: unitPrice ?? 0, quantity: Number(value.quantity), given_at: value.given_at,
+      unit, charged, price_missing: priceMissing, used_for: value.used_for || 'mother', unlisted, note
+    }
+  };
+}
+
+// A patient under 18 needs a guardian as the consent signer, with name and relationship.
+function consentProblem(merged, patient) {
+  if (!merged.consent_signed) return null;
+  const age = svc.ageFromBirthDate(patient?.date_of_birth, patient?.age);
+  if (age !== null && age !== undefined && age < 18) {
+    if (merged.consent_signer_type !== 'guardian' || !String(merged.consent_by || '').trim() || !String(merged.consent_relationship || '').trim()) {
+      return 'The patient is under 18. Consent must be signed by a guardian: choose "Guardian" and enter the name and relationship.';
+    }
+  }
+  return null;
+}
+
+// Keeps usage lines in step with newborn care ticked on the Baby step: one line per baby and care item.
+async function syncNewbornItems(admission, newborns, userId) {
+  const wanted = svc.newbornItemRefs(newborns);
+  const live = (await Admission.liveRefKeys(admission.id)) || [];
+  const liveKeys = new Set(live.map((r) => r.ref_key));
+  for (const ref of wanted) {
+    if (liveKeys.has(ref.ref_key)) continue;
+    const option = await ClinicOption.findByGroupCode('item', ref.item_code);
+    if (!option || !option.active) continue;
+    const priceMissing = option.charged !== false && (option.price === null || option.price === undefined);
+    await Admission.addItem(admission.id, {
+      option_id: option.id, label: option.label, unit_price: priceMissing ? 0 : Number(option.price), quantity: 1,
+      unit: option.unit || null, charged: option.charged !== false, price_missing: priceMissing,
+      used_for: ref.used_for, ref_key: ref.ref_key
+    }, userId);
+  }
+  const wantedKeys = new Set(wanted.map((r) => r.ref_key));
+  for (const row of live) {
+    if (/^baby\d+:/.test(row.ref_key) && !wantedKeys.has(row.ref_key)) {
+      await Admission.voidItem(admission.id, row.id, 'Removed from the baby\'s care record', userId);
+    }
+  }
 }
 
 // Loads :id into req.admission. Records of finished stays are locked for non-admins.
@@ -141,17 +224,62 @@ router.get('/patient/:patientId', async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+// ── Item usage report ────────────────────────────────────────────────────
+// How many diapers, gloves, gauze or ampules were used between two dates. Usage only, no stock.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+router.get('/reports/item-usage', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const weekAgo = new Date(Date.now() + 8 * 3600000 - 6 * 86400000).toISOString().slice(0, 10);
+    const { from = weekAgo, to = today, category } = req.query;
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return res.status(400).json({ message: 'from and to must look like 2026-10-31' });
+    if (from > to) return res.status(400).json({ message: 'The start date must be before the end date.' });
+    const rows = await Admission.itemUsageReport({ from, to, category: category || undefined });
+    if (req.query.format === 'csv') {
+      const lines = [['Category', 'Item', 'Unit', 'Quantity used', 'Admissions', 'Amount (for reference)'].map(csvCell).join(',')];
+      for (const r of rows) {
+        lines.push([r.category, r.label, r.unit, r.total_quantity, r.admissions, r.charged ? r.amount : 'Not charged'].map(csvCell).join(','));
+      }
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename="item-usage-${from}-to-${to}.csv"`);
+      return res.send(lines.join('\r\n'));
+    }
+    res.json({ from, to, rows });
+  } catch (err) { routeError(res, err); }
+});
+
+// Staff who can be chosen as attending physician or birth attendant.
+router.get('/staff', requireClinical, async (req, res) => {
+  try {
+    res.json((await User.listClinicalStaff()) || []);
+  } catch (err) { routeError(res, err); }
+});
+
+// Admission and discharge statistics for a period (daily, weekly, monthly or a trimester).
+router.get('/reports/summary', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const { from = today, to = today } = req.query;
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return res.status(400).json({ message: 'from and to must look like 2026-10-31' });
+    if (from > to) return res.status(400).json({ message: 'The start date must be before the end date.' });
+    res.json({ from, to, ...(await Admission.statsForRange(from, to)) });
+  } catch (err) { routeError(res, err); }
+});
+
 // Everything we already know about the patient, so staff do not retype it.
 router.get('/prefill/:patientId', requireClinical, async (req, res) => {
   try {
     const patient = await Patient.findById(req.params.patientId);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
-    const [consultations, pregnancies, active, settings, priorStays] = await Promise.all([
+    const [consultations, pregnancies, active, settings, priorStays, tracking] = await Promise.all([
       Consultation.findByPatientId(patient.id),
       Pregnancy.findByPatientId(patient.id),
       Admission.findActiveByPatient(patient.id),
       ClinicOption.getSettingsMap(),
-      Admission.list({ patientId: patient.id })
+      Admission.list({ patientId: patient.id }),
+      PregnancyTrackingForm.findLatestRowForPatient(patient.id)
     ]);
     const latest = consultations[0] || null;
     const pregnancy = pregnancies.find((p) => p.status === 'Ongoing') || null;
@@ -168,8 +296,11 @@ router.get('/prefill/:patientId', requireClinical, async (req, res) => {
         id: latest.id, visit_date: latest.visit_date, chief_complaint: latest.chief_complaint,
         diagnosis: latest.diagnosis, objective: latest.objective, delivery_location: latest.delivery_location
       },
-      pregnancy: pregnancy && {
-        id: pregnancy.id, lmp: pregnancy.lmp, edd: pregnancy.edd, gp: pregnancy.gp, weeks: pregnancy.weeks, trimester: pregnancy.trimester
+      pregnancy: (pregnancy || tracking) && {
+        ...(pregnancy && {
+          id: pregnancy.id, lmp: pregnancy.lmp, edd: pregnancy.edd, gp: pregnancy.gp, ob_index: pregnancy.ob_index, weeks: pregnancy.weeks, trimester: pregnancy.trimester
+        }),
+        tracking: tracking && pick(tracking, ['month_year', 'edd', 'obIndex', 'docSubmitted', 'deliveryDate'])
       },
       activeAdmissionId: active?.id || null,
       requireConsent: settings.require_consent !== 'false'
@@ -193,6 +324,8 @@ router.post('/', requireClinical, async (req, res) => {
     if (error) return bad(res, error);
     const patient = await Patient.findById(value.patient_id);
     if (!patient) return res.status(404).json({ message: 'Patient not found' });
+    const consentIssue = consentProblem(value, patient);
+    if (consentIssue) return res.status(400).json({ code: 'GUARDIAN_REQUIRED', message: consentIssue });
     const existing = await Admission.findActiveByPatient(value.patient_id);
     if (existing) {
       return res.status(409).json({
@@ -258,6 +391,10 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     if (settings.require_consent !== 'false' && !a.consent_signed && svc.isActiveStatus(a.status)) {
       warnings.push({ code: 'NO_CONSENT', message: 'Informed consent has not been recorded yet.' });
     }
+    const coversPhilhealth = String(a.medicare || '').startsWith('philhealth');
+    if (coversPhilhealth && !a.philhealth_pin && !svc.buildPatientRecord(await Patient.findById(a.patient_id))?.philhealth_pin) {
+      warnings.push({ code: 'NO_PHILHEALTH_PIN', message: 'PhilHealth coverage is chosen but the member PIN is missing.' });
+    }
     const stay = delivery && svc.isActiveStatus(a.status)
       ? svc.checkMinStay(delivery.delivered_at, settings.min_stay_hours) : null;
     if (stay && !stay.ok) {
@@ -268,13 +405,27 @@ router.get('/:id', loadAdmission(), async (req, res) => {
     }
     const bed = stayBed(a, discharge, referral);
     const itemsSum = svc.itemsTotal(items);
+    const totalStatus = svc.incompleteTotal(items, bed);
     const packages = await resolvePackages(a.philhealth_packages);
     const record = svc.buildPatientRecord(await Patient.findById(a.patient_id));
+    const [pregnancies, tracking] = await Promise.all([
+      Pregnancy.findByPatientId(a.patient_id),
+      PregnancyTrackingForm.findLatestRowForPatient(a.patient_id)
+    ]);
+    const pregnancy = (pregnancies || []).find(
+      (p) => !['delivered', 'discharged', 'completed'].includes(String(p.status || '').toLowerCase())
+    ) || (pregnancies || [])[0] || null;
     const bundle = {
-      admission: a, record, delivery, items, itemsTotal: itemsSum, bed, wardName: settings.ward_name || 'Ward',
+      admission: a, record,
+      pregnancy: (pregnancy || tracking) && {
+        ...(pregnancy && pick(pregnancy, ['id', 'lmp', 'edd', 'gp', 'ob_index', 'weeks', 'trimester'])),
+        tracking: tracking && pick(tracking, ['month_year', 'edd', 'obIndex', 'docSubmitted', 'deliveryDate'])
+      },
+      delivery, items, itemsTotal: itemsSum, totalStatus, bed, wardName: settings.ward_name || 'Ward',
       packages, philhealthTotal: Math.round((packages.reduce((s, p) => s + p.amount, 0) + Number.EPSILON) * 100) / 100,
       grandTotal: Math.round((itemsSum + bed.amount + Number.EPSILON) * 100) / 100,
       discharge, followups, referral, warnings, locked: !svc.isActiveStatus(a.status),
+      progress: (await Admission.stepCounts(a.id)) || { notes: 0, completeVitals: 0, labor: 0 },
       checklist: checklist || null, checklistDefinition: svc.CHECKLIST_DEFINITION, dischargeResults: svc.DISCHARGE_RESULTS,
       checklistStatus: svc.checklistStatus({ checklist, hasDelivery: Boolean(delivery) })
     };
@@ -302,18 +453,37 @@ router.put('/:id', requireClinical, loadAdmission(), async (req, res) => {
         }
       }
     }
+    if (value.consent_signed !== undefined || value.consent_signer_type !== undefined || value.consent_by !== undefined || value.consent_relationship !== undefined) {
+      const problem = consentProblem({ ...req.admission, ...value }, await Patient.findById(req.admission.patient_id));
+      if (problem) return res.status(400).json({ code: 'GUARDIAN_REQUIRED', message: problem });
+    }
     try {
       await Admission.update(req.params.id, value);
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ code: 'BED_TAKEN', message: 'That bed was just taken. Please choose another bed.' });
       throw err;
     }
+    if (value.bed_number !== undefined && value.bed_number !== req.admission.bed_number) {
+      await Admission.logBedMove(req.params.id, req.admission.bed_number, value.bed_number, req.user.id);
+    }
     await audit(req, 'UPDATE', Number(req.params.id), req.admission, value);
     res.json({ message: 'Admission updated' });
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/status', requireClinical, loadAdmission(), async (req, res) => {
+// "Continue at clinic" for a referral-level warning sign. The reason is required and
+// who/when are stamped by the server.
+router.post('/:id/risk-ack', requireClinicalSigner, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    await Admission.acknowledgeRisk(req.params.id, value.reason, req.user.id);
+    await audit(req, 'UPDATE', Number(req.params.id), undefined, { risk_ack: true, flags: svc.referralLevelFlags(req.admission.risk_flags) });
+    res.status(201).json({ message: 'Decision recorded' });
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/status', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const next = req.body?.status;
     if (next !== 'in_labor') return res.status(400).json({ message: 'Only "in_labor" can be set here. Use the delivery, discharge or referral steps for the others.' });
@@ -326,7 +496,7 @@ router.post('/:id/status', requireClinical, loadAdmission(), async (req, res) =>
   } catch (err) { routeError(res, err); }
 });
 
-router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) => {
+router.put('/:id/delivery', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateDelivery(req.body);
     if (error) return bad(res, error);
@@ -334,10 +504,43 @@ router.put('/:id/delivery', requireClinical, loadAdmission(), async (req, res) =
     if (!['admitted', 'in_labor', 'delivered'].includes(a.status) && req.user.role !== 'admin') {
       return res.status(409).json({ message: 'Delivery cannot be recorded for this stay.' });
     }
+    if (value.delivery_type === 'referred') {
+      return res.status(400).json({ message: 'Use "Refer patient" to refer during labor or delivery.' });
+    }
+    const timing = svc.checkDeliveryTime(value.delivered_at, a.admitted_at);
+    if (timing) return res.status(400).json({ code: timing.code, message: timing.message });
+    const noSex = (value.newborns || []).findIndex((b) => b.birth_status !== 'stillbirth' && !b.sex);
+    if (noSex >= 0) {
+      return res.status(400).json({ code: 'BABY_SEX', message: `Choose the sex for ${value.newborns.length > 1 ? `baby ${noSex + 1}` : 'the baby'}. It is required for a live birth.` });
+    }
+    if (value.attendant_ids?.length) {
+      const staff = (await User.listClinicalStaff()) || [];
+      const names = value.attendant_ids.map((id) => staff.find((s) => Number(s.id) === Number(id))?.name);
+      if (names.some((n) => !n)) return res.status(400).json({ message: 'Choose attendants from the list of midwives and doctors.' });
+      value.attendant = names.join(', ');
+    }
+    const conflict = svc.deliveryRiskConflict({
+      riskFlags: a.risk_flags, ackReason: a.risk_ack_reason, deliveryType: value.delivery_type
+    });
+    if (conflict) {
+      return res.status(409).json({
+        code: 'RISK_CONFLICT',
+        flags: conflict.flags,
+        message: `This patient has a referral-level risk flag (${conflict.labels.join(', ')}). Refer, or confirm with a reason.`
+      });
+    }
     const deliveryId = await Admission.saveDelivery(a.id, value);
+    await syncNewbornItems(a, value.newborns, req.user.id).catch((e) => console.warn('[admission] newborn items sync failed:', e.message));
     await audit(req, 'UPDATE', a.id, undefined, { delivery: value }, 'deliveries');
     onDelivered(a, { delivered_at: value.delivered_at }).catch((e) => console.warn('[admission] pregnancy sync failed:', e.message));
-    res.json({ id: deliveryId, message: 'Delivery recorded' });
+    res.json({
+      id: deliveryId, message: 'Delivery recorded',
+      // Any ticked problem, or a low-weight / low-APGAR baby, should prompt a referral on screen.
+      referralPrompt: [
+        ...(value.problems || []),
+        ...(value.newborns || []).flatMap((b) => svc.newbornReferralReasons(b))
+      ]
+    });
   } catch (err) { routeError(res, err); }
 });
 
@@ -352,7 +555,7 @@ router.get('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/notes', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/notes', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateMidwifeNote(req.body);
     if (error) return bad(res, error);
@@ -364,19 +567,55 @@ router.post('/:id/notes', requireClinical, loadAdmission(), async (req, res) => 
 
 router.put('/:id/notes/:noteId', requireRole('admin'), loadAdmission(), async (req, res) => {
   try {
-    const { error, value } = validateMidwifeNote(req.body);
+    const { error, value } = validateNoteCorrection(req.body);
     if (error) return bad(res, error);
     const old = await Admission.findNote(req.params.id, req.params.noteId);
     if (!old) return res.status(404).json({ message: 'Note not found' });
-    await Admission.updateNote(req.params.id, req.params.noteId, value.description);
-    await audit(req, 'UPDATE', Number(req.params.noteId), { description: old.description }, { description: value.description }, 'midwife_notes');
-    res.json({ message: 'Note corrected' });
+    await Admission.updateNote(req.params.id, req.params.noteId, value.description, value.reason, req.user.id);
+    await audit(req, 'UPDATE', Number(req.params.noteId), { description: old.description }, { description: value.description, reason: value.reason }, 'midwife_notes');
+    res.json({ message: 'Note corrected. The original text is kept in the history.' });
+  } catch (err) { routeError(res, err); }
+});
+
+// ── Medications given (clinical record, separate from the items summary) ─────
+router.get('/:id/medications', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json((await Admission.listMedications(req.params.id)) || []);
+  } catch (err) { routeError(res, err); }
+});
+
+router.post('/:id/medications', requireClinicalSigner, loadAdmission(), async (req, res) => {
+  try {
+    const { error, value } = validateMedication(req.body);
+    if (error) return bad(res, error);
+    const patient = await Patient.findById(req.admission.patient_id);
+    const allergy = svc.allergyConflict(svc.buildPatientRecord(patient)?.allergies, { label: value.drug });
+    if (allergy && !value.allergy_reason) {
+      return res.status(409).json({ code: 'ALLERGY', allergy, message: `Allergy warning: the patient is allergic to ${allergy}. Confirm with a reason to continue.` });
+    }
+    const note = allergy ? `Allergy warning (${allergy}) confirmed: ${value.allergy_reason}` : null;
+    const id = await Admission.addMedication(req.params.id, { ...value, note }, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), drug: value.drug }, 'medications_given');
+    res.status(201).json({ id, message: 'Medication recorded' });
+  } catch (err) { routeError(res, err); }
+});
+
+// Read-only history of changes on one admission, for the administrator and doctors.
+router.get('/:id/history', requireRole('admin', 'doctor'), loadAdmission(), async (req, res) => {
+  try {
+    res.json((await AuditLog.forAdmission(req.params.id)) || []);
+  } catch (err) { routeError(res, err); }
+});
+
+router.get('/:id/bed-moves', requireClinical, loadAdmission(), async (req, res) => {
+  try {
+    res.json((await Admission.listBedMoves(req.params.id)) || []);
   } catch (err) { routeError(res, err); }
 });
 
 // ── Pre-discharge checklist ─────────────────────────────────────────────
 // The patient cannot be discharged home until it is complete and no danger sign is present.
-router.put('/:id/checklist', requireClinical, loadAdmission(), async (req, res) => {
+router.put('/:id/checklist', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateChecklist(req.body);
     if (error) return bad(res, error);
@@ -395,7 +634,7 @@ router.get('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/labor', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/labor', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateLaborEntry(req.body);
     if (error) return bad(res, error);
@@ -414,13 +653,15 @@ router.get('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => 
   } catch (err) { routeError(res, err); }
 });
 
-router.post('/:id/vitals', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/vitals', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateVitals(req.body);
     if (error) return bad(res, error);
     const id = await Admission.addVitals(req.params.id, value, req.user.id);
     await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), ...value }, 'admission_vitals');
-    res.status(201).json({ id, score: svc.scoreVitals(value), message: 'Vital signs saved' });
+    res.status(201).json({
+      id, score: svc.scoreVitals(value), referralReasons: svc.vitalsReferralReasons(value), message: 'Vital signs saved'
+    });
   } catch (err) { routeError(res, err); }
 });
 
@@ -433,30 +674,67 @@ router.post('/:id/items', requireClinical, loadAdmission({ allowLockedFor: ['*']
     }
     const { error, value } = validateAdmissionItem(req.body);
     if (error) return bad(res, error);
-    let { label, unit_price: unitPrice } = value;
-    if (value.option_id) {
-      const option = await ClinicOption.findById(value.option_id);
-      if (!option || option.option_group !== 'item' || !option.active) {
-        return res.status(400).json({ message: 'That item is not available. Please choose from the list.' });
-      }
-      label = option.label;
-      if (unitPrice === undefined) unitPrice = option.price === null ? 0 : Number(option.price);
-    }
-    const id = await Admission.addItem(req.params.id, { ...value, label, unit_price: unitPrice ?? 0 }, req.user.id);
-    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), label, unit_price: unitPrice, quantity: value.quantity }, 'admission_items');
+    const built = await buildItemLine(value, req.admission);
+    if (built.fail) return res.status(built.fail.status).json(built.fail.body);
+    const id = await Admission.addItem(req.params.id, built.line, req.user.id);
+    await audit(req, 'CREATE', id, undefined, { admission_id: Number(req.params.id), label: built.line.label, quantity: built.line.quantity }, 'admission_items');
     res.status(201).json({ id, message: 'Item added' });
   } catch (err) { routeError(res, err); }
 });
 
-router.delete('/:id/items/:itemId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+// Apply a bundle (for example the "Normal delivery pack") as separate usage lines.
+router.post('/:id/items/bundle/:optionId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    if (req.admission.status === 'referred' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to add items.' });
+    }
+    const bundle = await ClinicOption.findById(req.params.optionId);
+    if (!bundle || bundle.option_group !== 'bundle' || !bundle.active || !Array.isArray(bundle.bundle_items)) {
+      return res.status(404).json({ message: 'That bundle is not available.' });
+    }
+    const added = [];
+    for (const part of bundle.bundle_items) {
+      const option = await ClinicOption.findByGroupCode('item', part.code);
+      if (!option || !option.active) continue;
+      // No allergy override here: a bundle containing something she is allergic to is refused.
+      const built = await buildItemLine({ option_id: option.id, quantity: part.quantity, used_for: 'mother' }, req.admission);
+      if (built.fail) return res.status(built.fail.status).json(built.fail.body);
+      added.push(await Admission.addItem(req.params.id, built.line, req.user.id));
+    }
+    await audit(req, 'CREATE', Number(req.params.id), undefined, { bundle: bundle.code, lines: added.length }, 'admission_items');
+    res.status(201).json({ added: added.length, message: `${bundle.label} added (${added.length} items)` });
+  } catch (err) { routeError(res, err); }
+});
+
+// Correct a quantity: the old line is voided (with a reason) and a corrected one is added.
+router.put('/:id/items/:itemId', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    if (req.admission.status === 'referred' && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to change items.' });
+    }
+    const { error, value } = validateItemQuantity(req.body);
+    if (error) return bad(res, error);
+    const check = svc.checkQuantity(value.quantity, { confirmLarge: value.confirm_large });
+    if (!check.ok) return res.status(check.code === 'LARGE_QUANTITY' ? 409 : 400).json({ code: check.code, message: check.message });
+    const newId = await Admission.replaceItem(req.params.id, req.params.itemId, value.quantity, value.reason, req.user.id);
+    if (!newId) return res.status(404).json({ message: 'Item not found or already voided' });
+    await audit(req, 'UPDATE', Number(req.params.itemId), undefined, { admission_id: Number(req.params.id), quantity: value.quantity, reason: value.reason }, 'admission_items');
+    res.json({ id: newId, message: 'Quantity corrected. The old line stays in the history as voided.' });
+  } catch (err) { routeError(res, err); }
+});
+
+// "Remove" never deletes: the line is voided with a reason, who and when, and leaves the totals.
+router.post('/:id/items/:itemId/void', requireClinical, loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
   try {
     if (req.admission.status === 'referred' && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'This stay was referred. Ask the clinic administrator to remove items.' });
     }
-    const ok = await Admission.removeItem(req.params.id, req.params.itemId);
-    if (!ok) return res.status(404).json({ message: 'Item not found' });
-    await audit(req, 'DELETE', Number(req.params.itemId), { admission_id: Number(req.params.id) }, undefined, 'admission_items');
-    res.json({ message: 'Item removed' });
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    const ok = await Admission.voidItem(req.params.id, req.params.itemId, value.reason, req.user.id);
+    if (!ok) return res.status(404).json({ message: 'Item not found or already voided' });
+    await audit(req, 'DELETE', Number(req.params.itemId), { admission_id: Number(req.params.id) }, { voided: true, reason: value.reason }, 'admission_items');
+    res.json({ message: 'Item voided. It stays in the history.' });
   } catch (err) { routeError(res, err); }
 });
 
@@ -469,6 +747,16 @@ router.put('/:id/packages', requireClinical, loadAdmission({ allowLockedFor: ['*
     }
     const { error, value } = validatePackages(req.body);
     if (error) return bad(res, error);
+    if (value.packages.length) {
+      const record = svc.buildPatientRecord(await Patient.findById(req.admission.patient_id));
+      const covered = String(req.admission.medicare || '').startsWith('philhealth');
+      if (!covered || !(req.admission.philhealth_pin || record?.philhealth_pin)) {
+        return res.status(409).json({
+          code: 'NO_COVERAGE',
+          message: 'Choose PhilHealth under Coverage on the Admit step and enter the member PIN before ticking a package.'
+        });
+      }
+    }
     const available = await ClinicOption.list({ group: 'package', includeInactive: false });
     const previous = Array.isArray(req.admission.philhealth_packages) ? req.admission.philhealth_packages : [];
     // Packages that were already on the stay may stay even if the clinic later hid them.
@@ -491,6 +779,18 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
       return res.status(400).json({ message: 'Add at least one item used (or choose a PhilHealth package, or set the bed price) first.' });
     }
     const payload = svc.buildTransactionPayload({ items, packages, bed });
+    const incomplete = svc.incompleteTotal(items, bed);
+    if (incomplete.incomplete && !req.body?.confirm_incomplete) {
+      return res.status(409).json({
+        code: 'INCOMPLETE_TOTAL',
+        message: 'Some items or the bed have no price yet, so this total is not final. Confirm to send it anyway.',
+        unpriced: incomplete.unpricedLabels, bedUnpriced: incomplete.bedUnpriced
+      });
+    }
+    const waivedReason = typeof req.body?.waived_reason === 'string' ? req.body.waived_reason.trim().slice(0, 300) : '';
+    if (payload.total_amount === 0 && !packages.length && !incomplete.incomplete && !waivedReason) {
+      return res.status(409).json({ code: 'ZERO_TOTAL', message: 'The total is 0. Confirm with a reason (for example free or waived) to send it.' });
+    }
 
     const existing = (await ConsultationTransaction.findByAdmissionId(a.id))[0];
     let transactionId;
@@ -502,7 +802,7 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
     } else {
       transactionId = await ConsultationTransaction.create({
         patient_id: a.patient_id, admission_id: a.id, created_by: req.user.id,
-        recommendations: `Admission #${a.id}: items used during stay`, ...payload
+        recommendations: `Admission #${a.id}: items used during stay${waivedReason ? `. Total waived: ${waivedReason}` : ''}`, ...payload
       });
     }
     await audit(req, existing ? 'UPDATE' : 'CREATE', transactionId, undefined, { admission_id: a.id, ...payload }, 'consultation_transactions');
@@ -514,7 +814,7 @@ router.post('/:id/transaction', requireClinical, loadAdmission({ allowLockedFor:
 });
 
 // ── Discharge ────────────────────────────────────────────────────────────
-router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/discharge', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateDischarge(req.body);
     if (error) return bad(res, error);
@@ -526,6 +826,8 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
     if (!reason) {
       return res.status(400).json({ message: 'Please choose why the patient is going home from the list.' });
     }
+    const conditionProblem = svc.dischargeConditionProblem(value);
+    if (conditionProblem) return res.status(400).json({ code: 'BAD_CONDITION', message: conditionProblem });
     const [delivery, settings] = await Promise.all([Admission.getDelivery(a.id), ClinicOption.getSettingsMap()]);
     if (!svc.CHECKLIST_EXEMPT_DISPOSITIONS.includes(value.disposition)) {
       const check = svc.checklistStatus({ checklist: await Admission.getChecklist(a.id), hasDelivery: Boolean(delivery) });
@@ -542,6 +844,13 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
           message: 'Please finish the pre-discharge checklist before sending the patient home.'
         });
       }
+    }
+    const blockers = svc.dischargeBlockers({
+      delivery, riskFlags: a.risk_flags, riskAckReason: a.risk_ack_reason,
+      disposition: value.disposition, hasOverride: Boolean(value.override_reason)
+    });
+    if (blockers.length) {
+      return res.status(409).json({ code: blockers[0].code, blockers, message: blockers.map((b) => b.message).join(' ') });
     }
     if (delivery && !value.override_reason) {
       const stay = svc.checkMinStay(delivery.delivered_at, settings.min_stay_hours);
@@ -562,16 +871,31 @@ router.post('/:id/discharge', requireClinical, loadAdmission(), async (req, res)
 });
 
 // ── Referral to another facility ─────────────────────────────────────────
-router.post('/:id/referral', requireClinical, loadAdmission(), async (req, res) => {
+router.post('/:id/referral', requireClinicalSigner, loadAdmission(), async (req, res) => {
   try {
     const { error, value } = validateReferral(req.body);
     if (error) return bad(res, error);
     if (!svc.canTransition(req.admission.status, 'referred')) {
-      return res.status(409).json({ message: 'This patient cannot be referred anymore because the baby is already delivered.' });
+      return res.status(409).json({ message: `A patient who is "${req.admission.status}" cannot be referred.` });
     }
     const id = await Admission.refer(req.params.id, value, req.user.id);
     await audit(req, 'UPDATE', Number(req.params.id), { status: req.admission.status }, { status: 'referred', facility: value.facility });
     res.status(201).json({ id, message: 'Patient referred' });
+  } catch (err) { routeError(res, err); }
+});
+
+// A doctor (or the administrator) can undo a referral with a reason; the locked steps reopen.
+router.post('/:id/referral/reverse', requireRole('doctor', 'admin'), loadAdmission({ allowLockedFor: ['*'] }), async (req, res) => {
+  try {
+    const { error, value } = validateReason(req.body);
+    if (error) return bad(res, error);
+    if (req.admission.status !== 'referred') {
+      return res.status(409).json({ message: 'This stay is not marked as referred.' });
+    }
+    const ok = await Admission.reverseReferral(req.params.id, value.reason, req.user.id);
+    if (!ok) return res.status(404).json({ message: 'No active referral found for this stay.' });
+    await audit(req, 'UPDATE', Number(req.params.id), { status: 'referred' }, { status: 'admitted', reversed: true }, 'referrals');
+    res.json({ message: 'Referral reversed. The stay is open again.' });
   } catch (err) { routeError(res, err); }
 });
 

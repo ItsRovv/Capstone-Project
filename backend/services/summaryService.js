@@ -215,7 +215,7 @@ function newReturningSentence(newP, retP) {
 }
 
 function followUpSentence(alerts) {
-  if (alerts.length === 0) return '';
+  if (!alerts || alerts.length === 0) return '';
   const lines = alerts.map((a) => `  • Patient #${a.patient_id}: ${a.instruction}`);
   return `Follow-up alerts:\n${lines.join('\n')}`;
 }

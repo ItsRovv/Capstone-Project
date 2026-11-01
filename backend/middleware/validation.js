@@ -1,6 +1,7 @@
 const Joi = require('joi');
-const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS } = require('../services/admissionService');
+const { CHECKLIST_ITEMS, DANGER_SIGNS, DISCHARGE_RESULTS, ITEM_UNITS } = require('../services/admissionService');
 const { sanitizeObject, sanitizeDeep } = require('../utils/sanitizer');
+const { REQUIRED_VITALS, VALID_RANGES } = require('../config/clinicalThresholds');
 
 // ── Personal Information (Mommy / Daddy / Emergency contact) — OB patients ──
 const personInfoSchema = Joi.object({
@@ -182,7 +183,11 @@ const admissionSchema = Joi.object({
   social_service_class: Joi.string().valid('A', 'B', 'C', 'D').allow(null, ''),
   hospitalization_plan: shortText(200),
   health_insurance_name: shortText(200),
-  medicare: Joi.string().valid('sss', 'gsis', 'owwa', 'indigent', 'others').allow(null, ''),
+  medicare: Joi.string().valid('none', 'philhealth_member', 'philhealth_dependent', 'sss', 'gsis', 'owwa', 'indigent', 'private', 'others').allow(null, ''),
+  philhealth_pin: shortText(30),
+  consent_signer_type: Joi.string().valid('patient', 'partner', 'guardian', 'other').allow(null, ''),
+  consent_relationship: shortText(100),
+  attending_user_id: Joi.number().integer().positive().allow(null, ''),
   medicare_other: shortText(200),
   informant_name: shortText(200),
   informant_address: shortText(500),
@@ -195,7 +200,9 @@ const admissionUpdateSchema = admissionSchema.fork(['patient_id'], (f) => f.forb
 const newbornSchema = Joi.object({
   name: shortText(150),
   sex: Joi.string().valid('Male', 'Female', 'Other').allow(null, ''),
-  weight_grams: Joi.number().integer().min(200).max(8000).allow(null, ''),
+  birth_status: Joi.string().valid('live', 'stillbirth').default('live'),
+  born_at: Joi.date().allow(null, ''),
+  weight_grams: Joi.number().integer().min(VALID_RANGES.birth_weight_grams[0]).max(VALID_RANGES.birth_weight_grams[1]).allow(null, ''),
   length_cm: Joi.number().min(20).max(70).allow(null, ''),
   head_circumference_cm: Joi.number().min(15).max(50).allow(null, ''),
   chest_circumference_cm: Joi.number().min(15).max(60).allow(null, ''),
@@ -206,11 +213,21 @@ const newbornSchema = Joi.object({
   notes: shortText(2000)
 }).unknown(false);
 
+const DELIVERY_PROBLEMS = ['prolonged_labor', 'fetal_distress', 'shoulder_dystocia', 'cord_around_neck', 'heavy_bleeding', 'retained_placenta', 'severe_tear'];
+
 const deliverySchema = Joi.object({
   delivered_at: Joi.date(),
-  delivery_type: shortText(60),
+  delivery_type: Joi.string().valid('nsd', 'referred', 'assisted', 'other').allow(null, ''),
   attendant: shortText(300),
+  attendant_ids: Joi.array().items(Joi.number().integer().positive()).unique().max(6).default([]),
   complications: shortText(2000),
+  problems: Joi.array().items(Joi.string().valid(...DELIVERY_PROBLEMS)).unique().max(DELIVERY_PROBLEMS.length).default([]),
+  placenta: Joi.string().valid('complete', 'incomplete').allow(null, ''),
+  placenta_at: Joi.date().allow(null, ''),
+  blood_loss_ml: Joi.number().integer().min(0).max(5000).allow(null, ''),
+  perineum: Joi.string().valid('intact', 'tear_1', 'tear_2', 'episiotomy').allow(null, ''),
+  oxytocin_given: Joi.boolean().allow(null),
+  oxytocin_at: Joi.date().allow(null, ''),
   newborns: Joi.array().items(newbornSchema).max(6).default([])
 }).unknown(false);
 
@@ -218,9 +235,19 @@ const admissionItemSchema = Joi.object({
   option_id: Joi.number().integer().positive().allow(null, ''),
   label: Joi.string().trim().max(150),
   unit_price: Joi.number().min(0).max(1000000),
-  quantity: Joi.number().greater(0).max(1000).default(1),
-  given_at: Joi.date()
+  quantity: Joi.number().integer().greater(0).max(1000).default(1),
+  given_at: Joi.date(),
+  unit: Joi.string().valid(...ITEM_UNITS),
+  used_for: Joi.string().pattern(/^(mother|baby_[1-6])$/).default('mother'),
+  confirm_large: Joi.boolean(),
+  allergy_reason: Joi.string().trim().min(3).max(500)
 }).or('option_id', 'label').unknown(false);
+
+const itemQuantitySchema = Joi.object({
+  quantity: Joi.number().integer().greater(0).max(1000).required(),
+  reason: Joi.string().trim().min(3).max(500).required(),
+  confirm_large: Joi.boolean()
+}).unknown(false);
 
 const dischargeSchema = Joi.object({
   disposition: Joi.string().trim().max(60).required(),
@@ -228,6 +255,12 @@ const dischargeSchema = Joi.object({
   final_diagnosis: shortText(1000),
   instructions: shortText(3000),
   override_reason: shortText(500),
+  mother_condition: Joi.string().valid('improved', 'unchanged', 'worse').allow(null, ''),
+  newborn_condition: Joi.string().valid('well', 'needs_monitoring', 'referred', 'died', 'na').allow(null, ''),
+  follow_up_date: Joi.date().allow(null, ''),
+  death_of: Joi.string().valid('mother', 'newborn').allow(null, ''),
+  death_cause: shortText(500),
+  death_at: Joi.date().allow(null, ''),
   results: Joi.array().items(Joi.string().valid(...DISCHARGE_RESULTS.map((r) => r.code))).unique().max(DISCHARGE_RESULTS.length).default([])
 }).unknown(false);
 
@@ -239,7 +272,7 @@ const referralSchema = Joi.object({
   notes: shortText(2000)
 }).unknown(false);
 
-const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item', 'vitamin', 'consult_package'];
+const OPTION_GROUPS = ['discharge_reason', 'delivery_type', 'risk_flag', 'newborn_care', 'package', 'item', 'vitamin', 'consult_package', 'bundle'];
 
 const clinicOptionSchema = Joi.object({
   option_group: Joi.string().valid(...OPTION_GROUPS).required(),
@@ -247,6 +280,13 @@ const clinicOptionSchema = Joi.object({
   label: Joi.string().trim().min(1).max(150).required(),
   price: Joi.number().min(0).max(1000000).allow(null, ''),
   category: shortText(40),
+  unit: Joi.string().valid(...ITEM_UNITS).allow(null, ''),
+  charged: Joi.boolean(),
+  allergy_tags: shortText(200),
+  bundle_items: Joi.array().items(Joi.object({
+    code: Joi.string().trim().max(60).required(),
+    quantity: Joi.number().integer().min(1).max(100).required()
+  })).max(30).allow(null),
   active: Joi.boolean(),
   sort_order: Joi.number().integer().min(0).max(10000)
 }).unknown(false);
@@ -275,22 +315,32 @@ const checklistSchema = Joi.object({
   danger_signs: Joi.array().items(Joi.string().valid(...DANGER_SIGNS.map((d) => d.code))).unique().max(DANGER_SIGNS.length).default([])
 }).unknown(false);
 
+const MEMBRANES = ['not_checked', 'intact', 'ruptured_clear', 'ruptured_meconium', 'ruptured_bloody', 'unknown', 'ruptured'];
+
 const laborEntrySchema = Joi.object({
   contractions: shortText(150),
-  cervix_cm: Joi.number().integer().min(0).max(10).allow(null, ''),
-  fetal_heart_rate: Joi.number().integer().min(60).max(220).allow(null, ''),
-  membranes: Joi.string().valid('intact', 'ruptured', 'unknown').allow(null, ''),
+  contraction_freq: Joi.number().integer().min(0).max(10).allow(null, ''),
+  contraction_secs: Joi.number().integer().min(5).max(180).allow(null, ''),
+  cervix_cm: Joi.number().integer().min(VALID_RANGES.cervix_cm[0]).max(VALID_RANGES.cervix_cm[1]).allow(null, ''),
+  station: Joi.string().valid('-3', '-2', '-1', '0', '+1', '+2', '+3').allow(null, ''),
+  fetal_heart_rate: Joi.number().integer().min(VALID_RANGES.fetal_heart_rate[0]).max(VALID_RANGES.fetal_heart_rate[1]).allow(null, ''),
+  membranes: Joi.string().valid(...MEMBRANES).allow(null, ''),
+  occurred_at: Joi.date().allow(null, ''),
   notes: shortText(2000)
 }).unknown(false);
 
 const vitalsSchema = Joi.object({
-  bp_systolic: Joi.number().integer().min(40).max(300).allow(null, ''),
-  bp_diastolic: Joi.number().integer().min(20).max(200).allow(null, ''),
+  phase: Joi.string().valid('admission', 'labor', 'postpartum').default('admission'),
+  bp_systolic: Joi.number().integer().min(VALID_RANGES.bp_systolic[0]).max(VALID_RANGES.bp_systolic[1]).allow(null, ''),
+  bp_diastolic: Joi.number().integer().min(VALID_RANGES.bp_diastolic[0]).max(VALID_RANGES.bp_diastolic[1]).allow(null, ''),
   pulse: Joi.number().integer().min(20).max(250).allow(null, ''),
   resp_rate: Joi.number().integer().min(5).max(80).allow(null, ''),
-  temperature: Joi.number().min(30).max(45).allow(null, ''),
-  spo2: Joi.number().integer().min(50).max(100).allow(null, ''),
-  fetal_heart_rate: Joi.number().integer().min(60).max(220).allow(null, '')
+  temperature: Joi.number().min(VALID_RANGES.temperature[0]).max(VALID_RANGES.temperature[1]).allow(null, ''),
+  spo2: Joi.number().integer().min(VALID_RANGES.spo2[0]).max(VALID_RANGES.spo2[1]).allow(null, ''),
+  fetal_heart_rate: Joi.number().integer().min(VALID_RANGES.fetal_heart_rate[0]).max(VALID_RANGES.fetal_heart_rate[1]).allow(null, ''),
+  bleeding: Joi.string().valid('none', 'light', 'moderate', 'heavy').allow(null, ''),
+  uterus: Joi.string().valid('firm', 'soft').allow(null, ''),
+  perineum: Joi.string().valid('intact', 'swollen', 'tear', 'stitched').allow(null, '')
 }).unknown(false);
 
 const packagesSchema = Joi.object({ packages: Joi.array().items(optionCode).max(10).unique().required() }).unknown(false);
@@ -316,8 +366,31 @@ function validateVitals(data) {
   if (result.error) return result;
   const hasValue = Object.values(result.value).some((v) => v !== null && v !== '' && v !== undefined);
   if (!hasValue) return { error: new Error('Enter at least one vital sign.'), value: result.value };
+  const missing = REQUIRED_VITALS.filter((r) => {
+    const v = result.value[r.key];
+    return v === null || v === '' || v === undefined;
+  }).map((r) => r.label);
+  if (missing.length) {
+    return { error: new Error(`Incomplete reading: ${missing.join(', ')} not recorded.`), value: result.value };
+  }
   return result;
 }
+const noteCorrectionSchema = Joi.object({
+  description: Joi.string().trim().min(1).max(3000).required(),
+  reason: Joi.string().trim().min(3).max(500).required()
+}).unknown(false);
+function validateNoteCorrection(data) { return runValidation(noteCorrectionSchema, data, ['description', 'reason']); }
+const medicationSchema = Joi.object({
+  drug: Joi.string().trim().min(1).max(150).required(),
+  dose: Joi.string().trim().max(80).allow('', null),
+  route: Joi.string().trim().max(40).allow('', null),
+  given_at: Joi.date(),
+  item_id: Joi.number().integer().positive().allow(null, ''),
+  allergy_reason: Joi.string().trim().min(3).max(500)
+}).unknown(false);
+function validateMedication(data) { return runValidation(medicationSchema, data, ['drug', 'dose', 'route', 'allergy_reason']); }
+const reasonSchema = Joi.object({ reason: Joi.string().trim().min(3).max(500).required() }).unknown(false);
+function validateReason(data) { return runValidation(reasonSchema, data, ['reason']); }
 function validateMidwifeNote(data) { return runValidation(midwifeNoteSchema, data, ['description']); }
 function validateAdmission(data) { return runValidation(admissionSchema, data, ADMISSION_TEXT); }
 function validateAdmissionUpdate(data) { return runValidation(admissionUpdateSchema, data, ADMISSION_TEXT); }
@@ -326,7 +399,8 @@ function validateDelivery(data) {
   if (!result.error) result.value.newborns = result.value.newborns.map((n) => sanitizeObject(n, ['notes', 'name']));
   return result;
 }
-function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label']); }
+function validateAdmissionItem(data) { return runValidation(admissionItemSchema, data, ['label', 'allergy_reason']); }
+function validateItemQuantity(data) { return runValidation(itemQuantitySchema, data, ['reason']); }
 function validateDischarge(data) { return runValidation(dischargeSchema, data, ['disposition', 'final_diagnosis', 'instructions', 'override_reason']); }
 function validateReferral(data) { return runValidation(referralSchema, data, ['facility', 'reason', 'transport', 'notes']); }
 function validateClinicOption(data) { return runValidation(clinicOptionSchema, data, ['label', 'category']); }
@@ -353,6 +427,11 @@ module.exports = {
   validatePackages,
   validateMidwifeNote,
   validateVitals,
+  validateReason,
+  validateNoteCorrection,
+  validateMedication,
+  DELIVERY_PROBLEMS,
+  validateItemQuantity,
   validateLaborEntry,
   validateChecklist,
   OPTION_GROUPS,

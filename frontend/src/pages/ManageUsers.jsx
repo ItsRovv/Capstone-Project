@@ -125,7 +125,7 @@ export function ManageUsers() {
   // ── Edit ────────────────────────────────────────────────────────────────────
   function openEdit(user) {
     setEditTarget(user);
-    setEditForm({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '' });
+    setEditForm({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '', can_sign_clinical: Boolean(user.can_sign_clinical) });
   }
 
   const updateEdit = (k) => (e) => setEditForm((f) => ({ ...f, [k]: e.target.value }));
@@ -151,7 +151,7 @@ export function ManageUsers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null };
+      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false };
       if (editForm.password) payload.password = editForm.password;
       const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
@@ -357,6 +357,20 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
+          {editForm.role === 'admin' && (
+            <label className="flex items-start gap-2.5 text-sm text-ink-800 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600"
+                checked={Boolean(editForm.can_sign_clinical)}
+                onChange={(e) => setEditForm((f) => ({ ...f, can_sign_clinical: e.target.checked }))}
+              />
+              <span>
+                <span className="font-medium">Can sign clinical entries</span>
+                <span className="block text-xs text-ink-500">For an owner who is also the doctor. Without this, an administrator can view and manage but not sign notes, vitals, labor, delivery or discharge.</span>
+              </span>
+            </label>
+          )}
         </form>
       </Modal>
 

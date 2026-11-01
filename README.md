@@ -25,22 +25,32 @@ A full-stack patient records management system for a lying-in maternity clinic i
 
 ### Admission and discharge (maternity inpatient workflow)
 
-An 8-step wizard that follows the patient from admission to discharge:
+An 8-step wizard that follows the patient from admission to discharge. A sticky header on every step shows the patient, bed, allergies, active risk flags and hours since admission, with a **Refer patient** button.
 
 | Step | What it records |
 | ---- | --------------- |
-| 1. Admit | Patient information pulled read-only from the profile (with an allergy alert), bed selection, type of admission, attending physician, reason for admission, coverage, informant, arrival vitals, warning signs checklist, informed consent |
-| 2. Notes | Midwives' notes with automatic date, time and initials; saved notes are locked and can only be corrected |
-| 3. Vitals | Vital sign readings over time, colored by a maternity early warning chart (yellow = watch, red = act) |
-| 4. Labor | Labor chart entries: contractions, cervix opening, baby's heartbeat, water bag |
-| 5. Delivery | Date and time of birth, type of delivery, who attended, problems during delivery |
-| 6. Baby | Baby details, measurements, APGAR scores, newborn care, with support for twins |
-| 7. Items | Services, medicines and supplies used during the stay, PhilHealth packages, and a summary sent to Transactions |
-| 8. Discharge | Pre-discharge checklist, danger signs, discharge details and instructions |
+| 1. Admit | Patient information pulled read-only from the profile (with an allergy alert), bed, type of admission, attending physician (dropdown), reason for admission, coverage (PhilHealth, SSS and others; None by default), arrival check-up, warning signs (history and found today), informed consent with signer (a guardian is required under 18). Referral, ICD, informant and similar fields are under "More details" |
+| 2. Notes | Midwives' notes with automatic date, time, shift (in words and colour) and initials. Saved notes are locked; an administrator can correct one with a reason and the original is kept |
+| 3. Vitals | Readings tagged Admission, Labor or Postpartum, colored by an early warning chart. A reading needs BP, pulse, breathing and temperature; an incomplete reading is never shown as normal. Postpartum bleeding, uterus and perineum, with a 15-minute check reminder |
+| 4. Labor | Contractions per 10 minutes and duration, cervix opening, station, baby's heartbeat, water bag (clear, meconium, bloody), the time it happened for late entries, and alerts for an abnormal heartbeat, a cervix with no change, and meconium or bloody water |
+| 5. Delivery | Normal spontaneous delivery only; anything abnormal opens the referral. Date and time, attendants (several, from staff), problems checklist, placenta, blood loss, perineum, oxytocin |
+| 6. Baby | Live birth or stillbirth, each baby's own birth time, sex (required for a live birth), measurements, APGAR, newborn care including vitamin K, BCG, hepatitis B, screening and eye ointment. Twins supported. Low weight or low APGAR prompts a referral |
+| 7. Items | Items used, each with quantity, unit, who it was used for and who recorded it; allergy warnings; void or correct with a reason; bundles; a medications-given record; PhilHealth packages (reference only); a summary sent to Transactions |
+| 8. Discharge | Pre-discharge checklist, danger signs, discharge type, mother's and newborn's condition, follow-up date, death details when needed, instructions template and a printable summary |
 
-- This module covers **normal birthing**. Signs of an abnormal birth are handled through the **referral** process.
-- 🧾 **Send to Transactions** passes the total of items used to the front desk. It is a **summary/total only**; the system does not collect payments.
-- ⚙️ **Clinic Settings**: beds and prices.
+- This module covers **normal birthing**. Signs of an abnormal birth are handled through the **referral** process. A referred stay locks Delivery, Baby and routine discharge; a doctor can reverse a referral with a reason.
+- Referral-level warning signs (placenta previa, previous cesarean, twins, breech, preterm) must be referred, or the midwife records why she continues at the clinic. A normal delivery cannot be saved before that.
+- Routine discharge is blocked until the baby details are saved (or a reason is recorded), the checklist is done and no warning sign is unresolved.
+- Only midwives, nurses and doctors sign clinical entries. An administrator can sign only when granted "Can sign clinical entries" in Manage Users. Staff (front desk) stay read-only.
+- 🧾 **Send to Transactions** passes a **summary/total only**. The system does not collect payments, issue receipts or process PhilHealth claims. A total with missing prices is shown as "Incomplete total".
+- ⚙️ **Clinic Settings**: beds and prices, items with unit, charged flag and allergy class, vitamins, PhilHealth packages and a missing-prices notice.
+- 🗂️ **History of changes** per admission (administrator and doctors): who changed what and when.
+- Item usage is recorded for **reporting only**. There is no stock level, reorder alert or inventory page.
+
+### Monitoring and reports
+
+- **Monitoring** page: expected deliveries (due soon or overdue) and missed follow-ups, with contact numbers. Read-only.
+- **Reports**: daily, weekly and monthly summaries now include admissions, discharges, referrals, average stay, live births, stillbirths, newborn screenings and the most-used items. The Reports page also shows admission statistics for a day, week, month, quarter or custom dates, and an item usage report with CSV export.
 
 ### Reports, security and reliability
 
@@ -51,18 +61,16 @@ An 8-step wizard that follows the patient from admission to discharge:
 - 🔄 **Auto-failover database**: local PostgreSQL backup that automatically takes over when Supabase is unreachable, with reverse-sync on recovery
 - 🛡️ **Production-hardened**: Helmet CSP + HSTS, CORS, DB connect retry, `/health` endpoint, graceful errors, SPA fallback
 
-## Planned improvements (in progress)
+## Still to do
 
-These are **not yet implemented**. They come from usability testing of the admission and discharge module and are tracked in `docs/FIX_PLAN_Admission_Discharge.md`.
+These are tracked in `docs/FIX_PROGRESS.md`. Nothing below is claimed as working.
 
-- Referral that can be started from every admission step, with automatic alerts for risk flags and abnormal readings
-- Vitals completeness checks (no "all signs normal" for incomplete readings) and postpartum monitoring
-- Discharge rules: required baby details and checklist, danger signs lead to referral, clearer discharge type and outcomes
-- Item usage with quantities (for example diapers, gloves, gauze, medicines) and item usage reports. Stock and inventory management are outside the study's scope
-- Admission prefilled from the prenatal consultation and pregnancy record, so data is not retyped
-- Expected deliveries list and missed follow-up list, and report counts of deliveries and newborn screenings
-- A midwife role and clinical signing rules, bed occupancy safeguards, audit trail, and consistent saving behavior
-- All new tables covered by the failover database and its sync
+- The failover sync now covers every table, but has not been exercised against a real local PostgreSQL yet
+- Live colouring of vitals while typing, and a referral button on Discharge danger signs
+- Staff dropdown for the "Signed by" field of the discharge and demo midwife/doctor seed accounts
+- Admit prefill from the latest consultation (assessment, plan, baseline measurements) beyond what is shown today
+- A settings screen to edit bundle contents (the "Normal delivery pack" is seeded)
+- Photo upload of the signed consent paper
 
 ## Capstone objectives and where they are in the system
 
@@ -155,9 +163,10 @@ lying-in-clinic-web-app/
 │   ├── config/db.js          # delegates to dbManager (auto-failover)
 │   ├── config/dbManager.js   # dual-pool failover manager
 │   ├── controllers/          # authController.js
+│   ├── config/clinicalThresholds.js  # clinical limits for alerts (to be confirmed by the clinic)
 │   ├── middleware/           # auth, validation, role, rateLimit
 │   ├── models/               # Patient, Consultation, Appointment, Report, User, PregnancyTrackingForm, ...
-│   ├── routes/               # auth, patients, consultations, pregnancies, pregnancyTracking, reports, summary, ...
+│   ├── routes/               # auth, patients, consultations, pregnancies, pregnancyTracking, reports, summary, admissions, clinicOptions, monitoring, ...
 │   ├── services/             # summaryService, reportService (daily/weekly/monthly generation)
 │   ├── utils/                # seed, scheduler, mailer, sync
 │   ├── tests/                # jest unit tests (auth, validation, role)

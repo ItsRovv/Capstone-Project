@@ -7,6 +7,9 @@ import { pregnancyTrackingService } from '../services/pregnancyTrackingService';
 import { apiError } from '../services/api';
 
 const ROW_COUNT = 15;
+const ZOOM_MIN = 60;
+const ZOOM_MAX = 200;
+const ZOOM_STEP = 10;
 
 function getCurrentMonthYear() {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -66,6 +69,7 @@ export function PregnancyTrackingForm() {
   const [rows, setRows] = useState(initialRows);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [zoom, setZoom] = useState(100);
   const savingRef = useRef(false);
 
   // Load saved form for the selected month/year; if none exists, auto-fill from active pregnancies.
@@ -145,6 +149,136 @@ export function PregnancyTrackingForm() {
 
   const handlePrint = () => window.print();
 
+  // A real .xlsx that mirrors the printed paper form: merged trimester header, clinic
+  // branding, bordered cells. No "format doesn't match" prompt because it is a true xlsx.
+  // The xlsx library is loaded on demand so it does not slow the initial page load.
+  const handleExcel = async () => {
+    const XLSX = await import('xlsx-js-style');
+    const COLS = 27;
+    const THIN = { style: 'thin', color: { rgb: 'FF334155' } };
+    const BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+    const headCell = {
+      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: 'FFFFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF0F766E' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: BORDER
+    };
+    const text = (zebra) => ({
+      font: { sz: 10, name: 'Calibri' },
+      fill: zebra ? { patternType: 'solid', fgColor: { rgb: 'FFF1F5F4' } } : undefined,
+      alignment: { vertical: 'center', wrapText: true },
+      border: BORDER
+    });
+    const num = (zebra) => ({
+      font: { sz: 10, name: 'Calibri' },
+      fill: zebra ? { patternType: 'solid', fgColor: { rgb: 'FFF1F5F4' } } : undefined,
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: BORDER
+    });
+    const merges = [];
+    const ws = {};
+    const range = { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+    const put = (r, c, v, s, t = 's') => {
+      const cell = { t, v };
+      if (s) cell.s = s;
+      ws[XLSX.utils.encode_cell({ r, c })] = cell;
+      if (r > range.e.r) range.e.r = r;
+      if (c > range.e.c) range.e.c = c;
+    };
+    const merge = (r0, c0, r1, c1) => merges.push({ s: { r: r0, c: c0 }, e: { r: r1, c: c1 } });
+    const head = (r, c, v) => put(r, c, v, headCell);
+    const fill = (r, c) => put(r, c, '', headCell);
+    const gap = (r, c) => put(r, c, '', { fill: { patternType: 'solid', fgColor: { rgb: 'FFE2E8F0' } } });
+
+    // Title block
+    put(0, 0, 'JEAN LYING-IN MATERNITY CLINIC', {
+      font: { bold: true, sz: 16, name: 'Calibri', color: { rgb: 'FF134E4A' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+    merge(0, 0, 0, COLS - 1);
+    put(1, 0, 'Pregnancy Tracking Form', {
+      font: { bold: true, sz: 13, name: 'Calibri', color: { rgb: 'FF0F172A' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+    merge(1, 0, 1, COLS - 1);
+    put(2, 0, `Month & Year:  ${monthYear}`, {
+      font: { sz: 11, italic: true, name: 'Calibri', color: { rgb: 'FF475569' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { bottom: { style: 'medium', color: { rgb: 'FF0F766E' } } }
+    });
+    merge(2, 0, 2, COLS - 1);
+
+    const H = 4; // first header row
+    const FIXED = ['#', 'Name', 'Address', 'Age', 'CP Number', 'Doc Submitted', 'EDD', 'OB INDEX'];
+    FIXED.forEach((label, c) => { head(H, c, label); fill(H + 1, c); fill(H + 2, c); merge(H, c, H + 2, c); });
+    const T0 = FIXED.length; // first trimester column = 8 (col I)
+    head(H, T0, 'TRIMESTER');
+    for (let c = T0 + 1; c <= COLS - 2; c++) fill(H, c);
+    merge(H, T0, H, COLS - 2);
+    head(H, COLS - 1, 'JLMC Delivery Date');
+    fill(H + 1, COLS - 1); fill(H + 2, COLS - 1);
+    merge(H, COLS - 1, H + 2, COLS - 1);
+
+    // Row H+1: months 1-7 (merged down), 8, 9, +
+    for (let i = 0; i < 7; i++) { head(H + 1, T0 + i, i + 1); fill(H + 2, T0 + i); merge(H + 1, T0 + i, H + 2, T0 + i); }
+    let c = T0 + 7;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '8'); head(H + 1, c + 1, '');
+    merge(H + 1, c, H + 1, c + 1);
+    head(H + 2, c, '1'); head(H + 2, c + 1, '2');
+    c += 2;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '9'); head(H + 1, c + 1, ''); head(H + 1, c + 2, ''); head(H + 1, c + 3, '');
+    merge(H + 1, c, H + 1, c + 3);
+    head(H + 2, c, '1'); head(H + 2, c + 1, '2'); head(H + 2, c + 2, '3'); head(H + 2, c + 3, '4');
+    c += 4;
+    gap(H + 1, c); gap(H + 2, c); c++;
+    head(H + 1, c, '+'); head(H + 1, c + 1, '');
+    merge(H + 1, c, H + 1, c + 1);
+    head(H + 2, c, ''); head(H + 2, c + 1, '');
+
+    // Data rows with a light zebra fill
+    rows.forEach((r, i) => {
+      const rowIdx = H + 3 + i;
+      const zebra = i % 2 === 1;
+      const t = text(zebra); const n = num(zebra);
+      put(rowIdx, 0, i + 1, n, 'n');
+      put(rowIdx, 1, r.name, t);
+      put(rowIdx, 2, r.address, t);
+      const ageNum = Number(r.age);
+      put(rowIdx, 3, r.age === '' || Number.isNaN(ageNum) ? r.age : ageNum, n, r.age === '' || Number.isNaN(ageNum) ? 's' : 'n');
+      put(rowIdx, 4, r.cpNumber, t);
+      put(rowIdx, 5, r.docSubmitted ? '✓' : '', n);
+      put(rowIdx, 6, r.edd, n);
+      put(rowIdx, 7, r.obIndex, n);
+      let tc = T0;
+      r.trimester.slice(0, 7).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(7, 9).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(9, 13).forEach((v) => put(rowIdx, tc++, v, n));
+      gap(rowIdx, tc++);
+      r.trimester.slice(13, 15).forEach((v) => put(rowIdx, tc++, v, n));
+      put(rowIdx, COLS - 1, r.deliveryDate, n);
+    });
+
+    ws['!ref'] = XLSX.utils.encode_range(range);
+    ws['!merges'] = merges;
+    ws['!cols'] = [
+      { wch: 4 }, { wch: 26 }, { wch: 24 }, { wch: 5 }, { wch: 13 }, { wch: 8 }, { wch: 12 }, { wch: 8 },
+      ...Array(7).fill({ wch: 4.5 }),
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 2 }, { wch: 4.5 }, { wch: 4.5 },
+      { wch: 12 }
+    ];
+    ws['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 16 }, { hpt: 6 }, { hpt: 22 }, { hpt: 16 }, { hpt: 16 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, monthYear.slice(0, 31));
+    XLSX.writeFile(wb, `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.xlsx`);
+  };
+
   return (
     <div className="h-full flex flex-col">
       <Topbar title="Pregnancy Tracking Form" onMenuClick={onOpenMenu} />
@@ -161,12 +295,46 @@ export function PregnancyTrackingForm() {
               )}
             </p>
             <div className="flex items-center gap-2">
+              <div className="inline-flex items-center rounded-lg border border-ink-200 bg-white overflow-hidden" role="group" aria-label="Zoom">
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
+                  disabled={zoom <= ZOOM_MIN}
+                  aria-label="Zoom out"
+                  className="px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom(100)}
+                  title="Reset zoom"
+                  className="px-2 py-2 text-xs font-medium text-ink-600 hover:bg-ink-50 min-w-[3.25rem] border-x border-ink-200"
+                >
+                  {zoom}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
+                  disabled={zoom >= ZOOM_MAX}
+                  aria-label="Zoom in"
+                  className="px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
               <button
                 onClick={() => handleSave(false)}
                 disabled={saving || loading}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={handleExcel}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-ink-300 bg-white text-ink-700 text-sm font-medium hover:bg-ink-50 transition-colors"
+              >
+                Excel
               </button>
               <button
                 onClick={handlePrint}
@@ -202,7 +370,7 @@ export function PregnancyTrackingForm() {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto print:![zoom:1]" style={{ zoom: zoom / 100 }}>
               <table className="w-full border-collapse border border-ink-800 text-sm">
                 <thead>
                   {/* Main header row */}

@@ -296,7 +296,7 @@ export function TransactionForm({
       {/* ── Total to pay ── */}
       <div className="rounded-lg bg-primary-50 border border-primary-200 px-4 py-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-bold text-primary-800">Total to Pay at Clinic</span>
+          <span className="text-sm font-bold text-primary-800">Total of items and services (for reference)</span>
           <span className="text-xl font-bold text-primary-700">{formatCurrency(total)}</span>
         </div>
         <p className="text-xs text-primary-600 mt-1">

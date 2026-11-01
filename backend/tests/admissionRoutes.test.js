@@ -4,13 +4,16 @@ const jwt = require('jsonwebtoken');
 process.env.JWT_SECRET = 'test-secret';
 
 jest.mock('../models/Admission');
+jest.mock('../config/db');
 jest.mock('../models/ClinicOption');
 jest.mock('../models/Consultation');
 jest.mock('../models/Queue');
 jest.mock('../models/Patient');
 jest.mock('../models/Pregnancy');
+jest.mock('../models/PregnancyTrackingForm');
 jest.mock('../models/ConsultationTransaction');
 jest.mock('../models/AuditLog');
+jest.mock('../models/User');
 jest.mock('../services/admissionSync', () => ({
   ...jest.requireActual('../services/admissionSync'),
   onDelivered: jest.fn().mockResolvedValue()
@@ -22,12 +25,15 @@ const Patient = require('../models/Patient');
 const Consultation = require('../models/Consultation');
 const Queue = require('../models/Queue');
 const Pregnancy = require('../models/Pregnancy');
+const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
 const ConsultationTransaction = require('../models/ConsultationTransaction');
 const AuditLog = require('../models/AuditLog');
 const app = require('../server');
 
 const token = (role) => `Bearer ${jwt.sign({ id: 5, role, name: role }, 'test-secret')}`;
 const as = (role, method, url) => request(app)[method](`/api/v1${url}`).set('Authorization', token(role));
+
+const User = require('../models/User');
 
 const stay = (over = {}) => ({ id: 10, patient_id: 1, status: 'admitted', first_name: 'Maria', last_name: 'Santos', ...over });
 
@@ -39,6 +45,7 @@ beforeEach(() => {
     ward_name: 'Ward', ward_beds: '3', bed_price_per_night: '500'
   });
   Admission.listActive.mockResolvedValue([]);
+  PregnancyTrackingForm.findLatestRowForPatient.mockResolvedValue(null);
   Admission.getChecklist.mockResolvedValue({
     items: { danger_signs_checked: true, breastfeeding_started: true, selfcare_info: true, newborn_care_info: true, wounds_checked: true },
     danger_signs: []
@@ -128,7 +135,7 @@ describe('discharge', () => {
   test('asks for a reason when discharging before the minimum stay, then accepts it', async () => {
     Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
     ClinicOption.findByGroupCode.mockResolvedValue(reason);
-    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 2 * 3600000) });
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 2 * 3600000), newborns: [{ id: 1 }] });
     Admission.discharge.mockResolvedValue(4);
 
     const early = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
@@ -429,7 +436,7 @@ describe('PhilHealth packages in the payment step', () => {
   ];
 
   test('a stay can carry delivery and newborn packages together', async () => {
-    Admission.findById.mockResolvedValue(stay({ status: 'delivered', philhealth_packages: [] }));
+    Admission.findById.mockResolvedValue(stay({ medicare: 'philhealth_member', philhealth_pin: '12-345678901-2', status: 'delivered', philhealth_packages: [] }));
     ClinicOption.list.mockResolvedValue(available);
     Admission.update.mockResolvedValue(true);
     const res = await as('nurse', 'put', '/admissions/10/packages').send({ packages: ['nsdbf', '99460'] });
@@ -439,10 +446,18 @@ describe('PhilHealth packages in the payment step', () => {
   });
 
   test('can still be set after discharge, because payment is often handled later', async () => {
-    Admission.findById.mockResolvedValue(stay({ status: 'discharged', philhealth_packages: [] }));
+    Admission.findById.mockResolvedValue(stay({ medicare: 'philhealth_member', philhealth_pin: '12-345678901-2', status: 'discharged', philhealth_packages: [] }));
     ClinicOption.list.mockResolvedValue(available);
     Admission.update.mockResolvedValue(true);
     expect((await as('nurse', 'put', '/admissions/10/packages').send({ packages: ['nsdbf'] })).status).toBe(200);
+  });
+
+  test('a package needs PhilHealth coverage and a member PIN first', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered', philhealth_packages: [], medicare: 'none' }));
+    ClinicOption.list.mockResolvedValue(available);
+    const res = await as('nurse', 'put', '/admissions/10/packages').send({ packages: ['nsdbf'] });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NO_COVERAGE');
   });
 
   test('front desk cannot change packages; a referred stay needs the administrator', async () => {
@@ -452,7 +467,7 @@ describe('PhilHealth packages in the payment step', () => {
   });
 
   test('rejects a package that is not in the clinic list, but keeps one that was hidden later', async () => {
-    Admission.findById.mockResolvedValue(stay({ status: 'delivered', philhealth_packages: ['old_hidden'] }));
+    Admission.findById.mockResolvedValue(stay({ medicare: 'philhealth_member', philhealth_pin: '12-345678901-2', status: 'delivered', philhealth_packages: ['old_hidden'] }));
     ClinicOption.list.mockResolvedValue(available);
     Admission.update.mockResolvedValue(true);
     expect((await as('nurse', 'put', '/admissions/10/packages').send({ packages: ['made_up'] })).status).toBe(400);
@@ -530,36 +545,362 @@ describe("Midwives' Notes", () => {
     expect((await as('nurse', 'put', '/admissions/10/notes/1').send({ description: 'fix' })).status).toBe(403);
     Admission.findNote.mockResolvedValue({ id: 1, description: 'old' });
     Admission.updateNote.mockResolvedValue(true);
-    const ok = await as('admin', 'put', '/admissions/10/notes/1').send({ description: 'fix' });
+    expect((await as('admin', 'put', '/admissions/10/notes/1').send({ description: 'fix' })).status).toBe(400);
+    const ok = await as('admin', 'put', '/admissions/10/notes/1').send({ description: 'fix', reason: 'Typo in the dose' });
     expect(ok.status).toBe(200);
+    expect(Admission.updateNote).toHaveBeenCalledWith('10', '1', 'fix', 'Typo in the dose', 5);
     expect(AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({ action: 'UPDATE', tableName: 'midwife_notes' }));
   });
 });
+
+describe('Risk flags, referral reversal and discharge gating', () => {
+  const delivery = { delivered_at: '2026-10-31T03:00:00Z', newborns: [{ sex: 'Female' }] };
+
+  test('a normal delivery is blocked while a referral-level flag has no recorded reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['placenta_previa'], risk_ack_reason: null }));
+    const res = await as('midwife', 'put', '/admissions/10/delivery').send(delivery);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('RISK_CONFLICT');
+    expect(Admission.saveDelivery).not.toHaveBeenCalled();
+  });
+
+  test('once a reason is recorded the delivery can be saved', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['placenta_previa'], risk_ack_reason: 'Doctor reviewed, low-lying only' }));
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    expect((await as('midwife', 'put', '/admissions/10/delivery').send(delivery)).status).toBe(200);
+  });
+
+  test('"continue at clinic" needs a reason; the server stamps who decided', async () => {
+    Admission.findById.mockResolvedValue(stay({ risk_flags: ['breech'] }));
+    Admission.acknowledgeRisk.mockResolvedValue(true);
+    expect((await as('midwife', 'post', '/admissions/10/risk-ack').send({})).status).toBe(400);
+    expect((await as('midwife', 'post', '/admissions/10/risk-ack').send({ reason: 'ok' })).status).toBe(400);
+    const res = await as('midwife', 'post', '/admissions/10/risk-ack').send({ reason: 'Doctor will attend the birth here' });
+    expect(res.status).toBe(201);
+    expect(Admission.acknowledgeRisk).toHaveBeenCalledWith('10', 'Doctor will attend the birth here', 5);
+    expect((await as('staff', 'post', '/admissions/10/risk-ack').send({ reason: 'Doctor will attend' })).status).toBe(403);
+  });
+
+  test('only a doctor or admin can reverse a referral, with a reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'referred' }));
+    Admission.reverseReferral.mockResolvedValue(true);
+    expect((await as('midwife', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled' })).status).toBe(403);
+    expect((await as('doctor', 'post', '/admissions/10/referral/reverse').send({})).status).toBe(400);
+    const res = await as('doctor', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled, patient stayed' });
+    expect(res.status).toBe(200);
+    expect(Admission.reverseReferral).toHaveBeenCalledWith('10', 'Referral cancelled, patient stayed', expect.any(Number));
+    Admission.findById.mockResolvedValue(stay({ status: 'admitted' }));
+    expect((await as('doctor', 'post', '/admissions/10/referral/reverse').send({ reason: 'Referral cancelled' })).status).toBe(409);
+  });
+
+  test('routine discharge is blocked without baby details, and allowed with a logged reason', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [] });
+    Admission.discharge.mockResolvedValue(4);
+    const blocked = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('NO_BABY');
+    const ok = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved', override_reason: 'Baby referred separately' });
+    expect(ok.status).toBe(201);
+  });
+
+  test('routine discharge is blocked by an unresolved risk flag', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered', risk_flags: ['multiple_pregnancy'], risk_ack_reason: null }));
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [{ id: 1 }] });
+    const res = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved' });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('RISK_UNRESOLVED');
+  });
+});
+
+describe('Item usage tracking', () => {
+  const nsaid = { id: 3, option_group: 'item', active: true, label: 'Mefenamic acid', price: 12, unit: 'pc', charged: true, allergy_tags: 'nsaid,aspirin' };
+  const diaper = { id: 4, option_group: 'item', active: true, label: 'Baby diaper (newborn size)', price: null, unit: 'pc', charged: false };
+  const openStay = () => Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
+
+  test('records item, quantity, unit and who; a baby can be the one it was used for', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1, allergies: '' });
+    ClinicOption.findById.mockResolvedValue(diaper);
+    Admission.addItem.mockResolvedValue(21);
+    const res = await as('midwife', 'post', '/admissions/10/items').send({ option_id: 4, quantity: 3, used_for: 'baby_1' });
+    expect(res.status).toBe(201);
+    expect(Admission.addItem).toHaveBeenCalledWith('10', expect.objectContaining({ label: 'Baby diaper (newborn size)', quantity: 3, unit: 'pc', charged: false, used_for: 'baby_1', price_missing: false }), 5);
+  });
+
+  test('zero, negative, fractional and text quantities are rejected; a large one asks for confirmation', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1 });
+    ClinicOption.findById.mockResolvedValue(nsaid);
+    for (const quantity of [0, -2, 1.5, 'abc']) {
+      expect((await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity })).status).toBe(400);
+    }
+    const large = await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 60 });
+    expect(large.status).toBe(409);
+    expect(large.body.code).toBe('LARGE_QUANTITY');
+    Admission.addItem.mockResolvedValue(22);
+    expect((await as('midwife', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 60, confirm_large: true })).status).toBe(201);
+  });
+
+  test('an NSAID for an aspirin-allergic patient is stopped until a reason is given', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1, allergies: 'Aspirin' });
+    ClinicOption.findById.mockResolvedValue(nsaid);
+    Admission.addItem.mockResolvedValue(23);
+    const blocked = await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1 });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('ALLERGY');
+    expect(Admission.addItem).not.toHaveBeenCalled();
+    const ok = await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1, allergy_reason: 'Doctor ordered, tolerated before' });
+    expect(ok.status).toBe(201);
+    expect(Admission.addItem.mock.calls[0][1].note).toMatch(/Allergy warning \(aspirin\) confirmed/);
+  });
+
+  test('an unpriced charged item is flagged as missing its price', async () => {
+    openStay();
+    Patient.findById.mockResolvedValue({ id: 1 });
+    ClinicOption.findById.mockResolvedValue({ ...nsaid, price: null, allergy_tags: null });
+    Admission.addItem.mockResolvedValue(24);
+    await as('nurse', 'post', '/admissions/10/items').send({ option_id: 3, quantity: 1 });
+    expect(Admission.addItem.mock.calls[0][1]).toMatchObject({ price_missing: true, unit_price: 0 });
+  });
+
+  test('removing a line voids it with a reason instead of deleting it', async () => {
+    openStay();
+    Admission.voidItem.mockResolvedValue(true);
+    expect((await as('nurse', 'post', '/admissions/10/items/21/void').send({})).status).toBe(400);
+    const res = await as('nurse', 'post', '/admissions/10/items/21/void').send({ reason: 'Entered by mistake' });
+    expect(res.status).toBe(200);
+    expect(Admission.voidItem).toHaveBeenCalledWith('10', '21', 'Entered by mistake', 5);
+  });
+
+  test('correcting a quantity needs a reason and validates the new number', async () => {
+    openStay();
+    Admission.replaceItem.mockResolvedValue(30);
+    expect((await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 0, reason: 'fix' })).status).toBe(400);
+    expect((await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 2 })).status).toBe(400);
+    const res = await as('nurse', 'put', '/admissions/10/items/21').send({ quantity: 2, reason: 'Typed 3 by mistake' });
+    expect(res.status).toBe(200);
+    expect(Admission.replaceItem).toHaveBeenCalledWith('10', '21', 2, 'Typed 3 by mistake', 5);
+  });
+
+  test('Send to Transactions asks to confirm an incomplete total, and a zero total needs a reason', async () => {
+    openStay();
+    Admission.getDischarge.mockResolvedValue(null);
+    Admission.getReferral.mockResolvedValue(null);
+    Admission.listItems.mockResolvedValue([{ id: 1, label: 'Antibiotic', unit_price: 0, quantity: 1, charged: true, price_missing: true }]);
+    const incomplete = await as('nurse', 'post', '/admissions/10/transaction').send({});
+    expect(incomplete.status).toBe(409);
+    expect(incomplete.body.code).toBe('INCOMPLETE_TOTAL');
+
+    Admission.listItems.mockResolvedValue([{ id: 2, label: 'Diaper', unit_price: 0, quantity: 3, charged: false }]);
+    const zero = await as('nurse', 'post', '/admissions/10/transaction').send({});
+    expect(zero.body.code).toBe('ZERO_TOTAL');
+  });
+
+  test('vitamin K on the Baby step creates exactly one usage line, even when saved twice', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    ClinicOption.findByGroupCode.mockResolvedValue({ id: 8, label: 'Newborn vitamin K injection', price: 90, unit: 'ampule', charged: true, active: true });
+    Admission.addItem.mockResolvedValue(40);
+    const body = { delivered_at: '2026-10-31T03:00:00Z', newborns: [{ sex: 'Female', essential_care: ['vitamin_k', 'drying'] }] };
+
+    Admission.liveRefKeys.mockResolvedValue([]);
+    expect((await as('midwife', 'put', '/admissions/10/delivery').send(body)).status).toBe(200);
+    expect(Admission.addItem).toHaveBeenCalledTimes(1);
+    expect(Admission.addItem.mock.calls[0][1]).toMatchObject({ ref_key: 'baby1:vitamin_k', used_for: 'baby_1', label: 'Newborn vitamin K injection' });
+
+    Admission.addItem.mockClear();
+    Admission.liveRefKeys.mockResolvedValue([{ id: 40, ref_key: 'baby1:vitamin_k' }]);
+    await as('midwife', 'put', '/admissions/10/delivery').send(body);
+    expect(Admission.addItem).not.toHaveBeenCalled();
+
+    Admission.liveRefKeys.mockResolvedValue([{ id: 40, ref_key: 'baby1:vitamin_k' }]);
+    Admission.voidItem.mockResolvedValue(true);
+    await as('midwife', 'put', '/admissions/10/delivery').send({ ...body, newborns: [{ sex: 'Female', essential_care: ['drying'] }] });
+    expect(Admission.voidItem).toHaveBeenCalledWith(10, 40, expect.any(String), 5);
+  });
+
+  test('the usage report is for admin and doctor, validates dates and can be exported as CSV', async () => {
+    Admission.itemUsageReport.mockResolvedValue([{ category: 'supply', label: 'Gloves', unit: 'pair', total_quantity: '8', admissions: '3', amount: 0, charged: false }]);
+    expect((await as('midwife', 'get', '/admissions/reports/item-usage')).status).toBe(403);
+    expect((await as('doctor', 'get', '/admissions/reports/item-usage?from=bad&to=2026-10-31')).status).toBe(400);
+    const json = await as('doctor', 'get', '/admissions/reports/item-usage?from=2026-10-01&to=2026-10-31');
+    expect(json.body.rows[0].label).toBe('Gloves');
+    const csv = await as('admin', 'get', '/admissions/reports/item-usage?from=2026-10-01&to=2026-10-31&format=csv');
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.text).toContain('"Gloves","pair","8","3","Not charged"');
+  });
+});
+
+describe('Signing, delivery checks, discharge details and consent', () => {
+  const baby = { sex: 'Female' };
+
+  test('admin, midwife, nurse and doctor can sign a clinical note; staff cannot', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    Admission.addNote.mockResolvedValue(9);
+    expect((await as('admin', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('midwife', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('nurse', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('doctor', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('staff', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(403);
+  });
+
+  test('delivery: birth time cannot be in the future or before admission; sex is required for a live birth', async () => {
+    Admission.findById.mockResolvedValue(stay({ admitted_at: new Date('2026-10-30T00:00:00Z') }));
+    const future = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: new Date(Date.now() + 3600000).toISOString(), newborns: [baby] });
+    expect(future.body.code).toBe('FUTURE_BIRTH');
+    const early = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: '2026-10-29T00:00:00Z', newborns: [baby] });
+    expect(early.body.code).toBe('BIRTH_BEFORE_ADMISSION');
+    const noSex = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: '2026-10-30T05:00:00Z', newborns: [{}] });
+    expect(noSex.body.code).toBe('BABY_SEX');
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    const still = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: '2026-10-30T05:00:00Z', newborns: [{ birth_status: 'stillbirth' }] });
+    expect(still.status).toBe(200);
+  });
+
+  test('delivery: "Referred" must go through the referral form; problems and low-weight babies prompt a referral', async () => {
+    Admission.findById.mockResolvedValue(stay({ admitted_at: new Date('2026-10-30T00:00:00Z') }));
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    expect((await as('midwife', 'put', '/admissions/10/delivery').send({ delivery_type: 'referred', newborns: [baby] })).status).toBe(400);
+    const res = await as('midwife', 'put', '/admissions/10/delivery').send({
+      delivered_at: '2026-10-30T05:00:00Z', delivery_type: 'nsd', problems: ['cord_around_neck'], newborns: [{ ...baby, weight_grams: 2300 }]
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.referralPrompt).toEqual(['cord_around_neck', 'Low birth weight']);
+  });
+
+  test('delivery attendants must be chosen from the staff list and are stored by name', async () => {
+    Admission.findById.mockResolvedValue(stay({ admitted_at: new Date('2026-10-30T00:00:00Z') }));
+    Admission.saveDelivery.mockResolvedValue(3);
+    require('../services/admissionSync').onDelivered.mockResolvedValue();
+    User.listClinicalStaff.mockResolvedValue([{ id: 7, name: 'Ana Reyes', role: 'midwife' }, { id: 8, name: 'Dr. Cruz', role: 'doctor' }]);
+    const bad = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: '2026-10-30T05:00:00Z', attendant_ids: [99], newborns: [baby] });
+    expect(bad.status).toBe(400);
+    const ok = await as('midwife', 'put', '/admissions/10/delivery').send({ delivered_at: '2026-10-30T05:00:00Z', attendant_ids: [7, 8], newborns: [baby] });
+    expect(ok.status).toBe(200);
+    expect(Admission.saveDelivery.mock.calls.pop()[1].attendant).toBe('Ana Reyes, Dr. Cruz');
+  });
+
+  test('discharge: a death needs who, cause and time; impossible combinations are refused', async () => {
+    Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [{ id: 1 }] });
+    Admission.discharge.mockResolvedValue(4);
+    const noDetails = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'expired' });
+    expect(noDetails.body.code).toBe('BAD_CONDITION');
+    const impossible = await as('nurse', 'post', '/admissions/10/discharge').send({
+      disposition: 'expired', death_of: 'mother', death_cause: 'Hemorrhage', death_at: '2026-10-31T03:00:00Z', mother_condition: 'improved'
+    });
+    expect(impossible.status).toBe(400);
+    const stray = await as('nurse', 'post', '/admissions/10/discharge').send({ disposition: 'improved', death_cause: 'x' });
+    expect(stray.status).toBe(400);
+  });
+
+  test('consent for a patient under 18 must be signed by a guardian', async () => {
+    Patient.findById.mockResolvedValue({ id: 1, age: 16 });
+    Admission.findActiveByPatient.mockResolvedValue(null);
+    const res = await as('midwife', 'post', '/admissions').send({ patient_id: 1, consent_signed: true, consent_by: 'Maria Santos', consent_signer_type: 'patient' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('GUARDIAN_REQUIRED');
+  });
+
+  test('a bed change is logged with from, to and who', async () => {
+    Admission.findById.mockResolvedValue(stay({ bed_number: 1 }));
+    ClinicOption.getSettingsMap.mockResolvedValue({ ward_beds: '3' });
+    Admission.listActive.mockResolvedValue([]);
+    Admission.findActiveByBed.mockResolvedValue(null);
+    Admission.update.mockResolvedValue(true);
+    expect((await as('midwife', 'put', '/admissions/10').send({ bed_number: 2 })).status).toBe(200);
+    expect(Admission.logBedMove).toHaveBeenCalledWith('10', 1, 2, 5);
+  });
+
+  test('medications given are a clinical record with an allergy check', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    Patient.findById.mockResolvedValue({ id: 1, allergies: 'penicillin' });
+    Admission.addMedication.mockResolvedValue(3);
+    const blocked = await as('midwife', 'post', '/admissions/10/medications').send({ drug: 'Amoxicillin', dose: '500 mg', route: 'oral' });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('ALLERGY');
+    const ok = await as('midwife', 'post', '/admissions/10/medications').send({ drug: 'Amoxicillin', dose: '500 mg', route: 'oral', allergy_reason: 'Doctor ordered' });
+    expect(ok.status).toBe(201);
+    expect((await as('staff', 'post', '/admissions/10/medications').send({ drug: 'x' })).status).toBe(403);
+  });
+});
+
+describe('Monitoring lists and statistics', () => {
+  const db = require('../config/db');
+
+  test('expected deliveries and missed follow-ups are readable by front desk staff, not by midwives', async () => {
+    db.execute.mockResolvedValue([[{ patient_id: 1, first_name: 'Maria', last_name: 'Santos', edd: '2026-11-10', overdue: false }]]);
+    const expected = await as('staff', 'get', '/monitoring/expected-deliveries?days=14');
+    expect(expected.status).toBe(200);
+    expect(expected.body.days).toBe(14);
+    expect(expected.body.rows[0].first_name).toBe('Maria');
+    expect((await as('staff', 'get', '/monitoring/missed-followups')).body.days).toBe(30);
+    expect((await as('midwife', 'get', '/monitoring/expected-deliveries')).status).toBe(403);
+  });
+
+  test('the admission statistics report validates dates and is for admin and doctor', async () => {
+    Admission.statsForRange.mockResolvedValue({ admissions: 4, discharges: 3, referrals: 1, liveBirths: 3, stillbirths: 0, newbornScreenings: 2, deliveries: 3, averageStayHours: 30.5 });
+    expect((await as('nurse', 'get', '/admissions/reports/summary')).status).toBe(403);
+    expect((await as('doctor', 'get', '/admissions/reports/summary?from=2026-11-05&to=2026-11-01')).status).toBe(400);
+    const res = await as('doctor', 'get', '/admissions/reports/summary?from=2026-10-01&to=2026-10-31');
+    expect(res.body).toMatchObject({ admissions: 4, liveBirths: 3, newbornScreenings: 2 });
+  });
+});
+
+describe('History and step counts', () => {
+  test('the history of changes is for admin and doctor only', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    const AuditLog = require('../models/AuditLog');
+    AuditLog.forAdmission.mockResolvedValue([{ id: 1, action: 'UPDATE', table_name: 'admissions', user_name: 'Ana', created_at: '2026-10-31T03:00:00Z' }]);
+    expect((await as('midwife', 'get', '/admissions/10/history')).status).toBe(403);
+    const res = await as('doctor', 'get', '/admissions/10/history');
+    expect(res.status).toBe(200);
+    expect(res.body[0].user_name).toBe('Ana');
+  });
+});
+
+const FULL_VITALS = { bp_systolic: 118, bp_diastolic: 76, pulse: 80, resp_rate: 18, temperature: 36.8 };
 
 describe('Vital signs', () => {
   test('a midwife records vitals; time and author come from the server and the reading is scored', async () => {
     Admission.findById.mockResolvedValue(stay());
     Admission.addVitals.mockResolvedValue(8);
-    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ bp_systolic: 170, bp_diastolic: 110, pulse: 90 });
+    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ ...FULL_VITALS, bp_systolic: 170, bp_diastolic: 110 });
     expect(res.status).toBe(201);
     expect(res.body.score.level).toBe('urgent');
+    expect(res.body.referralReasons).toContain('Severe high blood pressure');
     expect(Admission.addVitals).toHaveBeenCalledWith('10', expect.objectContaining({ bp_systolic: 170 }), 5);
-    expect((await as('midwife', 'post', '/admissions/10/vitals').send({ pulse: 80, recorded_by: 99 })).status).toBe(400);
+    expect((await as('midwife', 'post', '/admissions/10/vitals').send({ ...FULL_VITALS, recorded_by: 99 })).status).toBe(400);
     expect((await as('midwife', 'post', '/admissions/10/vitals').send({})).status).toBe(400);
+  });
+
+  test('a reading with a required sign missing is rejected and lists what is missing', async () => {
+    Admission.findById.mockResolvedValue(stay());
+    const res = await as('midwife', 'post', '/admissions/10/vitals').send({ bp_systolic: 120, bp_diastolic: 80 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Incomplete reading.*pulse.*breathing.*temperature/);
+    expect(Admission.addVitals).not.toHaveBeenCalled();
   });
 
   test('front desk cannot read or write vitals, and a closed stay is locked', async () => {
     Admission.findById.mockResolvedValue(stay());
     expect((await as('staff', 'get', '/admissions/10/vitals')).status).toBe(403);
     Admission.findById.mockResolvedValue(stay({ status: 'discharged' }));
-    expect((await as('nurse', 'post', '/admissions/10/vitals').send({ pulse: 80 })).status).toBe(403);
+    expect((await as('nurse', 'post', '/admissions/10/vitals').send(FULL_VITALS)).status).toBe(403);
   });
 
-  test('listing scores each reading', async () => {
+  test('listing scores each reading; an incomplete reading is never "normal"', async () => {
     Admission.findById.mockResolvedValue(stay());
-    Admission.listVitals.mockResolvedValue([{ id: 1, pulse: 80, temperature: 36.8 }, { id: 2, pulse: 130 }]);
+    Admission.listVitals.mockResolvedValue([{ id: 1, ...FULL_VITALS }, { id: 2, pulse: 130 }, { id: 3, pulse: 80 }]);
     const res = await as('nurse', 'get', '/admissions/10/vitals');
-    expect(res.body.map((r) => r.score.level)).toEqual(['normal', 'urgent']);
+    expect(res.body.map((r) => r.score.level)).toEqual(['normal', 'urgent', 'incomplete']);
+    expect(res.body[2].score.missing).toContain('temperature');
   });
 });
 
@@ -641,7 +982,9 @@ describe('pre-discharge checklist', () => {
     Admission.getChecklist.mockResolvedValue(null);
     for (const disposition of ['transferred', 'hama', 'absconded', 'expired']) {
       ClinicOption.findByGroupCode.mockResolvedValue({ code: disposition, active: true });
-      expect((await as('nurse', 'post', '/admissions/10/discharge').send({ disposition })).status).toBe(201);
+      expect((await as('nurse', 'post', '/admissions/10/discharge').send({
+        disposition, ...(disposition === 'expired' ? { death_of: 'mother', death_cause: 'Hemorrhage', death_at: '2026-10-31T03:00:00Z', mother_condition: 'worse' } : {})
+      })).status).toBe(201);
     }
   });
 
@@ -691,13 +1034,13 @@ describe('rest of the paper record', () => {
     Patient.findById.mockResolvedValue({ id: 1 });
     Admission.findActiveByPatient.mockResolvedValue(null);
     expect((await as('midwife', 'post', '/admissions').send({ patient_id: 1, social_service_class: 'E' })).status).toBe(400);
-    expect((await as('midwife', 'post', '/admissions').send({ patient_id: 1, medicare: 'private' })).status).toBe(400);
+    expect((await as('midwife', 'post', '/admissions').send({ patient_id: 1, medicare: 'made_up' })).status).toBe(400);
   });
 
   test('discharge stores the results box and rejects unknown result codes', async () => {
     Admission.findById.mockResolvedValue(stay({ status: 'delivered' }));
     ClinicOption.findByGroupCode.mockResolvedValue({ code: 'improved', active: true });
-    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000) });
+    Admission.getDelivery.mockResolvedValue({ delivered_at: new Date(Date.now() - 48 * 3600000), newborns: [{ id: 1 }] });
     Admission.discharge.mockResolvedValue(4);
     const res = await as('midwife', 'post', '/admissions/10/discharge')
       .send({ disposition: 'improved', results: ['recovered', 'improved'] });

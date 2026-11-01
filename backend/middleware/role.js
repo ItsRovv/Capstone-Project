@@ -40,6 +40,15 @@ const requireStaffOrMidwifeRead = (req, res, next) => {
 const CLINICAL_ROLES = ['admin', 'doctor', 'nurse', 'midwife'];
 const requireClinical = requireRole(...CLINICAL_ROLES);
 
+// Signing clinical entries (notes, vitals, labor, delivery, discharge, referral): midwives, nurses,
+// doctors and the clinic administrator. Front-desk staff cannot sign.
+const SIGNER_ROLES = ['admin', 'doctor', 'nurse', 'midwife'];
+function requireClinicalSigner(req, res, next) {
+  if (!req.user) return res.status(401).json({ message: 'Access token required' });
+  if (SIGNER_ROLES.includes(req.user.role)) return next();
+  return res.status(403).json({ message: `Forbidden: requires one of [${SIGNER_ROLES.join(', ')}]` });
+}
+
 // Everyone who may open the Admission and Discharge screens.
 const ADMISSION_ROLES = [...STAFF_ROLES, 'midwife'];
 const requireAdmissionAccess = requireRole(...ADMISSION_ROLES);
@@ -48,6 +57,7 @@ module.exports = requireRole;
 module.exports.requireStaff = requireStaff;
 module.exports.requireStaffOrMidwifeRead = requireStaffOrMidwifeRead;
 module.exports.requireClinical = requireClinical;
+module.exports.requireClinicalSigner = requireClinicalSigner;
 module.exports.requireAdmissionAccess = requireAdmissionAccess;
 module.exports.CLINICAL_ROLES = CLINICAL_ROLES;
 module.exports.STAFF_ROLES = STAFF_ROLES;

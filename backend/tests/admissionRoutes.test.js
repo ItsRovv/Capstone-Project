@@ -735,14 +735,13 @@ describe('Item usage tracking', () => {
 describe('Signing, delivery checks, discharge details and consent', () => {
   const baby = { sex: 'Female' };
 
-  test('a plain admin cannot sign a clinical note; an admin with the flag can; a midwife can', async () => {
+  test('admin, midwife, nurse and doctor can sign a clinical note; staff cannot', async () => {
     Admission.findById.mockResolvedValue(stay());
     Admission.addNote.mockResolvedValue(9);
-    User.findById.mockResolvedValue({ id: 5, role: 'admin', can_sign_clinical: false });
-    expect((await as('admin', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(403);
-    User.findById.mockResolvedValue({ id: 5, role: 'admin', can_sign_clinical: true });
     expect((await as('admin', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
     expect((await as('midwife', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('nurse', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
+    expect((await as('doctor', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(201);
     expect((await as('staff', 'post', '/admissions/10/notes').send({ description: 'x' })).status).toBe(403);
   });
 

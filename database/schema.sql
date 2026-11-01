@@ -494,8 +494,9 @@ ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_signer_type VARCHAR(20);
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS consent_relationship VARCHAR(100);
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS attending_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 
--- Staff who may sign clinical entries (midwife and doctor by role; an admin only when granted).
+-- Staff who may sign clinical entries (midwife, nurse, doctor and admin by role).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS can_sign_clinical BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE users SET can_sign_clinical = TRUE WHERE role = 'admin' AND can_sign_clinical = FALSE;
 
 -- "Continue at clinic" decision for a referral-level warning sign (reason, who, when).
 ALTER TABLE admissions ADD COLUMN IF NOT EXISTS risk_ack_reason TEXT;

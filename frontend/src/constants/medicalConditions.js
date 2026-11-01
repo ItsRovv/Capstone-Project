@@ -52,6 +52,7 @@ export function blankPersonInfo() {
     blood_type: '',
     civil_status: '',
     occupation: '',
+    educational_attainment: '',
     birthplace: '',
     nationality: '',
     religion: '',

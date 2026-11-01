@@ -28,17 +28,17 @@ async function onDelivered(admission, delivery) {
   await PregnancyTrackingForm.update(key, rows);
 }
 
-// "Plan to deliver at JLMC" ticked in a consultation: make sure the patient has an
+// A delivery location was selected in a consultation: make sure the patient has an
 // ongoing pregnancy record so she shows up in pregnancy tracking. Returns the new
 // pregnancy id, or null when she already had one.
-async function ensurePregnancyForJlmcDelivery(patientId) {
+async function ensurePregnancyForDelivery(patientId, deliveryLocation) {
   const existing = await Pregnancy.findByPatientId(patientId);
   if (existing.some((p) => p.status === 'Ongoing')) return null;
   return Pregnancy.create(patientId, {
     status: 'Ongoing',
     first_visit_date: new Date().toISOString().slice(0, 10),
-    notes: 'Added automatically: plans to deliver at JLMC (from consultation).'
+    notes: `Added automatically: plans to deliver at ${deliveryLocation} (from consultation).`
   });
 }
 
-module.exports = { onDelivered, trackingKey, ensurePregnancyForJlmcDelivery };
+module.exports = { onDelivered, trackingKey, ensurePregnancyForDelivery };

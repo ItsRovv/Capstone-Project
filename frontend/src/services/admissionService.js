@@ -7,6 +7,7 @@ export const admissionService = {
   ward: () => api.get('/admissions/ward').then(data),
   list: (params = {}) => api.get('/admissions', { params }).then(data),
   forPatient: (patientId) => api.get(`/admissions/patient/${patientId}`).then(data),
+  latestDelivery: (patientId) => api.get(`/admissions/patient/${patientId}/latest-delivery`).then(data),
   prefill: (patientId) => api.get(`/admissions/prefill/${patientId}`).then(data),
   logbook: (month) => api.get('/admissions/logbook', { params: month ? { month } : {} }).then(data),
   get: (id) => api.get(`/admissions/${id}`).then(data),

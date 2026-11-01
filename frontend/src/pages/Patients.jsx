@@ -54,6 +54,7 @@ export function Patients() {
   const [deleting, setDeleting] = useState(false);
   const [queueMap, setQueueMap] = useState(new Map());
   const [addingQueue, setAddingQueue] = useState(null);
+  const [queueTarget, setQueueTarget] = useState(null);
   const [admitMap, setAdmitMap] = useState(new Map());
   const [admitTarget, setAdmitTarget] = useState(null);
   const { byGroup } = useClinicOptions();
@@ -82,16 +83,17 @@ export function Patients() {
     }
   }
 
-  async function handleAddToQueue(patientId) {
+  async function handleAddToQueue(patientId, consultationType = 'normal') {
     setAddingQueue(patientId);
     try {
-      const result = await queueService.add(patientId);
+      const result = await queueService.add(patientId, consultationType);
       toast.success(`Added to queue #${String(result.queue_number).padStart(2, '0')}`);
       setQueueMap((prev) => {
         const next = new Map(prev);
-        next.set(patientId, { queue_number: result.queue_number, status: 'waiting' });
+        next.set(patientId, { queue_number: result.queue_number, status: 'waiting', consultation_type: consultationType });
         return next;
       });
+      setQueueTarget(null);
     } catch (err) {
       toast.error(apiError(err, 'Could not add to queue'));
     } finally {
@@ -128,7 +130,7 @@ export function Patients() {
       const result = await patientService.create(payload);
       if (options.addToQueue && result?.id) {
         try {
-          const qResult = await queueService.add(result.id);
+          const qResult = await queueService.add(result.id, options.consultationType || 'normal');
           toast.success(`Patient added and queued #${String(qResult.queue_number).padStart(2, '0')}`);
         } catch (queueErr) {
           toast.success('Patient added (queue failed — add manually)');
@@ -316,7 +318,7 @@ export function Patients() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleAddToQueue(p.id)}
+                              onClick={() => setQueueTarget(p)}
                               loading={addingQueue === p.id}
                               className="!text-base text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
                               title="Add to queue"
@@ -454,6 +456,60 @@ export function Patients() {
         patient={admitTarget}
         byGroup={byGroup}
       />
+
+      <ConsultationTypeModal
+        open={Boolean(queueTarget)}
+        patient={queueTarget}
+        loading={addingQueue !== null}
+        onClose={() => setQueueTarget(null)}
+        onSelect={(type) => handleAddToQueue(queueTarget.id, type)}
+      />
     </div>
+  );
+}
+
+const CONSULTATION_TYPES = [
+  { value: 'normal', label: 'Normal Consultation', description: 'General check-up — not pregnancy related' },
+  { value: 'prenatal', label: 'Prenatal Consultation', description: 'Pregnancy check-up (buntis)' },
+  { value: 'postnatal', label: 'Postnatal Consultation', description: 'Check-up after giving birth' }
+];
+
+export function ConsultationTypeModal({ open, patient, loading, onClose, onSelect }) {
+  const [type, setType] = useState('normal');
+  return (
+    <Modal open={open} onClose={onClose} title="Add to queue" size="sm">
+      <p className="text-sm text-ink-600 mb-3">
+        Consultation type for <strong>{patient?.first_name} {patient?.last_name}</strong>:
+      </p>
+      <div className="space-y-2">
+        {CONSULTATION_TYPES.map((t) => (
+          <label
+            key={t.value}
+            className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+              type === t.value
+                ? 'border-primary-400 bg-primary-50/50'
+                : 'border-ink-200 hover:border-primary-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name="consultation_type"
+              value={t.value}
+              checked={type === t.value}
+              onChange={() => setType(t.value)}
+              className="w-4 h-4 mt-0.5 accent-primary-600"
+            />
+            <span>
+              <span className="block text-sm font-medium text-ink-900">{t.label}</span>
+              <span className="block text-xs text-ink-500">{t.description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={() => onSelect(type)} loading={loading}>Add to queue</Button>
+      </div>
+    </Modal>
   );
 }

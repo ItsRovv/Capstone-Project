@@ -13,21 +13,22 @@ class Pregnancy {
     const {
       lmp, edd, gp, trimester, weeks, status, notes,
       baseline_weight_kg, baseline_height_cm, aog, ob_index, blood_type,
-      pregnancy_number, first_visit_date
+      pregnancy_number, first_visit_date, pregnancy_history
     } = data;
     const baseline_bmi = data.baseline_bmi ?? computeBmi(baseline_weight_kg, baseline_height_cm);
     const query = `
       INSERT INTO pregnancies (
         patient_id, lmp, edd, gp, trimester, weeks, status, notes,
         baseline_weight_kg, baseline_height_cm, baseline_bmi, aog, ob_index,
-        blood_type, pregnancy_number, first_visit_date
+        blood_type, pregnancy_number, first_visit_date, pregnancy_history
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const values = [
       patientId, lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null,
       baseline_weight_kg ?? null, baseline_height_cm ?? null, baseline_bmi ?? null, aog ?? null, ob_index ?? null,
-      blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null
+      blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null,
+      JSON.stringify(Array.isArray(pregnancy_history) ? pregnancy_history : [])
     ];
     const [result] = await db.execute(query, values);
     return result.insertId;
@@ -49,20 +50,21 @@ class Pregnancy {
     const {
       lmp, edd, gp, trimester, weeks, status, notes,
       baseline_weight_kg, baseline_height_cm, aog, ob_index, blood_type,
-      pregnancy_number, first_visit_date
+      pregnancy_number, first_visit_date, pregnancy_history
     } = data;
     const baseline_bmi = data.baseline_bmi ?? computeBmi(baseline_weight_kg, baseline_height_cm);
     const query = `
       UPDATE pregnancies
       SET lmp = ?, edd = ?, gp = ?, trimester = ?, weeks = ?, status = ?, notes = ?,
           baseline_weight_kg = ?, baseline_height_cm = ?, baseline_bmi = ?, aog = ?,
-          ob_index = ?, blood_type = ?, pregnancy_number = ?, first_visit_date = ?
+          ob_index = ?, blood_type = ?, pregnancy_number = ?, first_visit_date = ?, pregnancy_history = ?
       WHERE id = ?
     `;
     const values = [
       lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null,
       baseline_weight_kg ?? null, baseline_height_cm ?? null, baseline_bmi ?? null, aog ?? null,
-      ob_index ?? null, blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null, id
+      ob_index ?? null, blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null,
+      JSON.stringify(Array.isArray(pregnancy_history) ? pregnancy_history : []), id
     ];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;

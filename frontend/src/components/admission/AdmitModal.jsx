@@ -172,7 +172,7 @@ export function AdmitModal({ open, onClose, patient: initialPatient, byGroup, in
                   </li>
                 )}
                 {prefill.latestConsultation && <li>Last check-up: {formatDay(prefill.latestConsultation.visit_date)}</li>}
-                {prefill.latestConsultation?.delivery_location === 'jlmc' && <li className="font-medium text-emerald-700">Planned to deliver at JLMC</li>}
+                {prefill.latestConsultation?.delivery_location?.toUpperCase() === 'JLMC' && <li className="font-medium text-emerald-700">Planned to deliver at JLMC</li>}
                 {prefill.patient.allergies && <li className="text-red-700">Allergies: {prefill.patient.allergies}</li>}
               </ul>
             </div>

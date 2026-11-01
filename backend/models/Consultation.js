@@ -1,25 +1,52 @@
 const db = require('../config/db');
 const { encryptObject, decryptObject } = require('../utils/encryption');
 
-const ENCRYPTED_FIELDS = ['raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription', 'subjective', 'objective', 'assessment', 'plan'];
+const ENCRYPTED_FIELDS = ['raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription', 'subjective', 'objective', 'assessment', 'plan', 'prenatal_data', 'postnatal_data'];
+// Fields that store a JSON object/array as an encrypted string — stringified
+// before encryption, parsed back after decryption.
+const JSON_FIELDS = ['prenatal_data', 'postnatal_data'];
+
+function stringifyJsonFields(data) {
+  const result = { ...data };
+  for (const field of JSON_FIELDS) {
+    if (result[field] !== undefined && result[field] !== null && typeof result[field] !== 'string') {
+      result[field] = JSON.stringify(result[field]);
+    }
+  }
+  return result;
+}
+
+function parseJsonFields(data) {
+  const result = { ...data };
+  for (const field of JSON_FIELDS) {
+    if (typeof result[field] === 'string' && result[field].length) {
+      try {
+        result[field] = JSON.parse(result[field]);
+      } catch {
+        // Leave as-is if not valid JSON (e.g. legacy/corrupt data)
+      }
+    }
+  }
+  return result;
+}
 
 function encryptConsultation(data) {
-  return encryptObject(data, ENCRYPTED_FIELDS);
+  return encryptObject(stringifyJsonFields(data), ENCRYPTED_FIELDS);
 }
 
 function decryptConsultation(data) {
-  return decryptObject(data, ENCRYPTED_FIELDS);
+  return parseJsonFields(decryptObject(data, ENCRYPTED_FIELDS));
 }
 
 class Consultation {
   // Create a new consultation
   static async create(consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used } = encryptConsultation(consultationData);
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, consultation_type, prenatal_data, postnatal_data, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
-      INSERT INTO consultations (patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO consultations (patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, consultation_type, prenatal_data, postnatal_data, ai_summary_used)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const values = [patient_id, doctor_id ?? null, visit_date ?? new Date(), raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, ai_summary_used ?? false];
+    const values = [patient_id, doctor_id ?? null, visit_date ?? new Date(), raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, consultation_type ?? 'normal', prenatal_data ?? null, postnatal_data ?? null, ai_summary_used ?? false];
     const [result] = await db.execute(query, values);
     return result.insertId;
   }
@@ -97,13 +124,13 @@ class Consultation {
 
   // Update consultation by ID
   static async update(id, consultationData) {
-    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, ai_summary_used } = encryptConsultation(consultationData);
+    const { patient_id, doctor_id, visit_date, raw_notes, structured_notes, chief_complaint, diagnosis, prescription, subjective, objective, assessment, plan, delivery_location, consultation_type, prenatal_data, postnatal_data, ai_summary_used } = encryptConsultation(consultationData);
     const query = `
       UPDATE consultations
-      SET patient_id = ?, doctor_id = ?, visit_date = ?, raw_notes = ?, structured_notes = ?, chief_complaint = ?, diagnosis = ?, prescription = ?, subjective = ?, objective = ?, assessment = ?, plan = ?, delivery_location = ?, ai_summary_used = ?
+      SET patient_id = ?, doctor_id = ?, visit_date = ?, raw_notes = ?, structured_notes = ?, chief_complaint = ?, diagnosis = ?, prescription = ?, subjective = ?, objective = ?, assessment = ?, plan = ?, delivery_location = ?, consultation_type = ?, prenatal_data = ?, postnatal_data = ?, ai_summary_used = ?
       WHERE id = ?
     `;
-    const values = [patient_id, doctor_id ?? null, visit_date ?? null, raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, ai_summary_used ?? false, id];
+    const values = [patient_id, doctor_id ?? null, visit_date ?? null, raw_notes ?? null, structured_notes ?? null, chief_complaint ?? null, diagnosis ?? null, prescription ?? null, subjective ?? null, objective ?? null, assessment ?? null, plan ?? null, delivery_location ?? null, consultation_type ?? 'normal', prenatal_data ?? null, postnatal_data ?? null, ai_summary_used ?? false, id];
     const [result] = await db.execute(query, values);
     return result.affectedRows > 0;
   }

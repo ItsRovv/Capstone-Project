@@ -224,6 +224,14 @@ router.get('/patient/:patientId', async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+// Latest delivery for a patient — used to prefill postpartum/postnatal care.
+router.get('/patient/:patientId/latest-delivery', async (req, res) => {
+  try {
+    const delivery = await Admission.findLatestDeliveryByPatient(req.params.patientId);
+    res.json(delivery || null);
+  } catch (err) { routeError(res, err); }
+});
+
 // ── Item usage report ────────────────────────────────────────────────────
 // How many diapers, gloves, gauze or ampules were used between two dates. Usage only, no stock.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -199,6 +199,7 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
   const [medicalInfo, setMedicalInfo] = useState(mergeMedicalInfo(initial?.medical_info));
   const [error, setError] = useState(null);
   const [addToQueue, setAddToQueue] = useState(false);
+  const [queueConsultationType, setQueueConsultationType] = useState('normal');
   const [section, setSection] = useState('personal');
   const [expanded, setExpanded] = useState({
     patient: true,
@@ -325,7 +326,7 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
       medical_info: medicalInfo
     };
 
-    onSubmit(payload, { addToQueue });
+    onSubmit(payload, { addToQueue, consultationType: queueConsultationType });
   }
 
   return (
@@ -710,15 +711,28 @@ export function PatientForm({ initial, onSubmit, onCancel, submitting }) {
 
       <div className="flex items-center justify-between pt-2 border-t border-ink-100">
         {!initial?.id && (
-          <label className="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={addToQueue}
-              onChange={(e) => setAddToQueue(e.target.checked)}
-              className="w-4 h-4 accent-primary-600"
-            />
-            Add to queue after saving
-          </label>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-ink-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={addToQueue}
+                onChange={(e) => setAddToQueue(e.target.checked)}
+                className="w-4 h-4 accent-primary-600"
+              />
+              Add to queue after saving
+            </label>
+            {addToQueue && (
+              <select
+                value={queueConsultationType}
+                onChange={(e) => setQueueConsultationType(e.target.value)}
+                className="input-base !py-1.5 !w-auto text-sm"
+              >
+                <option value="normal">Normal Consultation</option>
+                <option value="prenatal">Prenatal Consultation</option>
+                <option value="postnatal">Postnatal Consultation</option>
+              </select>
+            )}
+          </div>
         )}
         <div className="flex justify-end gap-2 ml-auto">
           {onCancel && (
@@ -755,6 +769,73 @@ function ExpandableSection({ title, expanded, onToggle, children }) {
         </svg>
       </button>
       {expanded && <div className="px-4 py-4">{children}</div>}
+    </div>
+  );
+}
+
+const EDUCATIONAL_ATTAINMENT_OPTIONS = [
+  'No Formal Education',
+  'Elementary Undergraduate',
+  'Elementary Graduate',
+  'Junior High School Undergraduate',
+  'Junior High School Graduate',
+  'Senior High School Undergraduate',
+  'Senior High School Graduate',
+  'Vocational / Technical Course',
+  'College Undergraduate',
+  'College Graduate',
+  'Postgraduate (Master\'s Degree)',
+  'Doctorate Degree'
+];
+
+function EducationalAttainmentField({ value, onChange }) {
+  const normalizedValue = value || '';
+  const isOther = normalizedValue && !EDUCATIONAL_ATTAINMENT_OPTIONS.includes(normalizedValue) && normalizedValue !== 'Other';
+
+  const [selectValue, setSelectValue] = useState(isOther ? 'Other' : normalizedValue);
+  const [otherValue, setOtherValue] = useState(isOther ? normalizedValue : '');
+
+  useEffect(() => {
+    const nextIsOther = normalizedValue && !EDUCATIONAL_ATTAINMENT_OPTIONS.includes(normalizedValue) && normalizedValue !== 'Other';
+    setSelectValue(nextIsOther ? 'Other' : normalizedValue);
+    setOtherValue(nextIsOther ? normalizedValue : '');
+  }, [normalizedValue]);
+
+  function handleSelect(e) {
+    const val = e.target.value;
+    setSelectValue(val);
+    if (val === 'Other') {
+      onChange({ target: { value: otherValue } });
+    } else {
+      setOtherValue('');
+      onChange({ target: { value: val } });
+    }
+  }
+
+  function handleOther(e) {
+    const val = e.target.value;
+    setOtherValue(val);
+    onChange({ target: { value: val } });
+  }
+
+  return (
+    <div>
+      <Select label="Educational Attainment" value={selectValue} onChange={handleSelect}>
+        <option value="">Not specified</option>
+        {EDUCATIONAL_ATTAINMENT_OPTIONS.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+        <option value="Other">Other</option>
+      </Select>
+      {selectValue === 'Other' && (
+        <Input
+          label="Please specify"
+          value={otherValue}
+          onChange={handleOther}
+          placeholder="e.g. Master's Degree"
+          className="mt-2"
+        />
+      )}
     </div>
   );
 }
@@ -835,6 +916,10 @@ function PersonSubForm({ title, person, onChange, useAutocomplete, required }) {
             <option value="Retired">Retired</option>
             <option value="Other">Other</option>
           </Select>
+          <EducationalAttainmentField
+            value={person.educational_attainment}
+            onChange={onChange('educational_attainment')}
+          />
           <Input
             label="Contact number"
             value={person.contact_number || ''}

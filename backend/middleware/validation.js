@@ -11,6 +11,7 @@ const personInfoSchema = Joi.object({
   blood_type: Joi.string().trim().max(5).allow(null, ''),
   civil_status: Joi.string().trim().max(30).allow(null, ''),
   occupation: Joi.string().trim().max(100).allow(null, ''),
+  educational_attainment: Joi.string().trim().max(150).allow(null, ''),
   birthplace: Joi.string().trim().max(150).allow(null, ''),
   nationality: Joi.string().trim().max(60).allow(null, ''),
   religion: Joi.string().trim().max(80).allow(null, ''),
@@ -95,7 +96,10 @@ const consultationSchema = Joi.object({
   objective: Joi.string().trim().max(2000).allow(null, ''),
   assessment: Joi.string().trim().max(2000).allow(null, ''),
   plan: Joi.string().trim().max(2000).allow(null, ''),
-  delivery_location: Joi.string().trim().valid('jlmc').allow(null, ''),
+  delivery_location: Joi.string().trim().max(100).allow(null, ''),
+  consultation_type: Joi.string().valid('normal', 'prenatal', 'postnatal').default('normal'),
+  prenatal_data: Joi.object().unknown(true).allow(null),
+  postnatal_data: Joi.object().unknown(true).allow(null),
   ai_summary_used: Joi.boolean()
 }).unknown(false);
 
@@ -145,6 +149,12 @@ function validateConsultation(data) {
   const result = consultationSchema.validate(data);
   if (result.error) return result;
   result.value = sanitizeObject(result.value, CONSULTATION_SANITIZE_FIELDS);
+  if (result.value.prenatal_data !== undefined) {
+    result.value.prenatal_data = sanitizeDeep(result.value.prenatal_data);
+  }
+  if (result.value.postnatal_data !== undefined) {
+    result.value.postnatal_data = sanitizeDeep(result.value.postnatal_data);
+  }
   return result;
 }
 

@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS users (
 -- For databases created before activity tracking existed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_modules JSONB;
+-- Normalize type: some databases have this column as text[] from an earlier migration.
+ALTER TABLE users ALTER COLUMN allowed_modules TYPE JSONB USING to_jsonb(allowed_modules);
 
 -- The admission midwife account only works in Admission and Discharge.
 -- Widen the role check for databases created before the 'midwife' role existed.

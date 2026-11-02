@@ -19,6 +19,7 @@ const pregnancyTrackingRoutes = require('./routes/pregnancyTracking');
 const queueRoutes = require('./routes/queue');
 const admissionRoutes = require('./routes/admissions');
 const monitoringRoutes = require('./routes/monitoring');
+const moduleAccess = require('./middleware/moduleAccess');
 const clinicOptionRoutes = require('./routes/clinicOptions');
 const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
 const { csrfProtection } = require('./middleware/csrf');
@@ -197,6 +198,9 @@ app.use(v1Prefix, csrfProtection);
 app.use(legacyPrefix, csrfProtection);
 app.use(v1Prefix, apiLimiter);
 app.use(legacyPrefix, apiLimiter);
+// Per-account module access (Manage Users): hidden / read-only / editable, enforced server-side.
+app.use(v1Prefix, moduleAccess);
+app.use(legacyPrefix, moduleAccess);
 
 mountV1('/patients', patientRoutes);
 mountV1('/patients/:patientId/pregnancies', pregnancyRoutes);

@@ -64,8 +64,8 @@ function configureGoogle() {
             return done(null, user);
           }
 
-          // 3. Create a new user from the Google profile
-          const id = await User.createFromOAuth({ name, email, googleId });
+          // 3. Create a new user from the Google profile (always the lowest role)
+          const id = await User.createFromOAuth({ name, email, googleId, role: 'staff' });
           const newUser = await User.findById(id);
           return done(null, newUser);
         } catch (err) {

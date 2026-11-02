@@ -532,6 +532,7 @@ async function updateUser(req, res, next) {
     }
     const updated = await User.update(targetId, { name, email, role, username: username || null, ...(typeof canSign === 'boolean' ? { can_sign_clinical: canSign } : {}), ...(password ? { password } : {}), ...(sanitizedModules !== undefined ? { allowed_modules: sanitizedModules } : {}) });
     if (!updated) return res.status(404).json({ message: 'User not found' });
+    require('../middleware/moduleAccess').clearCache(targetId);
     const user = await User.findById(targetId);
     return res.json({ message: 'User updated successfully', user: publicUser(user) });
   } catch (err) {

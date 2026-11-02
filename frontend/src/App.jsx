@@ -3,7 +3,6 @@ import { ProtectedRoute, PublicOnly } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { CLINIC_APP_ROLES, STAFF_ROLES } from './lib/roles';
 import { Login } from './pages/Login';
-import { Register } from './pages/Register';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { Dashboard } from './pages/Dashboard';
@@ -33,14 +32,7 @@ export default function App() {
           </PublicOnly>
         }
       />
-      <Route
-        path="/register"
-        element={
-          <PublicOnly>
-            <Register />
-          </PublicOnly>
-        }
-      />
+      <Route path="/register" element={<Navigate to="/login" replace />} />
       <Route
         path="/forgot-password"
         element={

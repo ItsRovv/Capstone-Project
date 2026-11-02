@@ -295,7 +295,7 @@ export function ConsultationTransactions() {
                                 </div>
 
                                 {/* Items to pay & PhilHealth reference */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3">
+                                <div className={`grid grid-cols-1 ${t.vitamins?.length > 0 && t.packages?.length > 0 ? 'md:grid-cols-2' : ''} gap-3 sm:gap-4 mb-3`}>
                                   {t.vitamins && t.vitamins.length > 0 && (
                                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-3">
                                       <div className="flex items-center gap-2 mb-2">

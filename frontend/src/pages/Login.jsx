@@ -66,8 +66,8 @@ export function Login() {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-primary-50">
-      {/* Brand side */}
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-cream">
+      {/* Clinic side */}
       <div className="hidden lg:flex flex-col justify-between p-12 bg-gradient-to-br from-primary-500 via-primary-600 to-primary-700 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-20" aria-hidden="true">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
@@ -87,35 +87,16 @@ export function Login() {
           </div>
         </div>
 
-        <div className="relative z-10 max-w-md">
-          <h2 className="text-3xl xl:text-4xl font-display font-bold leading-tight">
-            Compassionate care,
-            <br /> powered by intelligence.
-          </h2>
-          <p className="mt-4 text-primary-50/90 leading-relaxed">
-            Manage patient records and consultations — with smart
-            documentation that gives you more time for what matters.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            {['Smart Summaries', 'Daily Reports', 'Secure & Private'].map((t) => (
-              <span
-                key={t}
-                className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-sm font-medium"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        </div>
+        <div aria-hidden="true" />
 
         <p className="relative z-10 text-primary-100 text-xs">
-          © {new Date().getFullYear()} Jean Lying-in Maternity Clinic · JLMC
+          &copy; {new Date().getFullYear()} Jean Lying-in Maternity Clinic &middot; JLMC
         </p>
       </div>
 
       {/* Form side */}
-      <div className="flex items-center justify-center p-6 sm:p-10 bg-primary-50">
-        <div className="w-full max-w-md animate-slide-up">
+      <div className="flex items-center justify-center p-6 sm:p-10">
+        <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <JLMCLogo size={40} className="rounded-xl flex-shrink-0" />
             <div>
@@ -124,59 +105,55 @@ export function Login() {
             </div>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-display font-bold text-ink-900">
-            Welcome back
-          </h1>
-          <p className="text-ink-500 mt-2">Sign in to continue to your dashboard.</p>
+          <div className="bg-white rounded-2xl border border-ink-100 shadow-sm px-7 sm:px-9 py-9">
+            <h1 className="text-3xl font-display font-bold text-ink-900">Welcome</h1>
+            <p className="text-ink-500 mt-1.5 text-sm">Sign in to your account to continue.</p>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-4">
-            <Input
-              type="text"
-              label="Email or Username"
-              placeholder="you@clinic.local or dr.smith"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              required
-              autoComplete="username"
-            />
-            {/* Password field with "Forgot password?" on the right of the label */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="login-password" className="block text-sm font-medium text-ink-700">
-                  Password
-                </label>
-                <Link
-                  to="/forgot-password"
-                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
-                >
-                  Forgot password?
-                </Link>
-              </div>
-              <input
-                id="login-password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+            <form onSubmit={onSubmit} className="mt-7 space-y-4">
+              <Input
+                type="text"
+                label="Email or Username"
+                placeholder="you@clinic.local or dr.smith"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 required
-                autoComplete="current-password"
-                className="input-base w-full"
+                autoComplete="username"
               />
+              {/* Password field with "Forgot password?" on the right of the label */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="login-password" className="block text-sm font-medium text-ink-700">
+                    Password
+                  </label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <input
+                  id="login-password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="input-base w-full"
+                />
+              </div>
+              <Button type="submit" loading={loading} className="w-full" size="lg">
+                Sign in
+              </Button>
+            </form>
+
+            <div className="flex items-center gap-3 my-6">
+              <div className="flex-1 h-px bg-ink-200" />
+              <span className="text-xs text-ink-500 font-medium">or</span>
+              <div className="flex-1 h-px bg-ink-200" />
             </div>
-            <Button type="submit" loading={loading} className="w-full" size="lg">
-              Sign in
-            </Button>
-          </form>
 
-          {/* "or" divider — GitHub style */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-ink-200" />
-            <span className="text-xs text-ink-500 font-medium">or</span>
-            <div className="flex-1 h-px bg-ink-200" />
-          </div>
-
-          {/* Social login buttons */}
-          <div className="space-y-3">
             <button
               type="button"
               onClick={loginWithGoogle}
@@ -185,17 +162,6 @@ export function Login() {
               <GoogleIcon className="w-5 h-5" />
               Continue with Google
             </button>
-          </div>
-
-          {/* Footer */}
-          <div className="mt-6 text-center text-sm">
-            <span className="text-ink-500">New Here? </span>
-            <Link
-              to="/register"
-              className="text-primary-600 hover:text-primary-700 font-semibold"
-            >
-              Create Account
-            </Link>
           </div>
         </div>
       </div>

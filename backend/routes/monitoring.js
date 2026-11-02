@@ -13,6 +13,7 @@ const readable = (row) => decryptObject(row, ['contact_number'], { deterministic
 const days = (value, fallback) => Math.min(Math.max(parseInt(value, 10) || fallback, 1), 365);
 
 // Patients expected to give birth soon or overdue (replaces the clinic's Google Sheet).
+// EDD is 40 weeks, so "overdue" starts at 41 weeks (EDD + 7 days).
 // Read-only: nothing here edits clinical data.
 router.get('/expected-deliveries', async (req, res) => {
   try {
@@ -23,7 +24,7 @@ router.get('/expected-deliveries', async (req, res) => {
               (SELECT MAX(c.visit_date) FROM consultations c WHERE c.patient_id = pa.id) AS last_consultation,
               (SELECT c.delivery_location FROM consultations c WHERE c.patient_id = pa.id AND c.delivery_location IS NOT NULL
                  ORDER BY c.visit_date DESC LIMIT 1) AS delivery_location,
-              (p.edd < CURRENT_DATE) AS overdue
+              (CURRENT_DATE >= p.edd::date + 7) AS overdue
        FROM pregnancies p JOIN patients pa ON pa.id = p.patient_id
        WHERE p.status = 'Ongoing' AND p.edd IS NOT NULL AND p.edd <= CURRENT_DATE + (?::int * INTERVAL '1 day')
        ORDER BY p.edd ASC LIMIT 500`,

@@ -107,7 +107,6 @@ async function recordPrenatalVisit(patientId, visitDate) {
   return true;
 }
 
-module.exports.recordPrenatalVisit = recordPrenatalVisit;
 
 // Get active pregnancies pre-filled for the tracking form. isOld marks patients
 // with earlier records; deliveryInJlmc marks those set to deliver (or delivered) here.
@@ -196,3 +195,4 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.recordPrenatalVisit = recordPrenatalVisit;

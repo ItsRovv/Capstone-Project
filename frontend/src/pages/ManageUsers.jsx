@@ -51,17 +51,18 @@ function ActivityBadge({ user }) {
     );
   }
   const mins = Math.round((Date.now() - new Date(user.last_seen_at).getTime()) / 60000);
+  const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
   let text, cls, dot;
   if (mins <= 1) {
     text = 'Active now'; cls = 'text-emerald-700'; dot = 'bg-emerald-500 animate-pulse';
   } else if (mins < 60) {
-    text = `${mins} min ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+    text = `${plural(mins, 'min', 'mins')} ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
   } else if (mins < 60 * 24) {
-    text = `${Math.round(mins / 60)} hr ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+    text = `${plural(Math.round(mins / 60), 'hr', 'hrs')} ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
   } else if (mins < 60 * 24 * 30) {
-    text = `${Math.round(mins / (60 * 24))} days ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
+    text = `${plural(Math.round(mins / (60 * 24)), 'day', 'days')} ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   } else {
-    text = `${Math.round(mins / (60 * 24 * 30))} mo ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
+    text = `${plural(Math.round(mins / (60 * 24 * 30)), 'mo', 'mos')} ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   }
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${cls}`} title={`Last seen ${new Date(user.last_seen_at).toLocaleString()}`}>

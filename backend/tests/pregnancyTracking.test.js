@@ -8,9 +8,11 @@ jest.mock('../models/PregnancyTrackingForm');
 jest.mock('../models/Patient');
 jest.mock('../models/Pregnancy');
 jest.mock('../models/AuditLog');
+jest.mock('../models/User');
 
 const PregnancyTrackingForm = require('../models/PregnancyTrackingForm');
 const Pregnancy = require('../models/Pregnancy');
+const Patient = require('../models/Patient');
 const AuditLog = require('../models/AuditLog');
 const app = require('../server');
 
@@ -87,5 +89,19 @@ describe('Pregnancy Tracking Form syncs to the pregnancy record', () => {
 
     expect(res.status).toBe(200);
     expect(Pregnancy.updateTracking).not.toHaveBeenCalled();
+  });
+
+  test('a prenatal visit writes its date into the right trimester column', async () => {
+    const { recordPrenatalVisit } = require('../routes/pregnancyTracking');
+    Patient.findById.mockResolvedValue({ id: 2, first_name: 'Ana', last_name: 'Cruz', address: 'Sorsogon', age: 25, contact_number: '0917' });
+    Pregnancy.findByPatientId.mockResolvedValue([{ id: 7, status: 'Ongoing', weeks: 20, edd: '2027-01-15', gp: 'G2P1' }]);
+    PregnancyTrackingForm.findByMonthYear.mockResolvedValue(null);
+    PregnancyTrackingForm.create.mockResolvedValue(1);
+
+    expect(await recordPrenatalVisit(2, '2026-11-02T10:00:00Z')).toBe(true);
+
+    const [, rows] = PregnancyTrackingForm.create.mock.calls[0];
+    expect(rows[0]).toMatchObject({ patient_id: 2, name: 'Ana Cruz', edd: '2027-01-15', obIndex: 'G2P1' });
+    expect(rows[0].trimester[4]).toBe('11/02');
   });
 });

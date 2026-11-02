@@ -520,8 +520,13 @@ async function updateUser(req, res, next) {
       sanitizedModules = allowedModules && typeof allowedModules === 'object' && !Array.isArray(allowedModules)
         ? Object.fromEntries(Object.entries(allowedModules).filter(([, v]) => v === 'view' || v === 'edit'))
         : null;
-      if (role === 'admin' && sanitizedModules) sanitizedModules['manage-users'] = 'edit';
-      else if (sanitizedModules) delete sanitizedModules['manage-users'];
+      if (role === 'admin' && sanitizedModules) {
+        sanitizedModules['manage-users'] = 'edit';
+        sanitizedModules['clinic-settings'] = sanitizedModules['clinic-settings'] || 'edit';
+      } else if (sanitizedModules) {
+        delete sanitizedModules['manage-users'];
+        delete sanitizedModules['clinic-settings'];
+      }
     } else if (roleChanged) {
       sanitizedModules = null;
     }

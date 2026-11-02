@@ -6,6 +6,16 @@ import { DbStatusBanner } from './DbStatusBanner';
 import { useAuth } from '../contexts/AuthContext';
 import { MODULES, canViewModule, canEditModule, moduleForPath } from '../lib/modules';
 
+// Read-only modules: swallow clicks (mouse and keyboard) on any button unless it
+// sits inside an element marked data-readonly-ok (e.g. "show more" toggles).
+function blockReadOnlyClick(e) {
+  const btn = e.target.closest?.('button, [role="button"]');
+  if (btn && !btn.closest('[data-readonly-ok]')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
 export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user } = useAuth();
@@ -41,7 +51,11 @@ export function Layout() {
           </div>
         )}
 
-        <div className={`flex-1 min-w-0 h-full overflow-y-auto print:h-auto print:overflow-visible ${readOnly ? 'module-readonly' : ''}`}>
+        <div
+          className={`flex-1 min-w-0 h-full overflow-y-auto print:h-auto print:overflow-visible ${readOnly ? 'module-readonly' : ''}`}
+          onClickCapture={readOnly ? blockReadOnlyClick : undefined}
+          onSubmitCapture={readOnly ? (e) => e.preventDefault() : undefined}
+        >
           <DbStatusBanner />
           {blocked ? (
             <div className="flex items-center justify-center h-full p-8">

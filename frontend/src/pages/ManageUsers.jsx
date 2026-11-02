@@ -78,11 +78,12 @@ const LEVEL_ACTIVE = {
   view: 'bg-amber-500 text-white',
   edit: 'bg-emerald-600 text-white'
 };
+const ADMIN_ONLY = ['manage-users', 'clinic-settings'];
 const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
 
 // Per-module access picker. 'off' hides the module entirely; 'view' opens it
-// read-only; 'edit' is full access. Manage Users stays admin-only and is not
-// offered for other roles.
+// read-only; 'edit' is full access. Manage Users and Clinic Settings stay
+// admin-only and are not offered for other roles.
 function ModuleAccessGrid({ value, onChange, role }) {
   return (
     <div className="rounded-lg border border-ink-200 overflow-hidden">
@@ -97,7 +98,7 @@ function ModuleAccessGrid({ value, onChange, role }) {
         </button>
       </div>
       <div className="divide-y divide-ink-100 max-h-56 overflow-y-auto">
-        {MODULES.filter((m) => role === 'admin' || m.key !== 'manage-users').map((m) => {
+        {MODULES.filter((m) => role === 'admin' || !ADMIN_ONLY.includes(m.key)).map((m) => {
           const lvl = value[m.key] || 'off';
           return (
             <div key={m.key} className="flex items-center justify-between gap-2 px-3 py-1.5">

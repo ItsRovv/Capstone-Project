@@ -363,6 +363,7 @@ export function ConsultationTransactions() {
                       {g.transactions.length > 1 && (
                         <button
                           type="button"
+                          data-readonly-ok
                           onClick={() => {
                             setExpandedPatients((prev) => {
                               const next = new Set(prev);

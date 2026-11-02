@@ -144,11 +144,11 @@
 
 
 /* Per-account module access: read-only level disables form controls
-   (nav links and view buttons stay clickable). */
+   (links stay clickable; buttons are blocked unless marked data-readonly-ok). */
 .module-readonly input,
 .module-readonly select,
 .module-readonly textarea,
-.module-readonly button[type="submit"] {
+.module-readonly button:not([data-readonly-ok]):not([data-readonly-ok] button) {
   pointer-events: none !important;
   opacity: 0.55 !important;
 }

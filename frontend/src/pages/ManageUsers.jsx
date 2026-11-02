@@ -78,14 +78,15 @@ const MODULE_LEVELS = [
 ];
 const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
 
-// Per-module access picker — only shown for admin accounts. 'off' hides the
-// module entirely; 'view' opens it read-only; 'edit' is full access.
-function ModuleAccessGrid({ value, onChange }) {
+// Per-module access picker. 'off' hides the module entirely; 'view' opens it
+// read-only; 'edit' is full access. Manage Users stays admin-only and is not
+// offered for other roles.
+function ModuleAccessGrid({ value, onChange, role }) {
   return (
     <div className="rounded-lg border border-ink-200 p-3">
       <p className="text-xs font-bold text-ink-500 uppercase tracking-wider mb-2">Module access</p>
       <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-        {MODULES.map((m) => (
+        {MODULES.filter((m) => role === 'admin' || m.key !== 'manage-users').map((m) => (
           <div key={m.key} className="flex items-center justify-between gap-2">
             <span className="text-sm text-ink-800">{m.label}</span>
             <select
@@ -374,7 +375,7 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
-          <ModuleAccessGrid value={createModules} onChange={setCreateModules} />
+          <ModuleAccessGrid value={createModules} onChange={setCreateModules} role={createForm.role} />
         </form>
       </Modal>
 
@@ -415,7 +416,7 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
-          <ModuleAccessGrid value={editModules} onChange={setEditModules} />
+          <ModuleAccessGrid value={editModules} onChange={setEditModules} role={editForm.role} />
           {editForm.role === 'admin' && (
             <label className="flex items-start gap-2.5 text-sm text-ink-800 cursor-pointer">
               <input

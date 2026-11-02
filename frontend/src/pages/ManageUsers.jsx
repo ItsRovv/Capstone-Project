@@ -71,11 +71,13 @@ function ActivityBadge({ user }) {
   );
 }
 
-const MODULE_LEVELS = [
-  { value: 'off', label: 'Hidden' },
-  { value: 'view', label: 'Read only' },
-  { value: 'edit', label: 'Editable' }
-];
+const MODULE_LEVELS = ['off', 'view', 'edit'];
+const LEVEL_LABEL = { off: 'Hidden', view: 'View', edit: 'Edit' };
+const LEVEL_ACTIVE = {
+  off: 'bg-ink-600 text-white',
+  view: 'bg-amber-500 text-white',
+  edit: 'bg-emerald-600 text-white'
+};
 const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
 
 // Per-module access picker. 'off' hides the module entirely; 'view' opens it
@@ -83,25 +85,44 @@ const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
 // offered for other roles.
 function ModuleAccessGrid({ value, onChange, role }) {
   return (
-    <div className="rounded-lg border border-ink-200 p-3">
-      <p className="text-xs font-bold text-ink-500 uppercase tracking-wider mb-2">Module access</p>
-      <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-        {MODULES.filter((m) => role === 'admin' || m.key !== 'manage-users').map((m) => (
-          <div key={m.key} className="flex items-center justify-between gap-2">
-            <span className="text-sm text-ink-800">{m.label}</span>
-            <select
-              value={value[m.key] || 'off'}
-              onChange={(e) => onChange({ ...value, [m.key]: e.target.value })}
-              className="text-xs px-2 py-1 rounded-md border border-ink-200 outline-none focus:border-primary-400"
-            >
-              {MODULE_LEVELS.map((l) => (
-                <option key={l.value} value={l.value}>{l.label}</option>
-              ))}
-            </select>
-          </div>
-        ))}
+    <div className="rounded-lg border border-ink-200 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-ink-50/60 border-b border-ink-100">
+        <p className="text-xs font-bold text-ink-500 uppercase tracking-wider">Module access</p>
+        <button
+          type="button"
+          onClick={() => onChange({ ...ALL_EDIT })}
+          className="text-[11px] font-medium text-primary-700 hover:text-primary-800 hover:underline"
+        >
+          All editable
+        </button>
       </div>
-      <p className="text-[11px] text-ink-400 mt-2">Hidden modules disappear from this account's sidebar and pages.</p>
+      <div className="divide-y divide-ink-100 max-h-56 overflow-y-auto">
+        {MODULES.filter((m) => role === 'admin' || m.key !== 'manage-users').map((m) => {
+          const lvl = value[m.key] || 'off';
+          return (
+            <div key={m.key} className="flex items-center justify-between gap-2 px-3 py-1.5">
+              <span className="text-sm text-ink-800">{m.label}</span>
+              <div className="inline-flex rounded-md border border-ink-200 overflow-hidden">
+                {MODULE_LEVELS.map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => onChange({ ...value, [m.key]: l })}
+                    className={`px-2 py-1 text-[11px] font-medium transition-colors ${
+                      lvl === l ? LEVEL_ACTIVE[l] : 'text-ink-400 hover:bg-ink-50'
+                    }`}
+                  >
+                    {LEVEL_LABEL[l]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-ink-400 px-3 py-2 border-t border-ink-100 bg-ink-50/40">
+        Hidden removes it from the sidebar · View opens it read-only · Edit is full access.
+      </p>
     </div>
   );
 }

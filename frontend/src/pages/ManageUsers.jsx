@@ -14,7 +14,7 @@ const EMPTY_FORM = { name: '', username: '', email: '', password: '', role: 'sta
 const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff' },
   { value: 'nurse', label: 'Nurse' },
-  { value: 'midwife', label: 'Admission Midwife' },
+  { value: 'midwife', label: 'Midwife' },
   { value: 'doctor', label: 'Doctor' },
   { value: 'admin', label: 'Administrator' }
 ];
@@ -323,7 +323,7 @@ export function ManageUsers() {
           <Select label="Role" value={createForm.role} onChange={updateCreate('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
-            <option value="midwife">Admission Midwife</option>
+            <option value="midwife">Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
@@ -363,7 +363,7 @@ export function ManageUsers() {
           <Select label="Role" value={editForm.role} onChange={updateEdit('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
-            <option value="midwife">Admission Midwife</option>
+            <option value="midwife">Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>

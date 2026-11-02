@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { canViewModule, moduleForPath } from '../lib/modules';
 import { queueService } from '../services/queueService';
 import { Icon } from './Icon';
 
@@ -44,7 +45,9 @@ function getNavItems(role) {
 export function Sidebar({ onClose }) {
   const { user, logout } = useAuth();
   const [queueCount, setQueueCount] = useState(0);
-  const navItems = getNavItems(user?.role);
+  const navItems = getNavItems(user?.role).filter(
+    (item) => canViewModule(user, moduleForPath(item.to))
+  );
 
   useEffect(() => {
     if (user?.role === 'midwife') return undefined;

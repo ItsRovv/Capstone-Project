@@ -8,6 +8,7 @@ import { Spinner } from '../components/UI/Spinner';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../contexts/AuthContext';
 import api, { apiError } from '../services/api';
+import { MODULES } from '../lib/modules';
 
 const EMPTY_FORM = { name: '', username: '', email: '', password: '', role: 'staff' };
 
@@ -70,6 +71,40 @@ function ActivityBadge({ user }) {
   );
 }
 
+const MODULE_LEVELS = [
+  { value: 'off', label: 'Hidden' },
+  { value: 'view', label: 'Read only' },
+  { value: 'edit', label: 'Editable' }
+];
+const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
+
+// Per-module access picker — only shown for admin accounts. 'off' hides the
+// module entirely; 'view' opens it read-only; 'edit' is full access.
+function ModuleAccessGrid({ value, onChange }) {
+  return (
+    <div className="rounded-lg border border-ink-200 p-3">
+      <p className="text-xs font-bold text-ink-500 uppercase tracking-wider mb-2">Module access</p>
+      <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+        {MODULES.map((m) => (
+          <div key={m.key} className="flex items-center justify-between gap-2">
+            <span className="text-sm text-ink-800">{m.label}</span>
+            <select
+              value={value[m.key] || 'off'}
+              onChange={(e) => onChange({ ...value, [m.key]: e.target.value })}
+              className="text-xs px-2 py-1 rounded-md border border-ink-200 outline-none focus:border-primary-400"
+            >
+              {MODULE_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>{l.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-ink-400 mt-2">Hidden modules disappear from this account's sidebar and pages.</p>
+    </div>
+  );
+}
+
 export function ManageUsers() {
   const toast = useToast();
   const { user: currentUser } = useAuth();
@@ -90,6 +125,10 @@ export function ManageUsers() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Per-account module access (admin accounts only)
+  const [createModules, setCreateModules] = useState({ ...ALL_EDIT });
+  const [editModules, setEditModules] = useState({ ...ALL_EDIT });
 
   async function fetchUsers(silent = false) {
     if (!silent) setLoading(true);
@@ -119,6 +158,13 @@ export function ManageUsers() {
     setCreating(true);
     try {
       const { data } = await api.post('/auth/register', createForm);
+      if (createForm.role === 'admin' && data?.user?.id) {
+        await api.put(`/auth/users/${data.user.id}`, {
+          name: createForm.name, email: createForm.email, role: 'admin',
+          username: createForm.username || null, allowed_modules: createModules
+        }).catch(() => {});
+      }
+      setCreateModules({ ...ALL_EDIT });
       toast.success(
         `User "${createForm.name}" created. They can now sign in with their password.`
       );
@@ -136,6 +182,7 @@ export function ManageUsers() {
   function openEdit(user) {
     setEditTarget(user);
     setEditForm({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '', can_sign_clinical: Boolean(user.can_sign_clinical) });
+    setEditModules(user.allowed_modules && typeof user.allowed_modules === 'object' ? { ...user.allowed_modules } : { ...ALL_EDIT });
   }
 
   const updateEdit = (k) => (e) => setEditForm((f) => ({ ...f, [k]: e.target.value }));
@@ -161,7 +208,7 @@ export function ManageUsers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false };
+      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false, allowed_modules: editForm.role === 'admin' ? editModules : null };
       if (editForm.password) payload.password = editForm.password;
       const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
@@ -327,6 +374,9 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
+          {createForm.role === 'admin' && (
+            <ModuleAccessGrid value={createModules} onChange={setCreateModules} />
+          )}
         </form>
       </Modal>
 
@@ -367,6 +417,9 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
+          {editForm.role === 'admin' && (
+            <ModuleAccessGrid value={editModules} onChange={setEditModules} />
+          )}
           {editForm.role === 'admin' && (
             <label className="flex items-start gap-2.5 text-sm text-ink-800 cursor-pointer">
               <input

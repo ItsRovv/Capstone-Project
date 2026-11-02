@@ -141,3 +141,14 @@
     touch-action: manipulation;
   }
 }
+
+
+/* Per-account module access: read-only level disables form controls
+   (nav links and view buttons stay clickable). */
+.module-readonly input,
+.module-readonly select,
+.module-readonly textarea,
+.module-readonly button[type="submit"] {
+  pointer-events: none !important;
+  opacity: 0.55 !important;
+}

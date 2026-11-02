@@ -53,7 +53,7 @@ class User {
 
   // Find all users (without password_hash)
   static async findAll() {
-    const query = 'SELECT id, name, username, email, role, email_verified, can_sign_clinical, last_seen_at, locked_until, created_at, updated_at FROM users ORDER BY created_at DESC';
+    const query = 'SELECT id, name, username, email, role, email_verified, can_sign_clinical, last_seen_at, allowed_modules, locked_until, created_at, updated_at FROM users ORDER BY created_at DESC';
     const [rows] = await db.execute(query);
     return rows;
   }
@@ -132,6 +132,13 @@ class User {
 
     if (typeof userData.can_sign_clinical === 'boolean') {
       await db.execute('UPDATE users SET can_sign_clinical = ? WHERE id = ?', [userData.can_sign_clinical, id]);
+    }
+
+    // Per-account module access for admin accounts (null = unrestricted).
+    if ('allowed_modules' in userData) {
+      const mods = userData.allowed_modules;
+      await db.execute('UPDATE users SET allowed_modules = ?::jsonb WHERE id = ?',
+        [mods && typeof mods === 'object' ? JSON.stringify(mods) : null, id]);
     }
 
     if (userData.password) {

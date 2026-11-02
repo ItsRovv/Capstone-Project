@@ -29,7 +29,9 @@ function formatDate(d) {
 }
 
 // Shows whether an account is in use right now, and when it was last seen.
-// last_seen_at updates while the person uses any page in the app (max once per 5 min).
+// last_seen_at updates while the person uses any page in the app (max once per ~90 s).
+// "Active now" means a stamp within the last minute — idle or logged-out users
+// fall through to "X min/hr/days/mo ago".
 function ActivityBadge({ user }) {
   if (user.locked_until && new Date(user.locked_until) > new Date()) {
     return (
@@ -49,14 +51,16 @@ function ActivityBadge({ user }) {
   }
   const mins = Math.round((Date.now() - new Date(user.last_seen_at).getTime()) / 60000);
   let text, cls, dot;
-  if (mins < 10) {
+  if (mins <= 1) {
     text = 'Active now'; cls = 'text-emerald-700'; dot = 'bg-emerald-500 animate-pulse';
   } else if (mins < 60) {
-    text = `${mins} min ago`; cls = 'text-emerald-700'; dot = 'bg-emerald-500';
+    text = `${mins} min ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
   } else if (mins < 60 * 24) {
     text = `${Math.round(mins / 60)} hr ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+  } else if (mins < 60 * 24 * 30) {
+    text = `${Math.round(mins / (60 * 24))} days ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   } else {
-    text = formatDate(user.last_seen_at); cls = 'text-ink-500'; dot = 'bg-ink-300';
+    text = `${Math.round(mins / (60 * 24 * 30))} mo ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   }
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${cls}`} title={`Last seen ${new Date(user.last_seen_at).toLocaleString()}`}>
@@ -87,19 +91,25 @@ export function ManageUsers() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  async function fetchUsers() {
-    setLoading(true);
+  async function fetchUsers(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const { data } = await api.get('/auth/users');
       setUsers(data);
     } catch (err) {
-      toast.error(apiError(err, 'Failed to load users'));
+      if (!silent) toast.error(apiError(err, 'Failed to load users'));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
-  useEffect(() => { fetchUsers(); }, []);
+  // Refresh the list silently every 30 s so activity changes (log-ins,
+  // log-outs, idles) appear without a page reload.
+  useEffect(() => {
+    fetchUsers();
+    const timer = setInterval(() => fetchUsers(true), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // ── Create ──────────────────────────────────────────────────────────────────
   const updateCreate = (k) => (e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }));

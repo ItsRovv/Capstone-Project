@@ -115,12 +115,13 @@ class User {
 
   /**
    * Record that a logged-in user just used the app. Writes at most once per
-   * 5 minutes per user so normal API traffic stays cheap.
+   * 90 seconds per user so normal API traffic stays cheap while the
+   * Manage Users "Active now" state stays fresh at minute granularity.
    */
   static async touchLastSeen(id) {
     await db.execute(
       `UPDATE users SET last_seen_at = NOW()
-       WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '5 minutes')`,
+       WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '90 seconds')`,
       [id]
     );
   }

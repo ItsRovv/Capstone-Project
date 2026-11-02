@@ -92,6 +92,8 @@ function publicUser(user) {
     email: user.email,
     role: user.role,
     email_verified: Boolean(user.email_verified),
+    can_sign_clinical: Boolean(user.can_sign_clinical),
+    last_seen_at: user.last_seen_at || null,
     created_at: user.created_at || null
   };
 }

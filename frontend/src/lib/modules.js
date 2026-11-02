@@ -1,6 +1,7 @@
-// Per-account module access. Applies to admin accounts only — when an admin
-// has allowed_modules set, it fully decides what they see; when it is NULL
-// the admin keeps unrestricted access. Other roles keep role-based access.
+// Per-account module access. When an account has allowed_modules set, it fully
+// decides which modules that account can open (hidden/read-only/editable).
+// NULL = unrestricted. The role-based system stays underneath — module access
+// can restrict what a role shows, and role guards still apply inside pages.
 
 export const MODULES = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -37,7 +38,7 @@ export function moduleForPath(pathname) {
 }
 
 function level(user, key) {
-  if (!user || user.role !== 'admin') return 'edit';
+  if (!user) return 'edit';
   const mods = user.allowed_modules;
   if (!mods || typeof mods !== 'object' || Array.isArray(mods)) return 'edit';
   return mods[key] === 'view' || mods[key] === 'edit' ? mods[key] : 'off';

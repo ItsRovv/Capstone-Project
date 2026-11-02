@@ -158,9 +158,9 @@ export function ManageUsers() {
     setCreating(true);
     try {
       const { data } = await api.post('/auth/register', createForm);
-      if (createForm.role === 'admin' && data?.user?.id) {
+      if (data?.user?.id) {
         await api.put(`/auth/users/${data.user.id}`, {
-          name: createForm.name, email: createForm.email, role: 'admin',
+          name: createForm.name, email: createForm.email, role: createForm.role,
           username: createForm.username || null, allowed_modules: createModules
         }).catch(() => {});
       }
@@ -208,7 +208,7 @@ export function ManageUsers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false, allowed_modules: editForm.role === 'admin' ? editModules : null };
+      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false, allowed_modules: editModules };
       if (editForm.password) payload.password = editForm.password;
       const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
@@ -374,9 +374,7 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
-          {createForm.role === 'admin' && (
-            <ModuleAccessGrid value={createModules} onChange={setCreateModules} />
-          )}
+          <ModuleAccessGrid value={createModules} onChange={setCreateModules} />
         </form>
       </Modal>
 
@@ -417,9 +415,7 @@ export function ManageUsers() {
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
-          {editForm.role === 'admin' && (
-            <ModuleAccessGrid value={editModules} onChange={setEditModules} />
-          )}
+          <ModuleAccessGrid value={editModules} onChange={setEditModules} />
           {editForm.role === 'admin' && (
             <label className="flex items-start gap-2.5 text-sm text-ink-800 cursor-pointer">
               <input

@@ -509,10 +509,10 @@ async function updateUser(req, res, next) {
         });
       }
     }
-    // Module access only applies to admin accounts; sanitize to {key: 'view'|'edit'}.
+    // Module access applies to any account; sanitize to {key: 'view'|'edit'}.
     let sanitizedModules;
     if ('allowed_modules' in (req.body || {})) {
-      sanitizedModules = role === 'admin' && allowedModules && typeof allowedModules === 'object' && !Array.isArray(allowedModules)
+      sanitizedModules = allowedModules && typeof allowedModules === 'object' && !Array.isArray(allowedModules)
         ? Object.fromEntries(Object.entries(allowedModules).filter(([, v]) => v === 'view' || v === 'edit'))
         : null;
     }

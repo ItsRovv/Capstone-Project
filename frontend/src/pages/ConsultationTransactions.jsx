@@ -163,11 +163,6 @@ export function ConsultationTransactions() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Transactions"
-        subtitle={
-          canManage
-            ? "Summary of consultation and admission items and PhilHealth packages (for reference), grouped by patient."
-            : "Summary of items based on the doctor's prescription. Totals shown below."
-        }
         onMenuClick={onOpenMenu}
         right={
           canManage ? (
@@ -340,7 +335,7 @@ export function ConsultationTransactions() {
                                         <div className="w-6 h-6 rounded-full bg-ink-200 text-ink-600 inline-flex items-center justify-center">
                                           <Icon.Clipboard width={14} height={14} />
                                         </div>
-                                        <p className="text-xs font-bold text-ink-600 uppercase tracking-wider">Items used during stay</p>
+                                        <p className="text-xs font-bold text-ink-600 uppercase tracking-wider">Items used during admission</p>
                                       </div>
                                       <ul className="space-y-1.5">
                                         {notCharged.map((v) => (

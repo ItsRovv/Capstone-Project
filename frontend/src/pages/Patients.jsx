@@ -53,6 +53,7 @@ export function Patients() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [queueMap, setQueueMap] = useState(new Map());
+  const [queueToday, setQueueToday] = useState([]);
   const [addingQueue, setAddingQueue] = useState(null);
   const [queueTarget, setQueueTarget] = useState(null);
   const [admitMap, setAdmitMap] = useState(new Map());
@@ -73,6 +74,7 @@ export function Patients() {
       ]);
       setPatients(res.data || []);
       setTotal(res.total || 0);
+      setQueueToday(queueRes || []);
       const qMap = new Map((queueRes || []).map((qe) => [qe.patient_id, qe]));
       setQueueMap(qMap);
       setAdmitMap(new Map((admittedRes || []).map((a) => [a.patient_id, a])));
@@ -93,6 +95,10 @@ export function Patients() {
         next.set(patientId, { queue_number: result.queue_number, status: 'waiting', consultation_type: consultationType });
         return next;
       });
+      setQueueToday((prev) => [...prev, {
+        patient_id: patientId, queue_number: result.queue_number, status: 'waiting',
+        consultation_type: consultationType, first_name: queueTarget?.first_name, last_name: queueTarget?.last_name
+      }]);
       setQueueTarget(null);
     } catch (err) {
       toast.error(apiError(err, 'Could not add to queue'));
@@ -233,6 +239,74 @@ export function Patients() {
               </button>
             </div>
           )}
+          {!isConsultMode && queueToday.length > 0 && (
+            <Card padding="p-0" className="overflow-hidden">
+              <div className="px-4 sm:px-6 py-3 border-b border-ink-100 flex items-center justify-between">
+                <h2 className="text-base font-semibold text-ink-900">Queued patients today</h2>
+                <span className="text-xs text-ink-500">{queueToday.length} in today's queue</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-base">
+                  <thead className="bg-ink-50 text-ink-600 text-sm uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left px-3 sm:px-6 py-3 font-semibold">#</th>
+                      <th className="text-left px-3 sm:px-6 py-3 font-semibold">Name</th>
+                      <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Age</th>
+                      <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Sex</th>
+                      <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Status</th>
+                      <th className="text-left px-6 py-3 font-semibold hidden md:table-cell">Contact</th>
+                      <th className="text-left px-6 py-3 font-semibold hidden lg:table-cell">Type</th>
+                      <th className="text-right px-3 sm:px-6 py-3 font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-ink-100">
+                    {queueToday.map((q) => {
+                      const isDone = q.status === 'done' || q.status === 'skipped';
+                      const isServing = q.status === 'serving';
+                      return (
+                        <tr key={q.id || `${q.patient_id}-${q.queue_number}`} className="hover:bg-ink-50/60 transition-colors">
+                          <td className="px-3 sm:px-6 py-3">
+                            <span className={`w-9 h-9 rounded-full inline-flex items-center justify-center text-xs font-bold ${
+                              isDone ? 'bg-sky-100 text-sky-700' : isServing ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              {String(q.queue_number).padStart(2, '0')}
+                            </span>
+                          </td>
+                          <td className="px-3 sm:px-6 py-3">
+                            <Link to={`/patients/${q.patient_id}`} className="font-medium text-ink-900 hover:text-primary-700">
+                              {q.first_name} {q.last_name}
+                            </Link>
+                          </td>
+                          <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{q.age || ageFromDob(q.date_of_birth) || '—'}</td>
+                          <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{q.sex || '—'}</td>
+                          <td className="px-6 py-3.5 hidden sm:table-cell">
+                            <span className={`inline-block w-24 text-center text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${
+                              isDone ? 'bg-sky-50 text-sky-700' : isServing ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                            }`}>
+                              {isDone ? 'Completed' : isServing ? 'Serving' : 'Waiting'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3.5 text-ink-700 hidden md:table-cell">{q.contact_number || '—'}</td>
+                          <td className="px-6 py-3.5 hidden lg:table-cell">
+                            <span className="inline-block w-24 text-center text-xs font-medium px-2 py-1 rounded-md bg-ink-100 text-ink-700 capitalize whitespace-nowrap">
+                              {q.consultation_type || 'normal'}
+                            </span>
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 text-right">
+                            <Link to={`/patients/${q.patient_id}`}>
+                              <Button variant="ghost" size="sm" className="!text-base">View</Button>
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          <h2 className="text-base font-semibold text-ink-900">Patient Records</h2>
           <Card padding="p-0" className="overflow-hidden">
             {loading ? (
               <PageLoader label="Loading patients…" />
@@ -264,7 +338,6 @@ export function Patients() {
                     <th className="text-left px-3 sm:px-6 py-3 font-semibold">Name</th>
                     <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Age</th>
                     <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Sex</th>
-                    <th className="text-left px-6 py-3 font-semibold hidden sm:table-cell">Status</th>
                     <th className="text-left px-6 py-3 font-semibold hidden md:table-cell">
                       Contact
                     </th>
@@ -294,13 +367,12 @@ export function Patients() {
                             </p>
                           </div>
                         </Link>
-                        {(queueMap.has(p.id) || admitMap.has(p.id)) && <div className="mt-1.5 sm:hidden">{renderStatus(p)}</div>}
+                        {admitMap.has(p.id) && <div className="mt-1.5 sm:hidden"><StatusChip status={admitMap.get(p.id).status} className="!text-xs !px-2 !py-1 !rounded-md" /></div>}
                       </td>
                       <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">
                         {p.age || ageFromDob(p.date_of_birth) || '—'}
                       </td>
                       <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{p.sex || '—'}</td>
-                      <td className="px-6 py-3.5 hidden sm:table-cell">{renderStatus(p)}</td>
                       <td className="px-6 py-3.5 text-ink-700 hidden md:table-cell">
                         {p.contact_number || '—'}
                       </td>

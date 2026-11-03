@@ -316,7 +316,7 @@ export function DoctorConsultations() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Consultation"
-        subtitle="Manage today's queue and record consultations."
+       
         onMenuClick={onOpenMenu}
       />
 

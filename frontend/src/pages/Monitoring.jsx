@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { Topbar } from '../components/Topbar';
 import { Card } from '../components/UI/Card';
+import { Button } from '../components/UI/Button';
 import { Input, Select } from '../components/UI/Input';
+import { Modal } from '../components/UI/Modal';
 import { PageLoader } from '../components/UI/Spinner';
 import { useToast } from '../components/UI/Toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,15 +12,14 @@ import { admissionService } from '../services/admissionService';
 import api, { apiError } from '../services/api';
 
 const TABS = [
-  { key: 'expected-deliveries', label: 'Expected deliveries', help: 'Patients due soon or overdue. Replaces the clinic spreadsheet.', unit: 'days ahead', fallback: 30 },
-  { key: 'missed-followups', label: 'Missed follow-ups', help: 'Patients with an ongoing pregnancy who have not been seen for a while.', unit: 'days since last visit', fallback: 30 },
+  { key: 'expected-deliveries', label: 'Expected deliveries in JLMC', help: 'Patients due soon or overdue who plan to deliver at JLMC, from the tracking form and patient profiles.', unit: 'days ahead', fallback: 30 },
+  { key: 'missed-followups', label: 'Missed follow-ups', help: 'Postpartum follow-ups from Admission and Discharge that are past their due date and not marked done.', unit: 'days back', fallback: 30 },
   { key: 'charting-activity', label: 'Charting activity', help: 'Midwife notes across all admissions, with author and timestamp.', unit: '', fallback: null }
 ];
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const day = (d) => (d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 const dt = (d) => (d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
-const plans = (v) => (!v ? '—' : v === 'jlmc' ? 'Yes, at JLMC' : 'Elsewhere');
 
 function toIso(d) {
   const x = d ? new Date(d) : new Date();
@@ -65,6 +66,7 @@ export function Monitoring() {
   const [weekValue, setWeekValue] = useState(toIso());
   const [monthValue, setMonthValue] = useState(lastMonths()[0].value);
   const [rows, setRows] = useState(null);
+  const [viewing, setViewing] = useState(null);
 
   const range = useMemo(() => {
     if (mode === 'all') return {};
@@ -94,9 +96,9 @@ export function Monitoring() {
 
   return (
     <div className="h-full flex flex-col">
-      <Topbar title="Monitoring" subtitle="Who is due to deliver, who has stopped coming, and charting activity. Read-only." onMenuClick={onOpenMenu} />
+      <Topbar title="Monitoring" onMenuClick={onOpenMenu} />
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
-        <div className="max-w-5xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           <div className="flex gap-1 border-b border-ink-100">
             {visibleTabs.map((t) => (
               <button
@@ -154,6 +156,7 @@ export function Monitoring() {
                         <th className="text-left px-4 py-2.5">Patient</th>
                         <th className="text-left px-4 py-2.5">Author</th>
                         <th className="text-left px-4 py-2.5">Note</th>
+                        <th className="text-right px-4 py-2.5 w-16"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-ink-100">
@@ -166,6 +169,34 @@ export function Monitoring() {
                           </td>
                           <td className="px-4 py-2.5 whitespace-nowrap">{r.author_name || '—'}<p className="text-xs text-ink-500 capitalize">{r.author_role || '—'}</p></td>
                           <td className="px-4 py-2.5 text-ink-700 max-w-md whitespace-pre-wrap">{r.description || '—'}</td>
+                          <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                            <Button variant="secondary" size="sm" onClick={() => setViewing(r)}>
+                              View
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : tab.key === 'missed-followups' ? (
+                  <table className="w-full text-sm">
+                    <thead className="bg-ink-50 text-ink-600 text-xs uppercase tracking-wider">
+                      <tr>
+                        <th className="text-left px-4 py-2.5">Patient</th>
+                        <th className="text-left px-4 py-2.5">Contact</th>
+                        <th className="text-left px-4 py-2.5">Admission</th>
+                        <th className="text-left px-4 py-2.5">Follow-up due</th>
+                        <th className="text-left px-4 py-2.5">Overdue by</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ink-100">
+                      {rows.map((r) => (
+                        <tr key={r.followup_id}>
+                          <td className="px-4 py-2.5"><Link className="font-medium text-primary-700 hover:underline" to={`/patients/${r.patient_id}`}>{r.first_name} {r.last_name}</Link></td>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{r.contact_number || '—'}</td>
+                          <td className="px-4 py-2.5 whitespace-nowrap"><Link className="text-primary-700 hover:underline" to={`/admissions/${r.admission_id}`}>#{r.admission_id}</Link></td>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{dt(r.due_at)}</td>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{r.days_overdue > 0 ? <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">{r.days_overdue} day{r.days_overdue === 1 ? '' : 's'}</span> : 'Today'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -179,7 +210,6 @@ export function Monitoring() {
                         <th className="text-left px-4 py-2.5">EDD</th>
                         <th className="text-left px-4 py-2.5">Age of gestation</th>
                         <th className="text-left px-4 py-2.5">Last consultation</th>
-                        {tab.key === 'expected-deliveries' && <th className="text-left px-4 py-2.5">Delivering at JLMC</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-ink-100">
@@ -190,7 +220,6 @@ export function Monitoring() {
                           <td className="px-4 py-2.5 whitespace-nowrap">{day(r.edd)}{r.overdue && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">Overdue</span>}</td>
                           <td className="px-4 py-2.5">{r.weeks || '—'}</td>
                           <td className="px-4 py-2.5 whitespace-nowrap">{day(r.last_consultation)}</td>
-                          {tab.key === 'expected-deliveries' && <td className="px-4 py-2.5">{plans(r.delivery_location)}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -201,6 +230,40 @@ export function Monitoring() {
           )}
         </div>
       </div>
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title="Charting note" size="lg">
+        {viewing && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Patient</p>
+                <Link className="font-medium text-primary-700 hover:underline" to={`/patients/${viewing.patient_id}`}>
+                  {viewing.first_name} {viewing.last_name}
+                </Link>
+                <p className="text-xs text-ink-500">Admission #{viewing.admission_id}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Written by</p>
+                <p className="font-medium text-ink-900">{viewing.author_name || '—'}</p>
+                <p className="text-xs text-ink-500 capitalize">{viewing.author_role || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide">Date & time</p>
+                <p className="font-medium text-ink-900">{dt(viewing.noted_at)}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-1">Note</p>
+              <div className="rounded-lg border border-ink-200 bg-ink-50/50 px-4 py-3 text-sm text-ink-800 whitespace-pre-wrap">
+                {viewing.description || '—'}
+              </div>
+            </div>
+            {viewing.corrected_by && (
+              <p className="text-xs text-ink-500">Corrected by {viewing.corrected_by_name || viewing.corrected_by} {viewing.corrected_at ? `on ${dt(viewing.corrected_at)}` : ''}</p>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

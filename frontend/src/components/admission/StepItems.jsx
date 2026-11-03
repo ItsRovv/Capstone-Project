@@ -261,23 +261,32 @@ export function StepItems({
                 </Select>
               </div>
 
-              <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1">
-                {shown.length === 0 && <p className="text-sm text-ink-500">No items match.</p>}
-                {shown.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => toggleStage(o)}
-                    aria-pressed={stagedHas(o)}
-                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-50 min-h-[3rem] ${stagedHas(o) ? 'border-primary-400 bg-primary-50' : 'border-ink-200 bg-white hover:border-primary-300 hover:bg-primary-50/50'}`}
-                  >
-                    <span className="block font-medium text-ink-800">{o.label}</span>
-                    <span className={`block text-xs ${o.charged === false ? 'text-ink-500' : o.price === null ? 'text-amber-700' : 'text-ink-500'}`}>
-                      {o.charged === false ? 'Not charged' : o.price === null ? 'No price set' : `${peso(o.price)}${o.unit ? ` per ${o.unit}` : ''}`}
-                    </span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-96 overflow-y-auto pr-1">
+                {shown.length === 0 && <p className="text-sm text-ink-500 col-span-full">No items match.</p>}
+                {shown.map((o) => {
+                  const st = staged.find((s) => s.option.id === o.id);
+                  return (
+                    <div
+                      key={o.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={!!st}
+                      onClick={() => !busy && toggleStage(o)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); !busy && toggleStage(o); } }}
+                      className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors cursor-pointer min-h-[3.5rem] ${st ? 'border-primary-400 bg-primary-50' : 'border-ink-200 bg-white hover:border-primary-300 hover:bg-primary-50/50'} ${busy ? 'opacity-50' : ''}`}
+                    >
+                      <span className="block font-medium text-ink-800">{o.label}</span>
+                      <span className={`block text-xs ${o.charged === false ? 'text-ink-500' : o.price === null ? 'text-amber-700' : 'text-ink-500'}`}>
+                        {o.charged === false ? 'Not charged' : o.price === null ? 'No price set' : `${peso(o.price)}${o.unit ? ` per ${o.unit}` : ''}`}
+                      </span>
+                      {st && o.category !== 'service' && (
+                        <div className="mt-1.5" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                          <Stepper value={st.quantity} label={o.label} onChange={(q) => patchStage(o.id, { quantity: q })} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
@@ -288,7 +297,11 @@ export function StepItems({
               {staged.map((s) => (
                 <div key={s.option.id} className="flex flex-wrap items-center gap-3">
                   <span className="flex-1 min-w-[10rem] text-sm font-medium text-ink-900">{s.option.label}{s.option.unit ? <span className="text-ink-500 font-normal"> ({s.option.unit})</span> : null}</span>
-                  <Stepper value={s.quantity} label={s.option.label} onChange={(q) => patchStage(s.option.id, { quantity: q })} />
+                  {s.option.category === 'service' ? (
+                    <span className="text-xs text-ink-500">× 1</span>
+                  ) : (
+                    <Stepper value={s.quantity} label={s.option.label} onChange={(q) => patchStage(s.option.id, { quantity: q })} />
+                  )}
                   {partyOptions.length > 1 && (
                     <select
                       aria-label={`Used for, ${s.option.label}`}
@@ -381,8 +394,8 @@ export function StepItems({
                   )}
                   {canEdit && !isVoid && (
                     <div className="flex items-center">
-                      <button type="button" onClick={() => setCorrecting({ item: it, quantity: String(Number(it.quantity)) })} disabled={busy} aria-label={`Correct quantity of ${it.label}`} className="px-2 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50 rounded-lg">
-                        Correct
+                      <button type="button" onClick={() => setCorrecting({ item: it, quantity: String(Number(it.quantity)) })} disabled={busy} aria-label={`Edit quantity of ${it.label}`} className="px-2 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50 rounded-lg">
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -519,7 +532,7 @@ export function StepItems({
       <Modal
         open={Boolean(correcting)}
         onClose={() => setCorrecting(null)}
-        title={correcting ? `Correct quantity of "${correcting.item.label}"` : ''}
+        title={correcting ? `Edit quantity of "${correcting.item.label}"` : ''}
         footer={(
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setCorrecting(null)}>Cancel</Button>

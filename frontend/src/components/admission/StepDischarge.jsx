@@ -391,7 +391,7 @@ export function StepDischarge({ detail, byGroup, labelFor, canEdit, isAdmin, onC
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-base font-semibold text-ink-900">Needs a hospital?</h3>
+              <h3 className="text-base font-semibold text-ink-900">Refer the patient to another hospital?</h3>
               <p className="text-sm text-ink-500">Send the patient to another facility if it is not safe to deliver here.</p>
             </div>
             {!referForm.open && <Button variant="secondary" onClick={() => setReferForm((f) => ({ ...f, open: true }))}>Refer to a hospital</Button>}

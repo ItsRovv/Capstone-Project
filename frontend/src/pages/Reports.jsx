@@ -143,7 +143,6 @@ export function Reports() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Reports"
-        subtitle="Daily clinic reports with summaries."
         onMenuClick={onOpenMenu}
         right={
           <Button
@@ -158,7 +157,7 @@ export function Reports() {
       />
 
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
-        <div className="max-w-5xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader />
           ) : reports.length === 0 ? (

@@ -35,6 +35,7 @@ export const admissionService = {
   medications: (id) => api.get(`/admissions/${id}/medications`).then(data),
   addMedication: (id, payload) => api.post(`/admissions/${id}/medications`, payload).then(data),
   history: (id) => api.get(`/admissions/${id}/history`).then(data),
+  chartingActivity: (params) => api.get('/monitoring/charting-activity', { params }).then(data),
   staff: () => api.get('/admissions/staff').then(data),
   refer: (id, payload) => api.post(`/admissions/${id}/referral`, payload).then(data),
   reverseReferral: (id, reason) => api.post(`/admissions/${id}/referral/reverse`, { reason }).then(data),

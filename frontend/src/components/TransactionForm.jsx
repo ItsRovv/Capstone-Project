@@ -26,12 +26,17 @@ export function TransactionForm({
   );
   const [recommendations, setRecommendations] = useState(initial?.recommendations || '');
 
-  // Vitamins: selected predefined + custom entries
-  const [selectedVitaminIds, setSelectedVitaminIds] = useState(
-    () => new Set((initial?.vitamins || []).filter((v) => !v.custom).map((v) => v.id))
-  );
-  const [customVitamins, setCustomVitamins] = useState(
-    () => (initial?.vitamins || []).filter((v) => v.custom)
+  // Vitamins: selected predefined + custom entries (with quantity)
+  const initialVitamins = (initial?.vitamins || []);
+  const [vitaminLines, setVitaminLines] = useState(() => {
+    const map = new Map();
+    for (const v of initialVitamins) {
+      map.set(v.id, { ...v, quantity: Number(v.quantity || 1) });
+    }
+    return map;
+  });
+  const [customVitamins, setCustomVitamins] = useState(() =>
+    initialVitamins.filter((v) => v.custom).map((v) => ({ ...v, quantity: Number(v.quantity || 1) }))
   );
   // New custom vitamin draft
   const [customName, setCustomName] = useState('');
@@ -64,15 +69,15 @@ export function TransactionForm({
   );
 
   const selectedVitamins = useMemo(
-    () => vitamins.filter((v) => selectedVitaminIds.has(v.id)),
-    [vitamins, selectedVitaminIds]
+    () => vitamins.filter((v) => vitaminLines.has(v.id)).map((v) => ({ ...v, quantity: vitaminLines.get(v.id).quantity })),
+    [vitamins, vitaminLines]
   );
 
   // Total to pay = ONLY vitamins (PhilHealth is availed through PhilHealth, not the clinic)
   const total = useMemo(
     () =>
-      selectedVitamins.reduce((sum, v) => sum + Number(v.price), 0) +
-      customVitamins.reduce((sum, v) => sum + Number(v.price || 0), 0),
+      selectedVitamins.reduce((sum, v) => sum + Number(v.price) * v.quantity, 0) +
+      customVitamins.reduce((sum, v) => sum + Number(v.price || 0) * v.quantity, 0),
     [selectedVitamins, customVitamins]
   );
 
@@ -92,12 +97,26 @@ export function TransactionForm({
   }
 
   function toggleVitamin(id) {
-    setSelectedVitaminIds((prev) => {
-      const next = new Set(prev);
+    setVitaminLines((prev) => {
+      const next = new Map(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else next.set(id, { id, label: vitamins.find((v) => v.id === id)?.label, price: vitamins.find((v) => v.id === id)?.price, quantity: 1 });
       return next;
     });
+  }
+
+  function setVitaminQuantity(id, quantity) {
+    const q = Math.max(1, Math.floor(Number(quantity) || 1));
+    setVitaminLines((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.set(id, { ...next.get(id), quantity: q });
+      return next;
+    });
+  }
+
+  function setCustomQuantity(id, quantity) {
+    const q = Math.max(1, Math.floor(Number(quantity) || 1));
+    setCustomVitamins((prev) => prev.map((v) => (v.id === id ? { ...v, quantity: q } : v)));
   }
 
   function addCustomVitamin() {
@@ -106,7 +125,7 @@ export function TransactionForm({
     if (!name || isNaN(price) || price < 0) return;
     setCustomVitamins((prev) => [
       ...prev,
-      { id: `custom_${Date.now()}`, label: name, price, custom: true }
+      { id: `custom_${Date.now()}`, label: name, price, custom: true, quantity: 1 }
     ]);
     setCustomName('');
     setCustomPrice('');
@@ -125,8 +144,8 @@ export function TransactionForm({
   function handleSubmit(e) {
     e.preventDefault();
     const allVitamins = [
-      ...selectedVitamins.map(({ id, label, price }) => ({ id, label, price, custom: false })),
-      ...customVitamins.map(({ id, label, price }) => ({ id, label, price, custom: true }))
+      ...selectedVitamins.map((v) => ({ id: v.id, label: v.label, price: v.price, quantity: v.quantity, custom: false, ...(v.charged !== undefined && { charged: v.charged }), ...(v.no_price !== undefined && { no_price: v.no_price }) })),
+      ...customVitamins.map((v) => ({ id: v.id, label: v.label, price: v.price, quantity: v.quantity, custom: true, ...(v.charged !== undefined && { charged: v.charged }), ...(v.no_price !== undefined && { no_price: v.no_price }) }))
     ];
     onSubmit({
       patient_id: patientId,
@@ -204,25 +223,44 @@ export function TransactionForm({
           Vitamins &amp; Supplements <span className="text-xs font-normal text-ink-500">(paid at clinic)</span>
         </p>
         <div className="rounded-lg border border-ink-200 divide-y divide-ink-100 overflow-hidden">
-          {vitamins.map((v) => (
-            <label
-              key={v.id}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-ink-50/60 cursor-pointer"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <input
-                  type="checkbox"
-                  checked={selectedVitaminIds.has(v.id)}
-                  onChange={() => toggleVitamin(v.id)}
-                  className="w-4 h-4 rounded border-ink-300 text-primary-600 focus:ring-primary-400"
-                />
-                <p className="text-sm font-medium text-ink-900 truncate">{v.label}</p>
+          {vitamins.map((v) => {
+            const selected = vitaminLines.has(v.id);
+            const line = vitaminLines.get(v.id);
+            return (
+              <div
+                key={v.id}
+                className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-ink-50/60"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggleVitamin(v.id)}
+                    className="w-4 h-4 rounded border-ink-300 text-primary-600 focus:ring-primary-400"
+                  />
+                  <p className="text-sm font-medium text-ink-900 truncate">{v.label}</p>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {selected && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-ink-500">Qty</label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={line?.quantity || 1}
+                        onChange={(e) => setVitaminQuantity(v.id, e.target.value)}
+                        className="w-14 px-2 py-1 rounded-md border border-ink-200 text-sm text-center outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                      />
+                    </div>
+                  )}
+                  <span className="text-sm font-semibold text-ink-700 w-20 text-right">
+                    {formatCurrency(Number(v.price) * (line?.quantity || selected ? line?.quantity || 1 : 1))}
+                  </span>
+                </div>
               </div>
-              <span className="text-sm font-semibold text-ink-700 flex-shrink-0">
-                {formatCurrency(v.price)}
-              </span>
-            </label>
-          ))}
+            );
+          })}
         </div>
 
         {/* Custom vitamins (Others) */}
@@ -234,8 +272,19 @@ export function TransactionForm({
                   <span className="text-xs font-medium text-primary-700 bg-primary-100 px-1.5 py-0.5 rounded">Custom</span>
                   <p className="text-sm font-medium text-ink-900 truncate">{v.label}</p>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-semibold text-ink-700">{formatCurrency(v.price)}</span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs text-ink-500">Qty</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={v.quantity}
+                      onChange={(e) => setCustomQuantity(v.id, e.target.value)}
+                      className="w-14 px-2 py-1 rounded-md border border-ink-200 text-sm text-center outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400"
+                    />
+                  </div>
+                  <span className="text-sm font-semibold text-ink-700 w-20 text-right">{formatCurrency(Number(v.price) * v.quantity)}</span>
                   <button
                     type="button"
                     onClick={() => removeCustomVitamin(v.id)}

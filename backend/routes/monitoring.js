@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const auth = require('../middleware/auth');
+const requireRole = require('../middleware/role');
 const { requireStaff } = require('../middleware/role');
 const { decryptObject } = require('../utils/encryption');
 const { routeError } = require('../utils/routeError');
+const Admission = require('../models/Admission');
 
 router.use(auth, requireStaff);
 
@@ -50,6 +52,16 @@ router.get('/missed-followups', async (req, res) => {
       [window]
     );
     res.json({ days: window, rows: rows.map(readable) });
+  } catch (err) { routeError(res, err); }
+});
+
+// Administrator-only charting activity: shows every midwife note, who wrote it,
+// when, and which patient/admission it belongs to.
+router.get('/charting-activity', requireRole('admin'), async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const rows = await Admission.chartingActivity({ from, to });
+    res.json({ from, to, rows });
   } catch (err) { routeError(res, err); }
 });
 

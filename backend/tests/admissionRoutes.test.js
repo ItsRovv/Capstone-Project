@@ -422,8 +422,9 @@ describe('ward with 3 beds', () => {
     expect(res.status).toBe(201);
     const sent = ConsultationTransaction.create.mock.calls[0][0];
     expect(sent.vitamins[0]).toMatchObject({ id: 'bed_charge', custom: true });
-    expect(sent.vitamins[0].label).toMatch(/^Bed 2 × \d+ nights?$/);
-    expect(sent.total_amount).toBe(sent.vitamins[0].price);
+    expect(sent.vitamins[0].label).toMatch(/^Bed 2$/);
+    expect(sent.vitamins[0].quantity).toBeGreaterThanOrEqual(1);
+    expect(sent.total_amount).toBe(sent.vitamins[0].price * sent.vitamins[0].quantity);
   });
 
   test('settings: cannot reduce beds below one that is in use', async () => {

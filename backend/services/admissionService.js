@@ -137,22 +137,29 @@ function firstFreeBed(totalBeds, takenBeds) {
 }
 
 // Split items into clinic-charged lines and PhilHealth package reference for Transactions.
+// Every non-voided item is listed so the front desk sees what was used during the stay;
+// "not charged" and "no price" items show at 0 with their own flags.
 function buildTransactionPayload({ items, packages: packageList = [], bed }) {
-  // Voided lines and "not charged" items stay in usage records but not in the summary.
   const vitamins = items
-    .filter((it) => !isVoided(it) && it.charged !== false && (lineTotal(it) > 0 || it.label))
+    .filter((it) => !isVoided(it))
     .map((it) => ({
       id: it.option_id ? `item_${it.option_id}` : `custom_${it.id}`,
-      label: Number(it.quantity) === 1 ? it.label : `${it.label} x${Number(it.quantity)}`,
-      price: lineTotal(it),
+      label: it.label,
+      quantity: Number(it.quantity) || 1,
+      price: it.charged !== false ? Number(it.unit_price || 0) : 0,
+      charged: it.charged !== false,
+      no_price: Boolean(it.price_missing),
       custom: !it.option_id
     }));
   const packages = packageList.map((p) => ({ code: String(p.code).toUpperCase().slice(0, 30), label: p.label, amount: round2(p.amount || 0) }));
-  if (bed && bed.amount > 0) {
+  if (bed && bed.number && bed.nights > 0) {
     vitamins.unshift({
       id: 'bed_charge',
-      label: `Bed ${bed.number} × ${bed.nights} night${bed.nights === 1 ? '' : 's'}`,
-      price: bed.amount,
+      label: `Bed ${bed.number}`,
+      quantity: bed.nights,
+      price: bed.priceSet ? Number(bed.pricePerNight) : round2((bed.amount || 0) / bed.nights),
+      charged: true,
+      no_price: !bed.priceSet && !(bed.amount > 0),
       custom: true
     });
   }

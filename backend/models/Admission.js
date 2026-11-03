@@ -408,6 +408,37 @@ class Admission {
     return rows.map((r) => dec(r, NOTE_ENC));
   }
 
+  // Administrator-only charting activity: every midwife note across admissions,
+  // joined to patient and admission so Monitoring can show who wrote what and when.
+  static async chartingActivity({ from, to, limit = 200 } = {}) {
+    const values = [];
+    let where = '';
+    if (from && to) {
+      where = 'WHERE n.noted_at BETWEEN ? AND ?';
+      values.push(new Date(from), new Date(to));
+    } else if (from) {
+      where = 'WHERE n.noted_at >= ?';
+      values.push(new Date(from));
+    } else if (to) {
+      where = 'WHERE n.noted_at <= ?';
+      values.push(new Date(to));
+    }
+    const [rows] = await db.execute(
+      `SELECT n.id, n.admission_id, n.noted_at, n.created_at, n.description,
+              n.user_id, u.name AS author_name, u.role AS author_role,
+              p.id AS patient_id, p.first_name, p.last_name
+       FROM midwife_notes n
+       JOIN admissions a ON a.id = n.admission_id
+       JOIN patients p ON p.id = a.patient_id
+       LEFT JOIN users u ON u.id = n.user_id
+       ${where}
+       ORDER BY n.noted_at DESC
+       LIMIT ${Math.min(Math.max(Number(limit), 1), 500)}`,
+      values
+    );
+    return rows.map((r) => dec(r, NOTE_ENC));
+  }
+
   static async addNote(admissionId, description, userId) {
     const d = enc({ description }, NOTE_ENC);
     const [result] = await db.execute(
@@ -586,16 +617,24 @@ class Admission {
   static async logbook({ month } = {}) {
     const values = [];
     let where = '';
+    const ym = (col) => `to_char(${col} AT TIME ZONE 'Asia/Manila', 'YYYY-MM')`;
+    let flags = 'TRUE AS in_admitted, TRUE AS in_delivered, TRUE AS in_discharged, TRUE AS in_referred';
     if (month) {
-      where = "WHERE to_char(a.admitted_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM') = ?";
-      values.push(month);
+      flags = `${ym('a.admitted_at')} = ? AS in_admitted,
+              COALESCE(${ym('d.delivered_at')} = ?, FALSE) AS in_delivered,
+              COALESCE(${ym('dc.discharged_at')} = ?, FALSE) AS in_discharged,
+              COALESCE(${ym('r.referred_at')} = ?, FALSE) AS in_referred`;
+      where = `WHERE ${ym('a.admitted_at')} = ? OR ${ym('d.delivered_at')} = ?
+                  OR ${ym('dc.discharged_at')} = ? OR ${ym('r.referred_at')} = ?`;
+      values.push(month, month, month, month, month, month, month, month);
     }
     const [rows] = await db.execute(
       `SELECT a.id, a.status, a.admitted_at, a.bed_number, p.first_name, p.last_name, p.age,
               d.delivered_at, d.delivery_type,
               (SELECT COUNT(*) FROM newborns n WHERE n.delivery_id = d.id) AS babies,
               dc.discharged_at, dc.disposition,
-              r.facility AS referred_to
+              r.facility AS referred_to, r.referred_at,
+              ${flags}
        FROM admissions a
        JOIN patients p ON p.id = a.patient_id
        LEFT JOIN deliveries d ON d.admission_id = a.id

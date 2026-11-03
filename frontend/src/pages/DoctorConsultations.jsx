@@ -209,7 +209,7 @@ export function DoctorConsultations() {
             patient_id: currentServing.patient_id,
             consultation_id: consultationId,
             packages: [],
-            vitamins: matchedVitamins.map(({ id, label, price, custom }) => ({ id, label, price, custom: !!custom })),
+            vitamins: matchedVitamins.map(({ id, label, price, quantity, custom }) => ({ id, label, price, quantity: Number(quantity || 1), custom: !!custom })),
             recommendations: null,
             total_amount: total,
             philhealth_total: 0

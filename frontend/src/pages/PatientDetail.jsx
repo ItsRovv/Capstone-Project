@@ -258,22 +258,26 @@ export function PatientDetail() {
         </Card>
 
         <div className="flex gap-2 border-b border-ink-100">
-          {['overview', ...(isStaff ? [] : ['consultations']), ...(showAdmissions ? ['admissions'] : [])].map((t) => (
+          {[
+            { key: 'overview', label: 'Overview' },
+            ...(isStaff ? [] : [{ key: 'consultations', label: 'Recent consultations' }]),
+            ...(showAdmissions ? [{ key: 'admissions', label: 'Recent admissions' }] : [])
+          ].map((t) => (
             <button
-              key={t}
+              key={t.key}
               onClick={() => {
-                setTab(t);
+                setTab(t.key);
                 if (searchParams.has('tab')) {
                   setSearchParams({}, { replace: true });
                 }
               }}
-              className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 ${
-                tab === t
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+                tab === t.key
                   ? 'border-primary-500 text-primary-700'
                   : 'border-transparent text-ink-500 hover:text-ink-800'
               }`}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
@@ -318,10 +322,8 @@ export function PatientDetail() {
 
         {tab === 'admissions' && showAdmissions && (
           <Card padding="p-0" className="overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-ink-100">
-              <p className="font-semibold text-ink-900">
-                {admissions.length} stay{admissions.length === 1 ? '' : 's'} at the clinic
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-ink-100">
+              <p className="font-semibold text-ink-900">Recent admissions</p>
               {canAdmit && !activeAdmission && (
                 <Button onClick={() => setAdmitOpen(true)}>
                   <Icon.Plus width={16} height={16} /> Admit patient
@@ -334,12 +336,16 @@ export function PatientDetail() {
               <ul className="divide-y divide-ink-100">
                 {admissions.map((a) => (
                   <li key={a.id}>
-                    <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 hover:bg-ink-50/60">
+                    <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-ink-50/60">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink-900">{formatDateTime(a.admitted_at)}</p>
-                        <p className="text-xs text-ink-500 line-clamp-1">{a.chief_complaint || (isActiveStatus(a.status) ? `admitted ${timeAgo(a.admitted_at)}` : 'No reason recorded')}</p>
+                        <p className="font-medium text-ink-900 truncate">
+                          {a.chief_complaint || `Admission ${a.id}`}
+                        </p>
+                        <p className="text-xs text-ink-500 mt-0.5">{formatDateTime(a.admitted_at)}</p>
                       </div>
-                      <StatusChip status={a.status} />
+                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
+                        View details &rarr;
+                      </span>
                     </Link>
                   </li>
                 ))}
@@ -351,9 +357,7 @@ export function PatientDetail() {
         {tab === 'consultations' && !isStaff && (
           <Card padding="p-0" className="overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
-              <p className="font-semibold text-ink-900">
-                {consultations.length} consultation{consultations.length === 1 ? '' : 's'}
-              </p>
+              <p className="font-semibold text-ink-900">Recent consultations</p>
               <Button onClick={() => setNewConsultOpen(true)}>
                 <Icon.Plus width={16} height={16} /> New consultation
               </Button>
@@ -368,43 +372,14 @@ export function PatientDetail() {
                     className="px-6 py-4 hover:bg-ink-50/60 transition-colors cursor-pointer"
                     onClick={() => setViewConsult(c)}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-ink-900">
-                            {c.chief_complaint || 'Consultation'}
-                          </p>
-                          <SoapBadge consultation={c} />
-                          {c.consultation_type && c.consultation_type !== 'normal' && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-primary-700 bg-primary-50 border border-primary-200 px-1.5 py-0.5 rounded">
-                              {c.consultation_type}
-                            </span>
-                          )}
-                        </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink-900 truncate">
+                          {c.chief_complaint || 'Consultation'}
+                        </p>
                         <p className="text-xs text-ink-500 mt-0.5">
                           {formatDateTime(c.visit_date)}
                         </p>
-                        {(c.subjective || c.objective || c.assessment || c.plan) && (
-                          <div className="mt-2 space-y-1 text-sm">
-                            {c.subjective && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">S:</span> {c.subjective}</p>
-                            )}
-                            {c.objective && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">O:</span> {c.objective}</p>
-                            )}
-                            {c.assessment && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">A:</span> {c.assessment}</p>
-                            )}
-                            {c.plan && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">P:</span> {c.plan}</p>
-                            )}
-                          </div>
-                        )}
-                        {c.diagnosis && (
-                          <p className="text-sm text-ink-600 mt-1 line-clamp-2">
-                            Diagnosis: {c.diagnosis}
-                          </p>
-                        )}
                       </div>
                       <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
                         View details →

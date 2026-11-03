@@ -41,8 +41,8 @@ describe('items used totals', () => {
     expect(payload.total_amount).toBe(1035);
     expect(payload.philhealth_total).toBe(8000);
     expect(payload.vitamins).toEqual([
-      { id: 'item_7', label: 'Room x2', price: 1000, custom: false },
-      { id: 'custom_2', label: 'Gauze', price: 35, custom: true }
+      { id: 'item_7', label: 'Room', price: 500, quantity: 2, charged: true, no_price: false, custom: false },
+      { id: 'custom_2', label: 'Gauze', price: 35, quantity: 1, charged: true, no_price: false, custom: true }
     ]);
     expect(payload.packages).toEqual([{ code: 'MCP', label: 'PhilHealth Maternity Care Package', amount: 8000 }]);
   });
@@ -162,10 +162,15 @@ describe('ward beds and nightly charge', () => {
       items: [{ id: 2, option_id: 5, label: 'IV fluids', unit_price: 120, quantity: 2 }],
       bed: { number: 2, nights: 2, amount: 1000 }
     });
-    expect(payload.vitamins[0]).toEqual({ id: 'bed_charge', label: 'Bed 2 × 2 nights', price: 1000, custom: true });
+    expect(payload.vitamins[0]).toEqual({ id: 'bed_charge', label: 'Bed 2', price: 500, quantity: 2, charged: true, no_price: false, custom: true });
     expect(payload.total_amount).toBe(1240);
     const one = svc.buildTransactionPayload({ items: [], bed: { number: 1, nights: 1, amount: 500 } });
-    expect(one.vitamins[0].label).toBe('Bed 1 × 1 night');
+    expect(one.vitamins[0].label).toBe('Bed 1');
+    expect(one.vitamins[0].quantity).toBe(1);
+    expect(one.vitamins[0].price).toBe(500);
+    const unpriced = svc.buildTransactionPayload({ items: [], bed: { number: 3, nights: 1, priceSet: false, amount: 0 } });
+    expect(unpriced.vitamins[0].no_price).toBe(true);
+    expect(unpriced.vitamins[0].price).toBe(0);
   });
 
   test('ward settings are validated', () => {
@@ -281,14 +286,18 @@ describe('vital signs early warning', () => {
 });
 
 describe('item usage rules', () => {
-  test('voided and not-charged lines add nothing to totals or to the transaction', () => {
+  test('voided and not-charged lines add nothing to the bill but stay visible', () => {
     const items = [
       { id: 1, label: 'Oxytocin', unit_price: 100, quantity: 2, charged: true },
       { id: 2, label: 'Diaper', unit_price: 5, quantity: 6, charged: false },
       { id: 3, label: 'Mistake', unit_price: 50, quantity: 1, charged: true, voided_at: new Date() }
     ];
     expect(svc.itemsTotal(items)).toBe(200);
-    expect(svc.buildTransactionPayload({ items }).vitamins.map((v) => v.label)).toEqual(['Oxytocin x2']);
+    const vitamins = svc.buildTransactionPayload({ items }).vitamins;
+    // Not-charged lines are listed for usage transparency at ₱0; voided lines are dropped.
+    expect(vitamins.map((v) => v.label)).toEqual(['Oxytocin', 'Diaper']);
+    expect(vitamins.find((v) => v.label === 'Diaper')).toMatchObject({ charged: false, price: 0, quantity: 6 });
+    expect(svc.buildTransactionPayload({ items }).total_amount).toBe(200);
   });
 
   test('incomplete total while a charged item or the bed has no price', () => {

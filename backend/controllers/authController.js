@@ -92,6 +92,9 @@ function publicUser(user) {
     email: user.email,
     role: user.role,
     email_verified: Boolean(user.email_verified),
+    can_sign_clinical: Boolean(user.can_sign_clinical),
+    last_seen_at: user.last_seen_at || null,
+    allowed_modules: user.allowed_modules ?? null,
     created_at: user.created_at || null
   };
 }
@@ -479,7 +482,7 @@ async function listUsers(req, res, next) {
 async function updateUser(req, res, next) {
   try {
     const targetId = parseInt(req.params.id, 10);
-    const { name, email, role, password, username, can_sign_clinical: canSign } = req.body || {};
+    const { name, email, role, password, username, can_sign_clinical: canSign, allowed_modules: allowedModules } = req.body || {};
     if (!name || !email || !role) {
       return res.status(400).json({ message: 'Name, email, and role are required' });
     }
@@ -506,8 +509,30 @@ async function updateUser(req, res, next) {
         });
       }
     }
-    const updated = await User.update(targetId, { name, email, role, username: username || null, ...(typeof canSign === 'boolean' ? { can_sign_clinical: canSign } : {}), ...(password ? { password } : {}) });
+    // Module access applies to any account; sanitize to {key: 'view'|'edit'}.
+    // A role change resets it to unrestricted (old restrictions would carry
+    // over wrongly — e.g. a promoted staff staying locked out of Manage Users).
+    // Manage Users is always editable for administrator accounts.
+    const targetUser = await User.findById(targetId);
+    const roleChanged = targetUser && targetUser.role !== role;
+    let sanitizedModules;
+    if ('allowed_modules' in (req.body || {})) {
+      sanitizedModules = allowedModules && typeof allowedModules === 'object' && !Array.isArray(allowedModules)
+        ? Object.fromEntries(Object.entries(allowedModules).filter(([, v]) => v === 'view' || v === 'edit'))
+        : null;
+      if (role === 'admin' && sanitizedModules) {
+        sanitizedModules['manage-users'] = 'edit';
+        sanitizedModules['clinic-settings'] = sanitizedModules['clinic-settings'] || 'edit';
+      } else if (sanitizedModules) {
+        delete sanitizedModules['manage-users'];
+        delete sanitizedModules['clinic-settings'];
+      }
+    } else if (roleChanged) {
+      sanitizedModules = null;
+    }
+    const updated = await User.update(targetId, { name, email, role, username: username || null, ...(typeof canSign === 'boolean' ? { can_sign_clinical: canSign } : {}), ...(password ? { password } : {}), ...(sanitizedModules !== undefined ? { allowed_modules: sanitizedModules } : {}) });
     if (!updated) return res.status(404).json({ message: 'User not found' });
+    require('../middleware/moduleAccess').clearCache(targetId);
     const user = await User.findById(targetId);
     return res.json({ message: 'User updated successfully', user: publicUser(user) });
   } catch (err) {

@@ -295,8 +295,15 @@ export function ConsultationTransactions() {
                                 </div>
 
                                 {/* Items to pay & PhilHealth reference */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3">
-                                  {t.vitamins && t.vitamins.length > 0 && (
+                                {(() => {
+                                  const vitamins = t.vitamins || [];
+                                  const charged = vitamins.filter((v) => v.charged !== false);
+                                  const notCharged = vitamins.filter((v) => v.charged === false);
+                                  const hasUnpriced = charged.some((v) => v.no_price);
+                                  const cols = (charged.length || notCharged.length) && t.packages?.length ? 'md:grid-cols-2' : '';
+                                  return (
+                                <div className={`grid grid-cols-1 ${cols} gap-3 sm:gap-4 mb-3`}>
+                                  {charged.length > 0 && (
                                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-3">
                                       <div className="flex items-center gap-2 mb-2">
                                         <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 inline-flex items-center justify-center">
@@ -305,17 +312,47 @@ export function ConsultationTransactions() {
                                         <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Items to Pay</p>
                                       </div>
                                       <ul className="space-y-1.5">
-                                        {t.vitamins.map((v) => (
-                                          <li key={v.id} className="flex items-center justify-between text-sm">
-                                            <span className="text-ink-700 truncate pr-2" title={v.label}>{v.label}</span>
-                                            <span className="font-medium text-emerald-700 whitespace-nowrap">{formatCurrency(v.price)}</span>
-                                          </li>
-                                        ))}
+                                        {charged.map((v) => {
+                                          const qty = Number(v.quantity || 1);
+                                          const lineTotal = Number(v.price || 0) * qty;
+                                          return (
+                                            <li key={v.id} className="flex items-center justify-between text-sm">
+                                              <span className="text-ink-700 truncate pr-2" title={v.label}>
+                                                {v.label} <span className="text-xs text-ink-500">× {qty}</span>
+                                                {v.no_price && <span className="ml-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded">price not set</span>}
+                                              </span>
+                                              <span className="font-medium text-emerald-700 whitespace-nowrap">{v.no_price ? '—' : formatCurrency(lineTotal)}</span>
+                                            </li>
+                                          );
+                                        })}
                                       </ul>
                                       <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center justify-between">
                                         <span className="text-xs font-bold text-emerald-800">Total (for reference)</span>
                                         <span className="text-sm font-bold text-emerald-700">{formatCurrency(t.total_amount)}</span>
                                       </div>
+                                      {hasUnpriced && <p className="text-[11px] text-amber-700 mt-1 italic">Some items have no price yet — the total may change.</p>}
+                                    </div>
+                                  )}
+
+                                  {notCharged.length > 0 && (
+                                    <div className="rounded-lg border border-ink-200 bg-ink-50/50 p-3">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-6 h-6 rounded-full bg-ink-200 text-ink-600 inline-flex items-center justify-center">
+                                          <Icon.Clipboard width={14} height={14} />
+                                        </div>
+                                        <p className="text-xs font-bold text-ink-600 uppercase tracking-wider">Items used during stay</p>
+                                      </div>
+                                      <ul className="space-y-1.5">
+                                        {notCharged.map((v) => (
+                                          <li key={v.id} className="flex items-center justify-between text-sm">
+                                            <span className="text-ink-700 truncate pr-2" title={v.label}>
+                                              {v.label} <span className="text-xs text-ink-500">× {Number(v.quantity || 1)}</span>
+                                            </span>
+                                            <span className="text-xs text-ink-400 whitespace-nowrap">not charged</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <p className="text-[11px] text-ink-400 mt-1.5 italic">Recorded for usage — not billed.</p>
                                     </div>
                                   )}
 
@@ -345,6 +382,8 @@ export function ConsultationTransactions() {
                                     </div>
                                   )}
                                 </div>
+                                  );
+                                })()}
 
                                 {/* Recommendations */}
                                 {t.recommendations && (
@@ -363,6 +402,7 @@ export function ConsultationTransactions() {
                       {g.transactions.length > 1 && (
                         <button
                           type="button"
+                          data-readonly-ok
                           onClick={() => {
                             setExpandedPatients((prev) => {
                               const next = new Set(prev);

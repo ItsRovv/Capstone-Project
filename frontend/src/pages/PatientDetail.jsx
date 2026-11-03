@@ -229,13 +229,13 @@ export function PatientDetail() {
           <div className="flex gap-2">
             {canAdmit && showAdmissions && !activeAdmission && (
               <Button variant="secondary" onClick={() => setAdmitOpen(true)}>
-                <Icon.Heart width={16} height={16} /> <span className="hidden sm:inline">Admit</span>
+                Admit
               </Button>
             )}
             {activeAdmission && (
-              <Link to={`/admissions/${activeAdmission.id}`}>
-                <Button variant="secondary"><Icon.Heart width={16} height={16} /> <span className="hidden sm:inline">Open admission</span></Button>
-              </Link>
+              <Button variant="secondary" onClick={() => toast.info('Patient is admitted')}>
+                Admitted
+              </Button>
             )}
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               <Icon.Edit width={16} height={16} /> Edit
@@ -258,22 +258,26 @@ export function PatientDetail() {
         </Card>
 
         <div className="flex gap-2 border-b border-ink-100">
-          {['overview', ...(isStaff ? [] : ['consultations']), ...(showAdmissions ? ['admissions'] : [])].map((t) => (
+          {[
+            { key: 'overview', label: 'Overview' },
+            ...(isStaff ? [] : [{ key: 'consultations', label: 'Recent consultations' }]),
+            ...(showAdmissions ? [{ key: 'admissions', label: 'Recent admissions' }] : [])
+          ].map((t) => (
             <button
-              key={t}
+              key={t.key}
               onClick={() => {
-                setTab(t);
+                setTab(t.key);
                 if (searchParams.has('tab')) {
                   setSearchParams({}, { replace: true });
                 }
               }}
-              className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 ${
-                tab === t
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+                tab === t.key
                   ? 'border-primary-500 text-primary-700'
                   : 'border-transparent text-ink-500 hover:text-ink-800'
               }`}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
@@ -318,10 +322,8 @@ export function PatientDetail() {
 
         {tab === 'admissions' && showAdmissions && (
           <Card padding="p-0" className="overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-ink-100">
-              <p className="font-semibold text-ink-900">
-                {admissions.length} stay{admissions.length === 1 ? '' : 's'} at the clinic
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-ink-100">
+              <p className="font-semibold text-ink-900">Recent admissions</p>
               {canAdmit && !activeAdmission && (
                 <Button onClick={() => setAdmitOpen(true)}>
                   <Icon.Plus width={16} height={16} /> Admit patient
@@ -334,12 +336,16 @@ export function PatientDetail() {
               <ul className="divide-y divide-ink-100">
                 {admissions.map((a) => (
                   <li key={a.id}>
-                    <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 hover:bg-ink-50/60">
+                    <Link to={`/admissions/${a.id}`} className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-ink-50/60">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink-900">{formatDateTime(a.admitted_at)}</p>
-                        <p className="text-xs text-ink-500 line-clamp-1">{a.chief_complaint || (isActiveStatus(a.status) ? `admitted ${timeAgo(a.admitted_at)}` : 'No reason recorded')}</p>
+                        <p className="font-medium text-ink-900 truncate">
+                          {a.chief_complaint || `Admission ${a.id}`}
+                        </p>
+                        <p className="text-xs text-ink-500 mt-0.5">{formatDateTime(a.admitted_at)}</p>
                       </div>
-                      <StatusChip status={a.status} />
+                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
+                        View details &rarr;
+                      </span>
                     </Link>
                   </li>
                 ))}
@@ -351,9 +357,7 @@ export function PatientDetail() {
         {tab === 'consultations' && !isStaff && (
           <Card padding="p-0" className="overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-ink-100">
-              <p className="font-semibold text-ink-900">
-                {consultations.length} consultation{consultations.length === 1 ? '' : 's'}
-              </p>
+              <p className="font-semibold text-ink-900">Recent consultations</p>
               <Button onClick={() => setNewConsultOpen(true)}>
                 <Icon.Plus width={16} height={16} /> New consultation
               </Button>
@@ -368,43 +372,14 @@ export function PatientDetail() {
                     className="px-6 py-4 hover:bg-ink-50/60 transition-colors cursor-pointer"
                     onClick={() => setViewConsult(c)}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-ink-900">
-                            {c.chief_complaint || 'Consultation'}
-                          </p>
-                          <SoapBadge consultation={c} />
-                          {c.consultation_type && c.consultation_type !== 'normal' && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">
-                              {c.consultation_type}
-                            </span>
-                          )}
-                        </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink-900 truncate">
+                          {c.chief_complaint || 'Consultation'}
+                        </p>
                         <p className="text-xs text-ink-500 mt-0.5">
                           {formatDateTime(c.visit_date)}
                         </p>
-                        {(c.subjective || c.objective || c.assessment || c.plan) && (
-                          <div className="mt-2 space-y-1 text-sm">
-                            {c.subjective && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">S:</span> {c.subjective}</p>
-                            )}
-                            {c.objective && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">O:</span> {c.objective}</p>
-                            )}
-                            {c.assessment && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">A:</span> {c.assessment}</p>
-                            )}
-                            {c.plan && (
-                              <p className="text-ink-600 line-clamp-2"><span className="font-semibold text-ink-700">P:</span> {c.plan}</p>
-                            )}
-                          </div>
-                        )}
-                        {c.diagnosis && (
-                          <p className="text-sm text-ink-600 mt-1 line-clamp-2">
-                            Diagnosis: {c.diagnosis}
-                          </p>
-                        )}
                       </div>
                       <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
                         View details →
@@ -431,7 +406,7 @@ export function PatientDetail() {
         open={newConsultOpen}
         onClose={() => setNewConsultOpen(false)}
         title="New consultation"
-        size="lg"
+        size="2xl"
       >
         <ConsultationForm
           patientId={Number(id)}
@@ -451,7 +426,7 @@ export function PatientDetail() {
         open={newPregnancyOpen}
         onClose={() => setNewPregnancyOpen(false)}
         title="New pregnancy record"
-        size="md"
+        size="2xl"
       >
         <PregnancyForm
           onSubmit={handleNewPregnancy}
@@ -467,7 +442,7 @@ export function PatientDetail() {
           setEditingPregnancy(null);
         }}
         title="Edit pregnancy record"
-        size="md"
+        size="2xl"
       >
         <PregnancyForm
           initialData={editingPregnancy}
@@ -490,6 +465,11 @@ export function PatientDetail() {
 }
 
 function SoapBadge({ consultation }) {
+  const type = consultation.consultation_type;
+  // Prenatal and postnatal consultations have their own structured forms,
+  // so the SOAP completeness badge doesn't apply to them.
+  if (type === 'prenatal' || type === 'postnatal') return null;
+
   const hasSOAP = consultation.subjective || consultation.objective || consultation.assessment || consultation.plan;
   const allFilled = consultation.subjective && consultation.objective && consultation.assessment && consultation.plan;
   const hasLegacy = consultation.structured_notes || consultation.chief_complaint;
@@ -595,7 +575,7 @@ function PregnancyCard({ patient, pregnancies, isStaff, onAddNew, onEdit, onDele
                   </div>
                   {(pr.baseline_weight_kg || pr.baseline_height_cm || pr.aog || pr.ob_index || pr.blood_type || pr.pregnancy_number) && (
                     <div className="pt-2 border-t border-ink-100 mt-2">
-                      <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">First Prenatal Visit — Baseline Data</p>
+                      <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Baseline Data</p>
                       <div className={baselineGrid}>
                         <Field label="Weight" value={pr.baseline_weight_kg ? `${pr.baseline_weight_kg} kg` : null} />
                         <Field label="Height" value={pr.baseline_height_cm ? `${pr.baseline_height_cm} cm` : null} />
@@ -605,6 +585,44 @@ function PregnancyCard({ patient, pregnancies, isStaff, onAddNew, onEdit, onDele
                         <Field label="Blood Type" value={pr.blood_type} />
                         <Field label="Pregnancy #" value={pr.pregnancy_number} />
                         <Field label="First Visit" value={formatDate(pr.first_visit_date)} />
+                      </div>
+                    </div>
+                  )}
+                  {Array.isArray(pr.pregnancy_history) && pr.pregnancy_history.length > 0 && (
+                    <div className="pt-2 border-t border-ink-100 mt-2">
+                      <p className="text-xs font-medium text-ink-400 uppercase tracking-wider mb-1">Earlier pregnancies</p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="text-ink-500">
+                            <tr>
+                              <th className="text-left py-1 pr-3 font-medium">#</th>
+                              <th className="text-left py-1 pr-3 font-medium">Delivered</th>
+                              <th className="text-left py-1 pr-3 font-medium">Type</th>
+                              <th className="text-left py-1 pr-3 font-medium">Outcome</th>
+                              <th className="text-left py-1 pr-3 font-medium">Children</th>
+                              <th className="text-left py-1 pr-3 font-medium">Baby</th>
+                              <th className="text-left py-1 pr-3 font-medium">Place of birth</th>
+                              <th className="text-left py-1 font-medium">Complications</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-ink-800">
+                            {pr.pregnancy_history.map((h, i) => {
+                              const flags = [h.pregnancy_hypertension === 'Y' && 'PIH', h.preeclampsia && h.preeclampsia !== 'N' && h.preeclampsia, h.bleeding === 'Y' && 'Bleeding'].filter(Boolean);
+                              return (
+                                <tr key={i} className="border-t border-ink-100">
+                                  <td className="py-1 pr-3">{h.pregnancy_no || i + 1}</td>
+                                  <td className="py-1 pr-3 whitespace-nowrap">{h.delivery_date ? formatDate(h.delivery_date) : '-'}</td>
+                                  <td className="py-1 pr-3">{h.delivery_type === 'CS' ? 'Caesarean' : h.delivery_type === 'N' ? 'Normal' : '-'}</td>
+                                  <td className="py-1 pr-3">{{ A: 'Alive', M: 'Miscarriage', S: 'Stillbirth' }[h.birth_outcome] || '-'}</td>
+                                  <td className="py-1 pr-3">{{ S: 'Single', T: 'Twins', M: 'Multiple' }[h.children_count] || '-'}</td>
+                                  <td className="py-1 pr-3">{h.baby_name || '-'}</td>
+                                  <td className="py-1 pr-3">{h.place_of_birth || '-'}</td>
+                                  <td className="py-1">{flags.length ? flags.join(', ') : 'None'}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   )}
@@ -756,7 +774,7 @@ function ConsultationDetailModal({ consultation, onClose }) {
           <p className="text-sm text-ink-500">{formatDateTime(c.visit_date)}</p>
           <div className="flex items-center gap-1.5">
             {c.consultation_type && c.consultation_type !== 'normal' && (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-primary-700 bg-primary-50 border border-primary-200 px-1.5 py-0.5 rounded">
                 {c.consultation_type}
               </span>
             )}
@@ -893,8 +911,8 @@ function postnatalServicesText(services) {
 function PostnatalDataView({ data }) {
   const services = postnatalServicesText(data.services);
   return (
-    <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
-      <p className="text-xs font-bold text-violet-700 uppercase tracking-wide">
+    <div className="rounded-lg border border-primary-200 bg-primary-50/40 p-3 space-y-3">
+      <p className="text-xs font-bold text-primary-700 uppercase tracking-wide">
         Postpartum Care Record — Visit #{data.visit_no || '—'}
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -918,8 +936,8 @@ const FETAL_POSITIONS = { C: 'Cephalic', B: 'Breech', O: 'Oblique', T: 'Transver
 function PrenatalDataView({ data }) {
   const yn = (v) => (v === 'Y' ? 'Yes' : v === 'N' ? 'No' : '');
   return (
-    <div className="rounded-lg border border-pink-200 bg-pink-50/40 p-3 space-y-3">
-      <p className="text-xs font-bold text-pink-700 uppercase tracking-wide">Prenatal Check-up</p>
+    <div className="rounded-lg border border-primary-200 bg-primary-50/40 p-3 space-y-3">
+      <p className="text-xs font-bold text-primary-700 uppercase tracking-wide">Prenatal Check-up</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <PnField label="Visit Date" value={formatDate(data.visit_date)} />
         <PnField label="AOG by LMP" value={data.aog_lmp} />
@@ -1025,6 +1043,57 @@ function PersonalInfoCard({ patient }) {
   );
 }
 
+const HISTORY_FIELDS = [
+  { key: 'delivery_date', label: 'Date of delivery', type: 'date' },
+  { key: 'delivery_type', label: 'Type of delivery', options: [['N', 'Normal (N)'], ['CS', 'Caesarean (CS)']] },
+  { key: 'birth_outcome', label: 'Birth outcome', options: [['A', 'Alive (A)'], ['M', 'Miscarriage (M)'], ['S', 'Stillbirth (S)']] },
+  { key: 'children_count', label: 'No. of children delivered', options: [['S', 'Single (S)'], ['T', 'Twins (T)'], ['M', 'Multiple']] },
+  { key: 'baby_name', label: "Baby's name", type: 'text' },
+  { key: 'place_of_birth', label: 'Place of birth (hospital)', type: 'text' },
+  { key: 'pregnancy_hypertension', label: 'Pregnancy-induced hypertension', options: [['Y', 'Y'], ['N', 'N']] },
+  { key: 'preeclampsia', label: 'Preeclampsia / Eclampsia', options: [['PE', 'PE'], ['E', 'E'], ['N', 'N']] },
+  { key: 'bleeding', label: 'Bleeding during/after pregnancy', options: [['Y', 'Y'], ['N', 'N']] }
+];
+const blankHistoryRow = Object.fromEntries(HISTORY_FIELDS.map((f) => [f.key, '']));
+const historyCellClass = 'w-full min-w-[7rem] px-2 py-1.5 rounded-md border border-ink-200 text-xs bg-white outline-none focus:border-primary-400';
+
+// Earlier pregnancies, laid out like the paper "Maternal & Pregnancy History" sheet:
+// one column per pregnancy number, one row per question.
+function HistoryTable({ rows, onChange }) {
+  const set = (i, key) => (e) => onChange(rows.map((r, idx) => (idx === i ? { ...r, [key]: e.target.value } : r)));
+  return (
+    <div className="overflow-x-auto rounded-lg border border-ink-200">
+      <table className="w-full text-xs">
+        <thead className="bg-ink-50 text-ink-600">
+          <tr>
+            <th className="text-left px-3 py-2 font-semibold">Pregnancy number</th>
+            {rows.map((_, i) => <th key={i} className="px-2 py-2 font-semibold">{i + 1}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {HISTORY_FIELDS.map((f) => (
+            <tr key={f.key} className="border-t border-ink-100">
+              <td className="px-3 py-1.5 font-medium text-ink-700 whitespace-nowrap">{f.label}</td>
+              {rows.map((r, i) => (
+                <td key={i} className="px-1.5 py-1.5">
+                  {f.options ? (
+                    <select value={r[f.key] || ''} onChange={set(i, f.key)} className={historyCellClass}>
+                      <option value="">-</option>
+                      {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  ) : (
+                    <input type={f.type} value={r[f.key] || ''} onChange={set(i, f.key)} className={historyCellClass} />
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
   const blank = {
     lmp: '',
@@ -1045,6 +1114,10 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
 
   const [form, setForm] = useState(blank);
   const [showBaseline, setShowBaseline] = useState(false);
+  // New record: first ask whether this is her first pregnancy (null = not answered yet).
+  const [isFirst, setIsFirst] = useState(initialData ? true : null);
+  const [history, setHistory] = useState([]);
+  const [formError, setFormError] = useState('');
 
   // Reset form when initialData changes (edit mode)
   useEffect(() => {
@@ -1066,11 +1139,24 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
         first_visit_date: initialData.first_visit_date ?? ''
       });
       setShowBaseline(!!(initialData.baseline_weight_kg || initialData.baseline_height_cm || initialData.aog || initialData.ob_index));
+      const saved = Array.isArray(initialData.pregnancy_history) ? initialData.pregnancy_history : [];
+      setHistory(saved.map((r) => ({ ...blankHistoryRow, ...r })));
+      setIsFirst(true);
     } else {
       setForm(blank);
       setShowBaseline(false);
+      setHistory([]);
+      setIsFirst(null);
     }
   }, [initialData]);
+
+  // One column per earlier pregnancy (pregnancy number minus one).
+  useEffect(() => {
+    const n = parseInt(form.pregnancy_number, 10);
+    if (!n || n < 2) return;
+    const count = Math.min(n - 1, 9);
+    setHistory((h) => Array.from({ length: count }, (_, i) => h[i] || { ...blankHistoryRow }));
+  }, [form.pregnancy_number]);
 
   // Auto-calculate BMI from weight (kg) and height (cm)
   const bmi = (() => {
@@ -1169,16 +1255,74 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
 
   function handleSubmit(e) {
     e.preventDefault();
+    const n = parseInt(form.pregnancy_number, 10);
+    if (!initialData && isFirst === false && !(n >= 2)) {
+      setFormError('Enter which pregnancy this is (2 or more) so the earlier pregnancies can be recorded.');
+      return;
+    }
+    setFormError('');
     const payload = Object.fromEntries(
       Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
     );
     payload.baseline_bmi = bmi ? Number(bmi) : null;
+    payload.pregnancy_history = history
+      .map((r, i) => ({ pregnancy_no: i + 1, ...r }))
+      .filter((r) => Object.entries(r).some(([k, v]) => k !== 'pregnancy_no' && v !== ''));
+    if (!initialData && isFirst === false) {
+      const births = history.filter((r) => r.birth_outcome === 'A' || r.birth_outcome === 'S').length;
+      payload.gp = `G${n}P${births || n - 1}`;
+    }
     onSubmit(payload);
+  }
+
+  if (!initialData && isFirst === null) {
+    const today = new Date().toISOString().split('T')[0];
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-base font-semibold text-ink-900">Is this her first pregnancy?</p>
+          <p className="text-sm text-ink-500 mt-1">
+            If she has had babies before, you can record them here so her history is complete.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setIsFirst(true);
+              setShowBaseline(true);
+              setForm((f) => ({ ...f, pregnancy_number: '1', ob_index: 'G1P0-0-0-0', gp: 'G1P0', status: 'Ongoing', first_visit_date: today }));
+            }}
+            className="rounded-xl border-2 border-ink-200 hover:border-primary-400 hover:bg-primary-50/40 p-4 text-left transition-colors"
+          >
+            <p className="font-bold text-ink-900">Yes, first pregnancy</p>
+            <p className="text-xs text-ink-500 mt-1">Baseline data only.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsFirst(false);
+              setShowBaseline(true);
+              setForm((f) => ({ ...f, pregnancy_number: '2', status: 'Ongoing', first_visit_date: today }));
+            }}
+            className="rounded-xl border-2 border-ink-200 hover:border-primary-400 hover:bg-primary-50/40 p-4 text-left transition-colors"
+          >
+            <p className="font-bold text-ink-900">No, she has had earlier pregnancies</p>
+            <p className="text-xs text-ink-500 mt-1">Baseline data and the earlier births.</p>
+          </button>
+        </div>
+        {onCancel && (
+          <div className="flex justify-end">
+            <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-ink-700 mb-1">LMP</label>
           <input
@@ -1261,47 +1405,10 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
             onClick={() => setShowBaseline((v) => !v)}
             className="flex items-center justify-between flex-1 text-left"
           >
-            <span className="text-sm font-semibold text-ink-800">First Prenatal Visit (optional)</span>
+            <span className="text-sm font-semibold text-ink-800">Baseline Data</span>
             <span className="text-ink-500 text-sm font-medium">{showBaseline ? '−' : '+'}</span>
           </button>
         </div>
-
-        {/* Quick-fill: "This is her first pregnancy" — toggle on/off */}
-        {!initialData && (
-          <button
-            type="button"
-            onClick={() => {
-              if (form.pregnancy_number === '1') {
-                // Undo — clear the first-pregnancy fields
-                setForm((f) => ({
-                  ...f,
-                  pregnancy_number: '',
-                  ob_index: '',
-                  first_visit_date: ''
-                }));
-              } else {
-                // Apply — mark as first pregnancy, set first visit to today,
-                // and attach baseline data to this current pregnancy
-                const today = new Date().toISOString().split('T')[0];
-                setForm((f) => ({
-                  ...f,
-                  pregnancy_number: '1',
-                  ob_index: 'G1P0-0-0-0',
-                  status: 'Ongoing',
-                  first_visit_date: today
-                }));
-                setShowBaseline(true);
-              }
-            }}
-            className={`mt-2 w-full text-left text-xs font-medium rounded-lg px-3 py-2 border transition-colors ${
-              form.pregnancy_number === '1'
-                ? 'bg-primary-50 border-primary-300 text-primary-700'
-                : 'bg-ink-50 border-ink-200 text-ink-600 hover:bg-ink-100 hover:border-ink-300'
-            }`}
-          >
-            {form.pregnancy_number === '1' ? '✓ First pregnancy — baseline data attached to current pregnancy (click to undo)' : '+ This is her first pregnancy (attach baseline data to current pregnancy)'}
-          </button>
-        )}
 
         {showBaseline && (
           <div className="mt-3 space-y-3">
@@ -1392,6 +1499,18 @@ function PregnancyForm({ initialData, onSubmit, submitting, onCancel }) {
           </div>
         )}
       </div>
+
+      {(isFirst === false || history.length > 0) && (
+        <div className="pt-2 border-t border-ink-100 space-y-2">
+          <p className="text-sm font-semibold text-ink-800">Earlier pregnancies</p>
+          {history.length === 0 ? (
+            <p className="text-xs text-ink-500">Set "This is my ___ pregnancy" above to 2 or more to fill in the earlier births.</p>
+          ) : (
+            <HistoryTable rows={history} onChange={setHistory} />
+          )}
+        </div>
+      )}
+      {formError && <p className="text-sm text-red-600">{formError}</p>}
 
       <div className="flex justify-end gap-2 pt-2 border-t border-ink-100">
         {onCancel && (

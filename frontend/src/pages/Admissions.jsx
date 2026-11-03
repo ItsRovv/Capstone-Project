@@ -161,11 +161,11 @@ function LogbookTab({ labelFor }) {
   }, [month]);
 
   const stats = rows && {
-    admitted: rows.length,
-    deliveries: rows.filter((r) => r.delivered_at).length,
-    babies: rows.reduce((s, r) => s + Number(r.babies || 0), 0),
-    discharged: rows.filter((r) => r.status === 'discharged').length,
-    referred: rows.filter((r) => r.status === 'referred').length
+    admitted: rows.filter((r) => r.in_admitted).length,
+    deliveries: rows.filter((r) => r.in_delivered).length,
+    babies: rows.filter((r) => r.in_delivered).reduce((s, r) => s + Number(r.babies || 0), 0),
+    discharged: rows.filter((r) => r.in_discharged).length,
+    referred: rows.filter((r) => r.in_referred).length
   };
 
   return (
@@ -211,6 +211,12 @@ function LogbookTab({ labelFor }) {
                         <td className="px-3 sm:px-5 py-3 text-ink-600 hidden lg:table-cell">{Number(r.babies) || '—'}</td>
                         <td className="px-3 sm:px-5 py-3">
                           <StatusChip status={r.status} />
+                          {r.status === 'discharged' && r.discharged_at && (
+                            <p className="text-xs text-ink-500 mt-1">{formatDateTime(r.discharged_at)}</p>
+                          )}
+                          {r.status === 'referred' && r.referred_at && (
+                            <p className="text-xs text-ink-500 mt-1">{formatDateTime(r.referred_at)}</p>
+                          )}
                           {r.disposition && <p className="text-xs text-ink-500 mt-1">{labelFor('discharge_reason', r.disposition)}</p>}
                           {r.referred_to && <p className="text-xs text-ink-500 mt-1">To {r.referred_to}</p>}
                         </td>

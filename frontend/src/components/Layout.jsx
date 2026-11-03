@@ -1,11 +1,29 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { DbStatusBanner } from './DbStatusBanner';
+import { useAuth } from '../contexts/AuthContext';
+import { MODULES, canViewModule, canEditModule, moduleForPath } from '../lib/modules';
+
+// Read-only modules: swallow clicks (mouse and keyboard) on any button unless it
+// sits inside an element marked data-readonly-ok (e.g. "show more" toggles).
+function blockReadOnlyClick(e) {
+  const btn = e.target.closest?.('button, [role="button"]');
+  if (btn && !btn.closest('[data-readonly-ok]')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
 
 export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user } = useAuth();
+  const location = useLocation();
+  const modKey = moduleForPath(location.pathname);
+  const blocked = modKey ? !canViewModule(user, modKey) : false;
+  const readOnly = modKey ? canViewModule(user, modKey) && !canEditModule(user, modKey) : false;
+  const modLabel = MODULES.find((m) => m.key === modKey)?.label || 'this module';
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-cream print:h-auto print:overflow-visible">
@@ -33,9 +51,31 @@ export function Layout() {
           </div>
         )}
 
-        <div className="flex-1 min-w-0 h-full overflow-y-auto print:h-auto print:overflow-visible">
+        <div
+          className={`flex-1 min-w-0 h-full overflow-y-auto print:h-auto print:overflow-visible ${readOnly ? 'module-readonly' : ''}`}
+          onClickCapture={readOnly ? blockReadOnlyClick : undefined}
+          onSubmitCapture={readOnly ? (e) => e.preventDefault() : undefined}
+        >
           <DbStatusBanner />
-          <Outlet context={{ onOpenMenu: () => setMobileOpen(true) }} />
+          {blocked ? (
+            <div className="flex items-center justify-center h-full p-8">
+              <div className="max-w-sm text-center">
+                <p className="text-lg font-bold text-ink-800">No access</p>
+                <p className="text-sm text-ink-500 mt-2">
+                  Your account doesn't have access to {modLabel}. Ask an administrator to enable it in Manage Users.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {readOnly && (
+                <div className="print:hidden bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-800 text-center">
+                  Read-only access — you can view {modLabel} but not make changes.
+                </div>
+              )}
+              <Outlet context={{ onOpenMenu: () => setMobileOpen(true) }} />
+            </>
+          )}
         </div>
       </div>
     </div>

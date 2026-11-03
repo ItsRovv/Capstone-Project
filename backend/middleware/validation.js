@@ -116,12 +116,16 @@ const transactionVitaminSchema = Joi.object({
   id: Joi.string().trim().max(100).required(),
   label: Joi.string().trim().max(150).required(),
   price: Joi.number().min(0).required(),
+  quantity: Joi.number().integer().min(1).default(1),
+  charged: Joi.boolean().default(true),
+  no_price: Joi.boolean().default(false),
   custom: Joi.boolean().default(false)
 }).unknown(false);
 
 const consultationTransactionSchema = Joi.object({
   patient_id: Joi.number().integer().positive().required(),
   consultation_id: Joi.number().integer().positive().allow(null, ''),
+  admission_id: Joi.number().integer().positive().allow(null, ''),
   transaction_date: Joi.date(),
   packages: Joi.array().items(transactionPackageSchema).default([]),
   vitamins: Joi.array().items(transactionVitaminSchema).default([]),

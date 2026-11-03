@@ -6,7 +6,7 @@ export const STATUS_META = {
   admitted: { label: 'Admitted', tone: 'info' },
   in_labor: { label: 'In labor', tone: 'warning' },
   delivered: { label: 'Delivered', tone: 'success' },
-  discharged: { label: 'Discharged', tone: 'default' },
+  discharged: { label: 'Discharged', tone: 'success' },
   referred: { label: 'Referred', tone: 'danger' }
 };
 

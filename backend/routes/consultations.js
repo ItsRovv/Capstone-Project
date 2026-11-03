@@ -4,6 +4,7 @@ const db = require('../config/db');
 const Consultation = require('../models/Consultation');
 const Patient = require('../models/Patient');
 const Queue = require('../models/Queue');
+const Admission = require('../models/Admission');
 const AuditLog = require('../models/AuditLog');
 const summaryService = require('../services/summaryService');
 const { validateConsultation } = require('../middleware/validation');
@@ -89,6 +90,18 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
+    // Post-natal care for a patient who is still admitted is handled in Admission
+    // and Discharge; a post-natal consultation opens up again after discharge.
+    if (value.consultation_type === 'postnatal') {
+      const active = await Admission.findActiveByPatient(value.patient_id);
+      if (active) {
+        return res.status(409).json({
+          code: 'PATIENT_ADMITTED',
+          message: `${patient.first_name} ${patient.last_name} is currently admitted${active.bed_number ? ` (Bed ${active.bed_number})` : ''}. A post-natal consultation can be recorded after discharge.`
+        });
+      }
+    }
+
     // Normalize delivery location to uppercase for consistent storage
     if (value.delivery_location) {
       value.delivery_location = value.delivery_location.toUpperCase();
@@ -165,6 +178,15 @@ router.put('/:id', requireRole('admin', 'doctor'), async (req, res) => {
     }
 
     const oldConsultation = await Consultation.findById(req.params.id);
+    if (!oldConsultation) {
+      return res.status(404).json({ message: 'Consultation not found' });
+    }
+    // The type (normal / prenatal / postnatal) is fixed once the consultation is saved.
+    value.consultation_type = oldConsultation.consultation_type || 'normal';
+    // Fields the form didn't send keep their saved values (visit date, doctor, notes, …).
+    for (const key of ['visit_date', 'doctor_id', 'raw_notes', 'structured_notes', 'chief_complaint', 'diagnosis', 'prescription', 'subjective', 'objective', 'assessment', 'plan', 'delivery_location', 'prenatal_data', 'postnatal_data', 'ai_summary_used']) {
+      if (value[key] === undefined) value[key] = oldConsultation[key];
+    }
     const updated = await Consultation.update(req.params.id, value);
     if (!updated) {
       return res.status(404).json({ message: 'Consultation not found' });

@@ -11,6 +11,7 @@ import { queueService } from '../services/queueService';
 import { consultationService } from '../services/consultationService';
 import { consultationTransactionService } from '../services/consultationTransactionService';
 import { patientService } from '../services/patientService';
+import { admissionService } from '../services/admissionService';
 import { pregnancyService } from '../services/pregnancyService';
 import { ConsultationForm } from '../components/ConsultationForm';
 import { PrenatalConsultationForm } from '../components/PrenatalConsultationForm';
@@ -18,7 +19,6 @@ import { PostnatalConsultationForm } from '../components/PostnatalConsultationFo
 import { matchPrescriptionToVitamins, calculateVitaminsTotal } from '../utils/prescriptionMatcher';
 import { apiError } from '../services/api';
 
-const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function StatusBadge({ status }) {
   const styles = {
@@ -36,8 +36,8 @@ function StatusBadge({ status }) {
 
 const CONSULTATION_TYPES = {
   normal: { label: 'Normal', className: 'bg-ink-100 text-ink-600' },
-  prenatal: { label: 'Prenatal', className: 'bg-pink-100 text-pink-700' },
-  postnatal: { label: 'Postnatal', className: 'bg-violet-100 text-violet-700' }
+  prenatal: { label: 'Prenatal', className: 'bg-primary-50 text-primary-700 border border-primary-100' },
+  postnatal: { label: 'Postnatal', className: 'bg-primary-50 text-primary-700 border border-primary-100' }
 };
 
 export function ConsultationTypeBadge({ type }) {
@@ -56,7 +56,7 @@ function QueueChip({ q, onClick, actionLabel, accent = 'primary' }) {
     red: 'bg-red-100 text-red-700 hover:border-red-300 hover:bg-red-50/30'
   };
   return (
-    <div className={`flex items-center gap-2 p-2 rounded-lg border border-ink-100 transition-colors ${accents[accent]}`}>
+    <div className={`flex items-center gap-2 p-2 rounded-lg border border-ink-100 bg-white transition-colors ${accents[accent].split(' ').slice(2).join(' ')}`}>
       <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold flex-shrink-0 ${accents[accent].split(' ')[0]} ${accents[accent].split(' ')[1]}`}>
         #{String(q.queue_number).padStart(2, '0')}
       </span>
@@ -90,12 +90,27 @@ export function DoctorConsultations() {
   const [pregnancyContext, setPregnancyContext] = useState(null);
   const [serveConfirm, setServeConfirm] = useState({ open: false, queueId: null });
   const [consultationType, setConsultationType] = useState('normal');
+  const [editing, setEditing] = useState(null);
+  const [activeAdmission, setActiveAdmission] = useState(null);
 
   const currentServing = queue.find((q) => q.status === 'serving') || null;
 
   useEffect(() => {
     setConsultationType(currentServing?.consultation_type || 'normal');
   }, [currentServing?.id]);
+  // A patient who is still admitted can't have a post-natal consultation until discharge.
+  useEffect(() => {
+    setActiveAdmission(null);
+    if (!currentServing) return undefined;
+    let cancelled = false;
+    admissionService.forPatient(currentServing.patient_id).then((list) => {
+      if (cancelled) return;
+      const active = (list || []).find((a) => ['admitted', 'in_labor', 'delivered'].includes(a.status));
+      setActiveAdmission(active || null);
+      if (active) setConsultationType((t) => (t === 'postnatal' ? 'normal' : t));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentServing?.patient_id]);
   const nextWaiting = queue.find((q) => q.status === 'waiting') || null;
   const waitingList = queue.filter((q) => q.status === 'waiting');
   const doneList = queue.filter((q) => q.status === 'done');
@@ -194,7 +209,7 @@ export function DoctorConsultations() {
             patient_id: currentServing.patient_id,
             consultation_id: consultationId,
             packages: [],
-            vitamins: matchedVitamins.map(({ id, label, price, custom }) => ({ id, label, price, custom: !!custom })),
+            vitamins: matchedVitamins.map(({ id, label, price, quantity, custom }) => ({ id, label, price, quantity: Number(quantity || 1), custom: !!custom })),
             recommendations: null,
             total_amount: total,
             philhealth_total: 0
@@ -211,6 +226,35 @@ export function DoctorConsultations() {
       load();
     } catch (err) {
       toast.error(apiError(err, 'Could not finish consultation'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function startEdit(consult) {
+    try {
+      const full = await consultationService.get(consult.id);
+      setEditing({ ...consult, ...full });
+      window.scrollTo?.({ top: 0 });
+    } catch (err) {
+      toast.error(apiError(err, 'Could not open consultation'));
+    }
+  }
+
+  async function handleEditSave(payload) {
+    if (!editing) return;
+    setSubmitting(true);
+    try {
+      await consultationService.update(editing.id, {
+        ...payload,
+        patient_id: editing.patient_id,
+        consultation_type: editing.consultation_type || 'normal'
+      });
+      toast.success('Consultation updated');
+      setEditing(null);
+      load();
+    } catch (err) {
+      toast.error(apiError(err, 'Could not update consultation'));
     } finally {
       setSubmitting(false);
     }
@@ -265,11 +309,6 @@ export function DoctorConsultations() {
     }
   }
 
-  const isEditable = (visitDate) => {
-    if (!visitDate) return false;
-    return Date.now() - new Date(visitDate).getTime() < ONE_WEEK_MS;
-  };
-
   const getConsultationForPatient = (patientId) =>
     consultations.find((c) => c.patient_id === patientId);
 
@@ -282,113 +321,89 @@ export function DoctorConsultations() {
       />
 
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-4 md:pb-8">
-        <div className="max-w-[1600px] w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           {loading ? (
             <PageLoader label="Loading doctor console…" />
           ) : (
             <>
-              {/* ── Main landscape layout: Patient panel | SOAP form | Queue sidebar ── */}
-              {currentServing ? (
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                  {/* Left: Patient info panel (2 cols) */}
-                  <div className="xl:col-span-2 space-y-3">
-                    <Card padding="p-4">
-                      <div className="text-center">
-                        <div className="w-16 h-16 rounded-full bg-primary-700 text-white flex items-center justify-center text-xl font-bold mx-auto mb-2">
-                          {currentServing.first_name?.charAt(0)?.toUpperCase()}
+              {/* ── Main landscape layout: Patient banner on top; queue | consultation form below ── */}
+              {editing ? (
+                <div className="space-y-4">
+                  <Card padding="p-0" className="overflow-hidden border-l-4 border-l-amber-500">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-700">Editing</span>
+                          <ConsultationTypeBadge type={editing.consultation_type || 'normal'} />
                         </div>
-                        <h2 className="font-semibold text-ink-900 text-sm">
-                          {currentServing.first_name} {currentServing.last_name}
+                        <h2 className="mt-2 text-xl font-bold leading-tight text-ink-900 break-words">
+                          {editing.patient_first_name || ''} {editing.patient_last_name || ''}
                         </h2>
-                        <div className="flex items-center justify-center gap-2 mt-1">
-                          <StatusBadge status="serving" />
-                        </div>
-                        <p className="text-xs text-ink-500 mt-1">
-                          Queue #{String(currentServing.queue_number).padStart(2, '0')}
-                        </p>
                       </div>
-                      <div className="mt-3 pt-3 border-t border-ink-100">
-                        <Link
-                          to={`/patients/${currentServing.patient_id}`}
-                          className="block text-xs font-medium text-primary-700 hover:text-primary-800 text-center"
-                        >
-                          View patient profile →
-                        </Link>
-                      </div>
-                    </Card>
-
-                    {/* Next patient mini-card */}
-                    {nextWaiting && (
-                      <Card padding="p-3">
-                        <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-2">Up Next</p>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex-shrink-0">
-                            #{String(nextWaiting.queue_number).padStart(2, '0')}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-ink-900 truncate">
-                              {nextWaiting.first_name} {nextWaiting.last_name}
-                            </p>
-                          </div>
-                        </div>
-                      </Card>
+                      <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>Back to queue</Button>
+                    </div>
+                  </Card>
+                  <Card padding="p-4">
+                    <h3 className="text-sm font-semibold text-ink-800 mb-3">
+                      {editing.consultation_type === 'prenatal'
+                        ? 'Prenatal Consultation'
+                        : editing.consultation_type === 'postnatal'
+                        ? 'Postnatal Consultation'
+                        : 'Consultation — S.O.A.P. Notes'}
+                    </h3>
+                    {editing.consultation_type === 'prenatal' ? (
+                      <PrenatalConsultationForm
+                        key={editing.id}
+                        patientId={editing.patient_id}
+                        initial={editing}
+                        onSubmit={handleEditSave}
+                        submitting={submitting}
+                        onCancel={() => setEditing(null)}
+                      />
+                    ) : editing.consultation_type === 'postnatal' ? (
+                      <PostnatalConsultationForm
+                        key={editing.id}
+                        patientId={editing.patient_id}
+                        initial={editing}
+                        onSubmit={handleEditSave}
+                        submitting={submitting}
+                        onCancel={() => setEditing(null)}
+                      />
+                    ) : (
+                      <ConsultationForm
+                        key={editing.id}
+                        patientId={editing.patient_id}
+                        initial={editing}
+                        onSubmit={handleEditSave}
+                        submitting={submitting}
+                        onCancel={() => setEditing(null)}
+                      />
                     )}
-                  </div>
-
-                  {/* Center: SOAP consultation form (7 cols) */}
-                  <div className="xl:col-span-7">
-                    <Card padding="p-4">
-                      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-                        <h3 className="text-sm font-semibold text-ink-800">
-                          {consultationType === 'prenatal'
-                            ? 'Prenatal Consultation'
-                            : consultationType === 'postnatal'
-                            ? 'Postnatal Consultation'
-                            : 'Consultation — S.O.A.P. Notes'}
-                        </h3>
-                        <div className="flex items-center gap-2">
-                          <ConsultationTypeBadge type={consultationType} />
-                          <select
-                            value={consultationType}
-                            onChange={(e) => setConsultationType(e.target.value)}
-                            className="input-base !py-1 !w-auto text-xs"
-                            title="Consultation type"
-                          >
-                            <option value="normal">Normal</option>
-                            <option value="prenatal">Prenatal</option>
-                            <option value="postnatal">Postnatal</option>
-                          </select>
-                        </div>
+                  </Card>
+                </div>
+              ) : currentServing ? (
+                <div className="space-y-4">
+                <Card padding="p-0" className="overflow-hidden border-l-4 border-l-primary-700">
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status="serving" />
+                        <span className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-bold text-primary-700">
+                          Queue #{String(currentServing.queue_number).padStart(2, '0')}
+                        </span>
                       </div>
-                      {consultationType === 'prenatal' ? (
-                        <PrenatalConsultationForm
-                          patientId={currentServing.patient_id}
-                          onSubmit={handleDone}
-                          submitting={submitting}
-                          onCancel={null}
-                          pregnancyContext={pregnancyContext}
-                        />
-                      ) : consultationType === 'postnatal' ? (
-                        <PostnatalConsultationForm
-                          patientId={currentServing.patient_id}
-                          onSubmit={handleDone}
-                          submitting={submitting}
-                          onCancel={null}
-                        />
-                      ) : (
-                        <ConsultationForm
-                          patientId={currentServing.patient_id}
-                          onSubmit={handleDone}
-                          submitting={submitting}
-                          onCancel={null}
-                          pregnancyContext={pregnancyContext}
-                        />
-                      )}
-                    </Card>
+                      <h2 className="mt-2 text-xl font-bold leading-tight text-ink-900 break-words">
+                        {currentServing.first_name} {currentServing.last_name}
+                      </h2>
+                    </div>
+                    <Link to={`/patients/${currentServing.patient_id}`}>
+                      <Button size="sm">View patient profile</Button>
+                    </Link>
                   </div>
-
-                  {/* Right: Queue sidebar (3 cols) */}
-                  <div className="xl:col-span-3">
+                </Card>
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                  {/* Left: Queue sidebar (3 cols) */}
+                  <div className="xl:col-span-3 space-y-3">
                     <Card padding="p-3">
                       {/* Queued today */}
                       <div className="mb-4">
@@ -439,7 +454,7 @@ export function DoctorConsultations() {
                       {/* Completed today */}
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Completed</p>
+                          <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Completed today</p>
                           <span className="text-xs font-medium text-ink-500">{doneList.length}</span>
                         </div>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -448,7 +463,6 @@ export function DoctorConsultations() {
                           ) : (
                             doneList.map((q) => {
                               const consult = getConsultationForPatient(q.patient_id);
-                              const editable = consult && isEditable(consult.visit_date);
                               return (
                                 <div
                                   key={q.id}
@@ -465,21 +479,9 @@ export function DoctorConsultations() {
                                       {consult?.chief_complaint || 'Recorded'}
                                     </p>
                                   </div>
-                                  {editable && (
-                                    <button
-                                      onClick={() => navigate(`/patients/${q.patient_id}?tab=consultations`)}
-                                      className="text-xs text-primary-600 font-medium whitespace-nowrap p-1"
-                                      title="Edit (within 1 week)"
-                                    >
-                                      <Icon.Edit width={12} height={12} />
-                                    </button>
+                                  {consult && (
+                                    <Button size="sm" onClick={() => startEdit(consult)}>Edit</Button>
                                   )}
-                                  <Link
-                                    to={`/patients/${q.patient_id}?tab=consultations`}
-                                    className="text-xs text-ink-500 font-medium whitespace-nowrap"
-                                  >
-                                    →
-                                  </Link>
                                 </div>
                               );
                             })
@@ -487,82 +489,143 @@ export function DoctorConsultations() {
                         </div>
                       </div>
                     </Card>
-                  </div>
-                </div>
-              ) : (
-                /* ── No one being served ── */
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                  <div className={waitingList.length > 0 || doneList.length > 0 ? "xl:col-span-9" : "xl:col-span-12"}>
-                    {nextWaiting ? (
-                      <Card>
-                        <div className="p-10 text-center text-ink-500">
-                          <Icon.Stethoscope
-                            width={36}
-                            height={36}
-                            className="mx-auto text-ink-300 mb-3"
-                          />
-                          <p className="font-medium text-ink-700">No patient currently being served.</p>
-                          <p className="text-sm mt-1">Start with the next patient in queue.</p>
-                          <Button className="mt-4" onClick={handleServeNext}>
-                            <Icon.Chevron width={14} height={14} className="-rotate-90" /> Serve next patient
-                          </Button>
-                        </div>
-                      </Card>
-                    ) : skippedList.length > 0 ? (
-                      <Card>
-                        <div className="p-10 md:p-14">
-                          <div className="flex items-center gap-4 mb-6">
-                            <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-2xl font-bold">
-                              {skippedList[0].first_name?.charAt(0)?.toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-ink-900 text-lg">{skippedList[0].first_name} {skippedList[0].last_name}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide bg-red-100 text-red-700">
-                                  Skipped
-                                </span>
-                                <span className="text-sm text-ink-500">Queue #{String(skippedList[0].queue_number).padStart(2, '0')}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <p className="text-base text-ink-600 mb-6">This patient was skipped and is waiting to be re-served.</p>
-                          <Button size="lg" onClick={() => handleReServe(skippedList[0].id)}>
-                            <Icon.Chevron width={16} height={16} className="-rotate-90" /> Re-serve patient
-                          </Button>
-                        </div>
-                      </Card>
-                    ) : (
-                      <Card>
-                        <div className="p-10 md:p-14 text-center">
-                          <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 inline-flex items-center justify-center mb-5">
-                            <Icon.Check width={40} height={40} />
-                          </div>
-                          <h3 className="text-xl font-semibold text-ink-900 mb-2">
-                            {doneList.length > 0 ? 'All patients attended to' : 'No patients in queue'}
-                          </h3>
-                          <p className="text-sm text-ink-500 mb-6 max-w-md mx-auto">
-                            {doneList.length > 0
-                              ? `You've completed ${doneList.length} consultation${doneList.length === 1 ? '' : 's'} today. Great work!`
-                              : 'The queue is empty. Add a patient or check back later.'}
-                          </p>
-                          <div className="flex items-center justify-center gap-3 flex-wrap">
-                            <Link to="/patients">
-                              <Button variant="secondary">
-                                <Icon.Users width={16} height={16} /> Go to Patients
-                              </Button>
-                            </Link>
-                            <Link to="/patients?action=add">
-                              <Button>
-                                <Icon.Plus width={16} height={16} /> Add patient
-                              </Button>
-                            </Link>
+                                        {/* Next patient mini-card */}
+                    {nextWaiting && (
+                      <Card padding="p-3">
+                        <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wider mb-2">Up Next</p>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex-shrink-0">
+                            #{String(nextWaiting.queue_number).padStart(2, '0')}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-ink-900 truncate">
+                              {nextWaiting.first_name} {nextWaiting.last_name}
+                            </p>
                           </div>
                         </div>
                       </Card>
                     )}
                   </div>
+
+                  {/* Right: consultation form (9 cols) */}
+                  <div className="xl:col-span-9 space-y-4">
+                    <Card padding="p-4">
+                      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                        <h3 className="text-sm font-semibold text-ink-800">
+                          {consultationType === 'prenatal'
+                            ? 'Prenatal Consultation'
+                            : consultationType === 'postnatal'
+                            ? 'Postnatal Consultation'
+                            : 'Consultation — S.O.A.P. Notes'}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <ConsultationTypeBadge type={consultationType} />
+                          <select
+                            value={consultationType}
+                            onChange={(e) => setConsultationType(e.target.value)}
+                            className="input-base !py-1 !w-auto text-xs"
+                            title="Consultation type"
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="prenatal">Prenatal</option>
+                            <option value="postnatal" disabled={Boolean(activeAdmission)}>
+                              Postnatal{activeAdmission ? ' (admitted)' : ''}
+                            </option>
+                          </select>
+                        </div>
+                      </div>
+                      {activeAdmission && (
+                        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          This patient is currently admitted{activeAdmission.bed_number ? ` (Bed ${activeAdmission.bed_number})` : ''}. A post-natal consultation can be recorded after discharge.
+                        </p>
+                      )}
+                      {consultationType === 'prenatal' ? (
+                        <PrenatalConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                          pregnancyContext={pregnancyContext}
+                        />
+                      ) : consultationType === 'postnatal' ? (
+                        <PostnatalConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                        />
+                      ) : (
+                        <ConsultationForm
+                          patientId={currentServing.patient_id}
+                          onSubmit={handleDone}
+                          submitting={submitting}
+                          onCancel={null}
+                          pregnancyContext={pregnancyContext}
+                        />
+                      )}
+                    </Card>
+                  </div>
+                </div>
+                </div>
+              ) : (
+                /* ── No one being served ── */
+                <div className="space-y-4">
+                  {/* Banner: who's next (or what to do) */}
+                  <Card padding="p-0" className="overflow-hidden border-l-4 border-l-primary-700">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                      {nextWaiting ? (
+                        <>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-primary-700">Up next</span>
+                              <span className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-bold text-primary-700">
+                                Queue #{String(nextWaiting.queue_number).padStart(2, '0')}
+                              </span>
+                              <ConsultationTypeBadge type={nextWaiting.consultation_type} />
+                            </div>
+                            <h2 className="mt-2 text-xl font-bold leading-tight text-ink-900 break-words">
+                              {nextWaiting.first_name} {nextWaiting.last_name}
+                            </h2>
+                          </div>
+                          <Button onClick={handleServeNext}>Serve next patient</Button>
+                        </>
+                      ) : skippedList.length > 0 ? (
+                        <>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-red-700">Skipped</span>
+                              <span className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-bold text-primary-700">
+                                Queue #{String(skippedList[0].queue_number).padStart(2, '0')}
+                              </span>
+                            </div>
+                            <h2 className="mt-2 text-xl font-bold leading-tight text-ink-900 break-words">
+                              {skippedList[0].first_name} {skippedList[0].last_name}
+                            </h2>
+                          </div>
+                          <Button onClick={() => handleReServe(skippedList[0].id)}>Re-serve patient</Button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="min-w-0">
+                            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                              {doneList.length > 0 ? 'All caught up' : 'Queue empty'}
+                            </span>
+                            <h2 className="mt-2 text-xl font-bold leading-tight text-ink-900">
+                              {doneList.length > 0 ? 'All patients attended to' : 'No patients in queue'}
+                            </h2>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link to="/patients"><Button variant="secondary">Go to Patients</Button></Link>
+                            <Link to="/patients?action=add"><Button>Add patient</Button></Link>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </Card>
+
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
                   {(waitingList.length > 0 || doneList.length > 0) && (
-                    <div className="xl:col-span-3">
+                    <div className="xl:col-span-12">
                       <Card padding="p-3">
                         {/* Queued today */}
                         {waitingList.length > 0 && (
@@ -573,12 +636,7 @@ export function DoctorConsultations() {
                             </div>
                             <div className="space-y-1.5">
                               {waitingList.map((q) => (
-                                <QueueChip
-                                  key={q.id}
-                                  q={q}
-                                  onClick={() => handleServeById(q.id)}
-                                  actionLabel="Serve"
-                                />
+                                <QueueChip key={q.id} q={q} />
                               ))}
                             </div>
                           </div>
@@ -592,13 +650,12 @@ export function DoctorConsultations() {
                         {doneList.length > 0 && (
                           <div>
                             <div className="flex items-center justify-between mb-2">
-                              <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Completed</p>
+                              <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Completed today</p>
                               <span className="text-xs font-medium text-ink-500">{doneList.length}</span>
                             </div>
-                            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                            <div className="space-y-1.5 max-h-[28rem] overflow-y-auto">
                               {doneList.map((q) => {
                                 const consult = getConsultationForPatient(q.patient_id);
-                                const editable = consult && isEditable(consult.visit_date);
                                 return (
                                   <div
                                     key={q.id}
@@ -615,21 +672,9 @@ export function DoctorConsultations() {
                                         {consult?.chief_complaint || 'Recorded'}
                                       </p>
                                     </div>
-                                    {editable && (
-                                      <button
-                                        onClick={() => navigate(`/patients/${q.patient_id}?tab=consultations`)}
-                                        className="text-xs text-primary-600 font-medium whitespace-nowrap p-1"
-                                        title="Edit (within 1 week)"
-                                      >
-                                        <Icon.Edit width={12} height={12} />
-                                      </button>
+                                    {consult && (
+                                      <Button size="sm" onClick={() => startEdit(consult)}>Edit</Button>
                                     )}
-                                    <Link
-                                      to={`/patients/${q.patient_id}?tab=consultations`}
-                                      className="text-xs text-ink-500 font-medium whitespace-nowrap"
-                                    >
-                                      →
-                                    </Link>
                                   </div>
                                 );
                               })}
@@ -639,6 +684,7 @@ export function DoctorConsultations() {
                       </Card>
                     </div>
                   )}
+                </div>
                 </div>
               )}
             </>

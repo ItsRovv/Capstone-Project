@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const auth = require('../middleware/auth');
+const requireRole = require('../middleware/role');
 const { requireStaff } = require('../middleware/role');
 const { decryptObject } = require('../utils/encryption');
 const { routeError } = require('../utils/routeError');
+const Admission = require('../models/Admission');
 
 router.use(auth, requireStaff);
 
@@ -13,6 +15,7 @@ const readable = (row) => decryptObject(row, ['contact_number'], { deterministic
 const days = (value, fallback) => Math.min(Math.max(parseInt(value, 10) || fallback, 1), 365);
 
 // Patients expected to give birth soon or overdue (replaces the clinic's Google Sheet).
+// EDD is 40 weeks, so "overdue" starts at 41 weeks (EDD + 7 days).
 // Read-only: nothing here edits clinical data.
 router.get('/expected-deliveries', async (req, res) => {
   try {
@@ -24,7 +27,7 @@ router.get('/expected-deliveries', async (req, res) => {
               (SELECT MIN(c.visit_date) FROM consultations c WHERE c.patient_id = pa.id) AS first_consultation,
               (SELECT c.delivery_location FROM consultations c WHERE c.patient_id = pa.id AND c.delivery_location IS NOT NULL
                  ORDER BY c.visit_date DESC LIMIT 1) AS delivery_location,
-              (p.edd < CURRENT_DATE) AS overdue
+              (CURRENT_DATE >= p.edd::date + 7) AS overdue
        FROM pregnancies p JOIN patients pa ON pa.id = p.patient_id
        WHERE p.status = 'Ongoing' AND p.edd IS NOT NULL AND p.edd <= CURRENT_DATE + (?::int * INTERVAL '1 day')
        ORDER BY p.edd ASC LIMIT 500`,
@@ -50,6 +53,16 @@ router.get('/missed-followups', async (req, res) => {
       [window]
     );
     res.json({ days: window, rows: rows.map(readable) });
+  } catch (err) { routeError(res, err); }
+});
+
+// Administrator-only charting activity: shows every midwife note, who wrote it,
+// when, and which patient/admission it belongs to.
+router.get('/charting-activity', requireRole('admin'), async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const rows = await Admission.chartingActivity({ from, to });
+    res.json({ from, to, rows });
   } catch (err) { routeError(res, err); }
 });
 

@@ -1,6 +1,5 @@
-import { useRef, useCallback } from 'react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { useCallback } from 'react';
+import { downloadReportPdf, downloadReportImage } from '../utils/reportPdf';
 import { Icon } from './Icon';
 
 function formatDate(d) {
@@ -87,60 +86,13 @@ function TrendIndicator({ trend }) {
 }
 
 export function ReportDocument({ metrics, date, type }) {
-  const docRef = useRef(null);
+  const handleDownloadImage = useCallback(() => {
+    downloadReportImage(metrics, date, type).catch((err) => console.error('Image download failed:', err));
+  }, [metrics, date, type]);
 
-  const handleDownloadImage = useCallback(async () => {
-    if (!docRef.current) return;
-    try {
-      const canvas = await html2canvas(docRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true
-      });
-      const link = document.createElement('a');
-      link.download = `Clinic-Report-${date}-${type}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch (err) {
-      console.error('Image download failed:', err);
-    }
-  }, [date, type]);
-
-  const handleDownloadPDF = useCallback(async () => {
-    if (!docRef.current) return;
-    try {
-      const canvas = await html2canvas(docRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      pdf.save(`Clinic-Report-${date}-${type}.pdf`);
-    } catch (err) {
-      console.error('PDF download failed:', err);
-    }
-  }, [date, type]);
+  const handleDownloadPDF = useCallback(() => {
+    downloadReportPdf(metrics, date, type).catch((err) => console.error('PDF download failed:', err));
+  }, [metrics, date, type]);
 
   const {
     totalPatients = 0,
@@ -185,9 +137,8 @@ export function ReportDocument({ metrics, date, type }) {
         </button>
       </div>
 
-      {/* The actual report document — this gets captured */}
+      {/* On-screen preview (downloads are drawn separately as a proper A4 document) */}
       <div
-        ref={docRef}
         className="bg-white rounded-xl border border-ink-200 overflow-hidden"
         style={{ maxWidth: '800px', margin: '0 auto' }}
       >
@@ -321,7 +272,7 @@ export function ReportDocument({ metrics, date, type }) {
           {topComplaints.length > 0 ? (
             <DataTable
               headers={['#', 'Chief Complaint', 'Cases']}
-              rows={topComplaints.slice(0, 5).map(([label, count], i) => [i + 1, label, count])}
+              rows={topComplaints.slice(0, 5).map(([label, count], i) => [i + 1, label && label !== 'null' ? label : 'Not documented', count])}
             />
           ) : (
             <p className="text-sm text-ink-600 italic">No chief complaints were documented.</p>
@@ -331,7 +282,7 @@ export function ReportDocument({ metrics, date, type }) {
               <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mt-4 mb-2">Top Diagnoses</p>
               <DataTable
                 headers={['#', 'Diagnosis', 'Cases']}
-                rows={topDiagnoses.slice(0, 5).map(([label, count], i) => [i + 1, label, count])}
+                rows={topDiagnoses.slice(0, 5).map(([label, count], i) => [i + 1, label && label !== 'null' ? label : 'Not documented', count])}
               />
             </>
           )}

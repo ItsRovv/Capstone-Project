@@ -39,7 +39,7 @@ export function matchPrescriptionToVitamins(prescriptionText) {
       if (found) {
         const vitamin = VITAMINS.find((v) => v.id === vitaminId);
         if (vitamin) {
-          matched.push({ id: vitamin.id, label: vitamin.label, price: vitamin.price, custom: false });
+          matched.push({ id: vitamin.id, label: vitamin.label, price: vitamin.price, quantity: 1, custom: false });
           matchedIds.add(vitaminId);
         }
         break; // move to next line once matched
@@ -56,5 +56,5 @@ export function matchPrescriptionToVitamins(prescriptionText) {
  * @returns {number}
  */
 export function calculateVitaminsTotal(vitamins) {
-  return vitamins.reduce((sum, v) => sum + Number(v.price || 0), 0);
+  return vitamins.reduce((sum, v) => sum + Number(v.price || 0) * Number(v.quantity || 1), 0);
 }

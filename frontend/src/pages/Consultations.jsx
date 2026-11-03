@@ -140,23 +140,18 @@ export function Consultations() {
                     {servingList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-amber-200 bg-amber-50/30"
+                        className="flex items-center gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-xl border border-amber-200 bg-amber-50/30"
                       >
-                        <span className="inline-flex flex-shrink-0 items-center justify-center w-10 h-10 rounded-full bg-amber-100 text-amber-700 text-sm font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-12 h-12 rounded-full bg-amber-100 text-amber-700 text-base font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 break-words">
+                          <p className="text-base font-semibold text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
                         </div>
-                        <Link
-                          to={`/patients/${q.patient_id}`}
-                          className="text-xs text-primary-600 font-medium whitespace-nowrap"
-                        >
-                          View profile →
-                        </Link>
+                        <Link to={`/patients/${q.patient_id}`}><Button size="sm">View profile</Button></Link>
                       </div>
                     ))}
                   </div>
@@ -176,24 +171,19 @@ export function Consultations() {
                     waitingList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
+                        className="flex items-center gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-xl border border-ink-100 hover:border-primary-300 hover:bg-primary-50/30 transition-colors"
                       >
-                        <span className="inline-flex flex-shrink-0 items-center justify-center w-10 h-10 rounded-full bg-primary-100 text-primary-700 text-sm font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-12 h-12 rounded-full bg-primary-100 text-primary-700 text-base font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 break-words">
+                          <p className="text-base font-semibold text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
                         </div>
                         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-                          <Link
-                            to={`/patients/${q.patient_id}`}
-                            className="text-xs text-primary-600 font-medium whitespace-nowrap"
-                          >
-                            View →
-                          </Link>
+                          <Link to={`/patients/${q.patient_id}`}><Button size="sm">View profile</Button></Link>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -221,23 +211,18 @@ export function Consultations() {
                     {doneList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 bg-ink-50/40"
+                        className="flex items-center gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-xl border border-ink-100 bg-ink-50/40"
                       >
-                        <span className="inline-flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                        <span className="inline-flex flex-shrink-0 items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 text-sm font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 break-words">
+                          <p className="text-base font-semibold text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
                         </div>
-                        <Link
-                          to={`/patients/${q.patient_id}`}
-                          className="text-xs text-primary-600 font-medium whitespace-nowrap"
-                        >
-                          View →
-                        </Link>
+                        <Link to={`/patients/${q.patient_id}`}><Button size="sm">View profile</Button></Link>
                       </div>
                     ))}
                   </div>
@@ -255,23 +240,18 @@ export function Consultations() {
                     {skippedList.map((q) => (
                       <div
                         key={q.id}
-                        className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border border-ink-100 bg-red-50/20"
+                        className="flex items-center gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-xl border border-ink-100 bg-red-50/20"
                       >
                         <span className="inline-flex flex-shrink-0 items-center justify-center w-8 h-8 rounded-full bg-red-100 text-red-700 text-xs font-bold">
                           #{String(q.queue_number).padStart(2, '0')}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-ink-900 break-words">
+                          <p className="text-base font-semibold text-ink-900 break-words">
                             {q.first_name} {q.last_name}
                           </p>
                           <StatusBadge status={q.status} />
                         </div>
-                        <Link
-                          to={`/patients/${q.patient_id}`}
-                          className="text-xs text-primary-600 font-medium whitespace-nowrap"
-                        >
-                          View →
-                        </Link>
+                        <Link to={`/patients/${q.patient_id}`}><Button size="sm">View profile</Button></Link>
                       </div>
                     ))}
                   </div>
@@ -322,7 +302,7 @@ export function Consultations() {
                         {p.first_name?.charAt(0)?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink-900 break-words">
+                        <p className="text-base font-semibold text-ink-900 break-words">
                           {p.first_name} {p.last_name}
                         </p>
                         <p className="text-xs text-ink-500">

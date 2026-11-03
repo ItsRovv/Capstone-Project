@@ -27,7 +27,7 @@ const authenticateToken = (req, res, next) => {
     }
     req.user = user;
     // Best-effort activity stamp for the Manage Users "Active" column.
-    Promise.resolve(User.touchLastSeen(user.id)).catch(() => {});
+    Promise.resolve(User.touchLastSeen(user.id)).catch((e) => console.warn('[auth] last_seen_at stamp failed:', e.message));
     next();
   });
 };

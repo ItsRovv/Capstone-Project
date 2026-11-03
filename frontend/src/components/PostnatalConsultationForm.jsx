@@ -171,8 +171,8 @@ export function PostnatalConsultationForm({ patientId, initial, submitting, onCa
       ) : (
         <>
           {/* Part I — auto-filled patient info */}
-          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-4 space-y-3">
-            <p className="text-xs font-bold text-violet-700 uppercase tracking-wider">Postpartum Care Record — Patient Info</p>
+          <div className="rounded-lg border border-primary-200 bg-primary-50/40 p-4 space-y-3">
+            <p className="text-xs font-bold text-primary-700 uppercase tracking-wider">Postpartum Care Record — Patient Info</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <div><span className="text-ink-500">PhilHealth PIN:</span> <span className="font-medium text-ink-900">{pin || '—'}</span></div>
               <div><span className="text-ink-500">G_P:</span> <span className="font-medium text-ink-900">{gpText || '—'}</span></div>
@@ -265,7 +265,7 @@ export function PostnatalConsultationForm({ patientId, initial, submitting, onCa
                         type="checkbox"
                         checked={!!visit.services[key]?.given}
                         onChange={() => toggleSupplement(key)}
-                        className="w-4 h-4 accent-violet-600"
+                        className="w-4 h-4 accent-primary-600"
                       />
                       {label}
                     </label>
@@ -286,7 +286,7 @@ export function PostnatalConsultationForm({ patientId, initial, submitting, onCa
                       type="checkbox"
                       checked={!!visit.services[key]}
                       onChange={() => togglePlainService(key)}
-                      className="w-4 h-4 accent-violet-600"
+                      className="w-4 h-4 accent-primary-600"
                     />
                     {label}
                   </label>
@@ -301,7 +301,7 @@ export function PostnatalConsultationForm({ patientId, initial, submitting, onCa
                   type="checkbox"
                   checked={visit.referred}
                   onChange={(e) => setVisit((v) => ({ ...v, referred: e.target.checked }))}
-                  className="w-4 h-4 accent-violet-600"
+                  className="w-4 h-4 accent-primary-600"
                 />
                 Referred
               </label>

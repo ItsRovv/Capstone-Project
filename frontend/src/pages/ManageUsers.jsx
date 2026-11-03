@@ -8,13 +8,14 @@ import { Spinner } from '../components/UI/Spinner';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../contexts/AuthContext';
 import api, { apiError } from '../services/api';
+import { MODULES } from '../lib/modules';
 
 const EMPTY_FORM = { name: '', username: '', email: '', password: '', role: 'staff' };
 
 const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff' },
   { value: 'nurse', label: 'Nurse' },
-  { value: 'midwife', label: 'Admission Midwife' },
+  { value: 'midwife', label: 'Midwife' },
   { value: 'doctor', label: 'Doctor' },
   { value: 'admin', label: 'Administrator' }
 ];
@@ -29,7 +30,9 @@ function formatDate(d) {
 }
 
 // Shows whether an account is in use right now, and when it was last seen.
-// last_seen_at updates while the person uses any page in the app (max once per 5 min).
+// last_seen_at updates while the person uses any page in the app (max once per ~90 s).
+// "Active now" means a stamp within the last minute — idle or logged-out users
+// fall through to "X min/hr/days/mo ago".
 function ActivityBadge({ user }) {
   if (user.locked_until && new Date(user.locked_until) > new Date()) {
     return (
@@ -48,21 +51,81 @@ function ActivityBadge({ user }) {
     );
   }
   const mins = Math.round((Date.now() - new Date(user.last_seen_at).getTime()) / 60000);
+  const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
   let text, cls, dot;
-  if (mins < 10) {
+  if (mins <= 1) {
     text = 'Active now'; cls = 'text-emerald-700'; dot = 'bg-emerald-500 animate-pulse';
   } else if (mins < 60) {
-    text = `${mins} min ago`; cls = 'text-emerald-700'; dot = 'bg-emerald-500';
+    text = `${plural(mins, 'min', 'mins')} ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
   } else if (mins < 60 * 24) {
-    text = `${Math.round(mins / 60)} hr ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+    text = `${plural(Math.round(mins / 60), 'hr', 'hrs')} ago`; cls = 'text-ink-600'; dot = 'bg-amber-400';
+  } else if (mins < 60 * 24 * 30) {
+    text = `${plural(Math.round(mins / (60 * 24)), 'day', 'days')} ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   } else {
-    text = formatDate(user.last_seen_at); cls = 'text-ink-500'; dot = 'bg-ink-300';
+    text = `${plural(Math.round(mins / (60 * 24 * 30)), 'mo', 'mos')} ago`; cls = 'text-ink-500'; dot = 'bg-ink-300';
   }
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${cls}`} title={`Last seen ${new Date(user.last_seen_at).toLocaleString()}`}>
       <span className={`w-2 h-2 rounded-full ${dot}`} />
       {text}
     </span>
+  );
+}
+
+const MODULE_LEVELS = ['off', 'view', 'edit'];
+const LEVEL_LABEL = { off: 'Hidden', view: 'View', edit: 'Edit' };
+const LEVEL_ACTIVE = {
+  off: 'bg-ink-600 text-white',
+  view: 'bg-amber-500 text-white',
+  edit: 'bg-emerald-600 text-white'
+};
+const ADMIN_ONLY = ['manage-users', 'clinic-settings'];
+const ALL_EDIT = Object.fromEntries(MODULES.map((m) => [m.key, 'edit']));
+
+// Per-module access picker. 'off' hides the module entirely; 'view' opens it
+// read-only; 'edit' is full access. Manage Users and Clinic Settings stay
+// admin-only and are not offered for other roles.
+function ModuleAccessGrid({ value, onChange, role }) {
+  return (
+    <div className="rounded-lg border border-ink-200 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-ink-50/60 border-b border-ink-100">
+        <p className="text-xs font-bold text-ink-500 uppercase tracking-wider">Module access</p>
+        <button
+          type="button"
+          onClick={() => onChange({ ...ALL_EDIT })}
+          className="text-[11px] font-medium text-primary-700 hover:text-primary-800 hover:underline"
+        >
+          All editable
+        </button>
+      </div>
+      <div className="divide-y divide-ink-100 max-h-56 overflow-y-auto">
+        {MODULES.filter((m) => role === 'admin' || !ADMIN_ONLY.includes(m.key)).map((m) => {
+          const lvl = value[m.key] || 'off';
+          return (
+            <div key={m.key} className="flex items-center justify-between gap-2 px-3 py-1.5">
+              <span className="text-sm text-ink-800">{m.label}</span>
+              <div className="inline-flex rounded-md border border-ink-200 overflow-hidden">
+                {MODULE_LEVELS.map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => onChange({ ...value, [m.key]: l })}
+                    className={`px-2 py-1 text-[11px] font-medium transition-colors ${
+                      lvl === l ? LEVEL_ACTIVE[l] : 'text-ink-400 hover:bg-ink-50'
+                    }`}
+                  >
+                    {LEVEL_LABEL[l]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-ink-400 px-3 py-2 border-t border-ink-100 bg-ink-50/40">
+        Hidden removes it from the sidebar · View opens it read-only · Edit is full access.
+      </p>
+    </div>
   );
 }
 
@@ -87,19 +150,29 @@ export function ManageUsers() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  async function fetchUsers() {
-    setLoading(true);
+  // Per-account module access (admin accounts only)
+  const [createModules, setCreateModules] = useState({ ...ALL_EDIT });
+  const [editModules, setEditModules] = useState({ ...ALL_EDIT });
+
+  async function fetchUsers(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const { data } = await api.get('/auth/users');
       setUsers(data);
     } catch (err) {
-      toast.error(apiError(err, 'Failed to load users'));
+      if (!silent) toast.error(apiError(err, 'Failed to load users'));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
-  useEffect(() => { fetchUsers(); }, []);
+  // Refresh the list silently every 30 s so activity changes (log-ins,
+  // log-outs, idles) appear without a page reload.
+  useEffect(() => {
+    fetchUsers();
+    const timer = setInterval(() => fetchUsers(true), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // ── Create ──────────────────────────────────────────────────────────────────
   const updateCreate = (k) => (e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }));
@@ -109,6 +182,13 @@ export function ManageUsers() {
     setCreating(true);
     try {
       const { data } = await api.post('/auth/register', createForm);
+      if (data?.user?.id) {
+        await api.put(`/auth/users/${data.user.id}`, {
+          name: createForm.name, email: createForm.email, role: createForm.role,
+          username: createForm.username || null, allowed_modules: createModules
+        }).catch(() => {});
+      }
+      setCreateModules({ ...ALL_EDIT });
       toast.success(
         `User "${createForm.name}" created. They can now sign in with their password.`
       );
@@ -126,6 +206,7 @@ export function ManageUsers() {
   function openEdit(user) {
     setEditTarget(user);
     setEditForm({ name: user.name, username: user.username || '', email: user.email, role: user.role, password: '', can_sign_clinical: Boolean(user.can_sign_clinical) });
+    setEditModules(user.allowed_modules && typeof user.allowed_modules === 'object' ? { ...user.allowed_modules } : { ...ALL_EDIT });
   }
 
   const updateEdit = (k) => (e) => setEditForm((f) => ({ ...f, [k]: e.target.value }));
@@ -151,7 +232,7 @@ export function ManageUsers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false };
+      const payload = { name: editForm.name, email: editForm.email, role: editForm.role, username: editForm.username || null, can_sign_clinical: editForm.role === 'admin' ? Boolean(editForm.can_sign_clinical) : false, allowed_modules: editModules };
       if (editForm.password) payload.password = editForm.password;
       const { data } = await api.put(`/auth/users/${editTarget.id}`, payload);
       toast.success(data.message || 'User updated');
@@ -313,10 +394,11 @@ export function ManageUsers() {
           <Select label="Role" value={createForm.role} onChange={updateCreate('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
-            <option value="midwife">Admission Midwife</option>
+            <option value="midwife">Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
+          <ModuleAccessGrid value={createModules} onChange={setCreateModules} role={createForm.role} />
         </form>
       </Modal>
 
@@ -353,10 +435,11 @@ export function ManageUsers() {
           <Select label="Role" value={editForm.role} onChange={updateEdit('role')}>
             <option value="staff">Staff</option>
             <option value="nurse">Nurse</option>
-            <option value="midwife">Admission Midwife</option>
+            <option value="midwife">Midwife</option>
             <option value="doctor">Doctor</option>
             <option value="admin">Administrator</option>
           </Select>
+          <ModuleAccessGrid value={editModules} onChange={setEditModules} role={editForm.role} />
           {editForm.role === 'admin' && (
             <label className="flex items-start gap-2.5 text-sm text-ink-800 cursor-pointer">
               <input

@@ -7,7 +7,7 @@ import { pregnancyTrackingService } from '../services/pregnancyTrackingService';
 import { apiError } from '../services/api';
 
 const ROW_COUNT = 15;
-const ZOOM_MIN = 60;
+const ZOOM_MIN = 50;
 const ZOOM_MAX = 200;
 const ZOOM_STEP = 10;
 
@@ -61,8 +61,11 @@ function normalizeRows(rows) {
   if (!Array.isArray(rows)) return initialRows;
   const normalized = rows.map(normalizeRow);
   while (normalized.length < ROW_COUNT) normalized.push(emptyRow());
-  return normalized.slice(0, ROW_COUNT);
+  return normalized; // keep extra rows beyond 15 — Enter appends rows as needed
 }
+
+// Width in characters so a cell always fits what is typed in it.
+const fitChars = (v, min = 4) => Math.max(min, String(v ?? '').length + 2);
 
 export function PregnancyTrackingForm() {
   const { onOpenMenu } = useOutletContext();
@@ -71,10 +74,27 @@ export function PregnancyTrackingForm() {
   const [rows, setRows] = useState(initialRows);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(50);
   const [typeFilter, setTypeFilter] = useState('all');
   const [jlmcFilter, setJlmcFilter] = useState('all');
   const savingRef = useRef(false);
+  const [page, setPage] = useState(0);
+  const tableScrollRef = useRef(null);
+  const paperRef = useRef(null);
+
+  // Mouse wheel zoom on the form: hold Ctrl and roll the wheel to zoom in/out.
+  // Attached natively so we can prevent the browser's own Ctrl+wheel zoom.
+  useEffect(() => {
+    const el = paperRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   // Load saved form for the selected month/year; if none exists, auto-fill from active pregnancies.
   useEffect(() => {
@@ -157,6 +177,68 @@ export function PregnancyTrackingForm() {
       return next;
     });
   };
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / ROW_COUNT));
+  const safePage = Math.min(page, pageCount - 1);
+
+  const focusCell = (tr, tc) => {
+    setTimeout(() => {
+      const el = tableScrollRef.current?.querySelector('input[data-r="' + tr + '"][data-c="' + tc + '"]');
+      if (el) {
+        el.scrollIntoView({ block: 'nearest' });
+        el.focus();
+        el.select?.();
+      }
+    }, 60);
+  };
+
+  // Arrow keys move between cells like a spreadsheet: left/right at the
+  // text edge, up/down to the same column in the next row.
+  const onTableKeyDown = useCallback((e) => {
+    const el = e.target;
+    if (el.tagName !== 'INPUT') return;
+    const r = Number(el.dataset.r);
+    const c = Number(el.dataset.c);
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return;
+    let tr = r, tc = c;
+    if (e.key === 'ArrowRight') {
+      if (el.selectionEnd !== el.value.length) return;
+      tc = c + 1;
+    } else if (e.key === 'ArrowLeft') {
+      if (el.selectionStart !== 0) return;
+      tc = c - 1;
+    } else if (e.key === 'ArrowDown' || e.key === 'Enter') tr = r + 1;
+    else if (e.key === 'ArrowUp') tr = r - 1;
+    else return;
+
+    // Enter past the last row: open a fresh page padded to 15 rows.
+    if (tr >= rows.length && e.key === 'Enter') {
+      const needed = Math.ceil((tr + 1) / ROW_COUNT) * ROW_COUNT;
+      setRows((prev) => {
+        const next = [...prev];
+        while (next.length < needed) next.push(emptyRow());
+        return next;
+      });
+      setPage(Math.floor(tr / ROW_COUNT));
+      focusCell(tr, tc);
+      e.preventDefault();
+      return;
+    }
+    if (tr < 0 || tr >= rows.length) return;
+    const targetPage = Math.floor(tr / ROW_COUNT);
+    if (targetPage !== safePage) {
+      setPage(targetPage);
+      focusCell(tr, tc);
+      e.preventDefault();
+      return;
+    }
+    const next = tableScrollRef.current?.querySelector('input[data-r="' + tr + '"][data-c="' + tc + '"]');
+    if (next) {
+      e.preventDefault();
+      next.focus();
+      next.select?.();
+    }
+  }, [rows.length, safePage]);
 
   const handlePrint = () => window.print();
 
@@ -290,6 +372,204 @@ export function PregnancyTrackingForm() {
     XLSX.writeFile(wb, `pregnancy-tracking-${monthYear.replace(/\s+/g, '-').toLowerCase()}.xlsx`);
   };
 
+  const tableHead = (
+<thead>
+                  {/* Main header row */}
+                  <tr>
+                    <th rowSpan={3} className="border border-ink-800 w-10 py-2 font-semibold text-ink-900 text-sm">#</th>
+                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[180px]">Name</th>
+                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[180px]">Address</th>
+                    <th rowSpan={3} className="border border-ink-800 w-12 py-2 font-semibold text-ink-900">Age</th>
+                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[110px]">CP Number</th>
+                    <th rowSpan={3} className="border border-ink-800 w-24 py-2 font-semibold text-ink-900 text-xs leading-tight">
+                      <span className="block">Doc</span>
+                      <span className="block">Submitted</span>
+                    </th>
+                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 whitespace-nowrap">EDD</th>
+                    <th rowSpan={3} className="border border-ink-800 w-24 py-2 font-semibold text-ink-900 text-sm">OB<br />INDEX</th>
+                    <th className="border border-ink-800 py-2 font-semibold text-ink-900 text-sm tracking-widest" colSpan={18}>
+                      TRIMESTER
+                    </th>
+                    <th rowSpan={3} className="border border-ink-800 w-28 py-2 font-semibold text-ink-900 text-xs">
+                      JLMC<br />Delivery Date
+                    </th>
+                  </tr>
+                  {/* Row 2: 1-7 span both rows (merged, no sub-row). 8, 9, + span their sub-cols */}
+                  <tr>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">1</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">2</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">3</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">4</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">5</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">6</th>
+                    <th rowSpan={2} className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-sm">7</th>
+                    <th className="w-2 py-1"></th>
+                    <th colSpan={2} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">8</th>
+                    <th className="w-2 py-1"></th>
+                    <th colSpan={4} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">9</th>
+                    <th className="w-2 py-1"></th>
+                    <th colSpan={2} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">+</th>
+                  </tr>
+                  {/* Row 3: sub-headers only under 8 and 9, nothing under 1-7 or + */}
+                  <tr>
+                    <th className="w-2 py-1"></th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">1</th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">2</th>
+                    <th className="w-2 py-1"></th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">1</th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">2</th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">3</th>
+                    <th className="border border-ink-800 w-16 py-1.5 font-semibold text-ink-900 text-xs">4</th>
+                    <th className="w-2 py-1"></th>
+                    <th className="border border-ink-800 w-16 py-1"></th>
+                    <th className="border border-ink-800 w-16 py-1"></th>
+                  </tr>
+                </thead>
+  );
+
+  const renderRow = (row, rowIdx) => (
+<tr key={rowIdx}>
+                      <td className="border border-ink-800 text-center text-ink-700 font-medium h-12 text-sm">
+                        {rowIdx + 1}
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.name}
+                          size={fitChars(row.name, 14)}
+                          data-r={rowIdx} data-c={0}
+                          onChange={(e) => updateRow(rowIdx, 'name', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
+                        />
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.address}
+                          size={fitChars(row.address, 14)}
+                          data-r={rowIdx} data-c={1}
+                          onChange={(e) => updateRow(rowIdx, 'address', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
+                        />
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.age}
+                          size={fitChars(row.age, 3)}
+                          data-r={rowIdx} data-c={2}
+                          onChange={(e) => updateRow(rowIdx, 'age', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
+                        />
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.cpNumber}
+                          size={fitChars(row.cpNumber, 11)}
+                          data-r={rowIdx} data-c={3}
+                          onChange={(e) => updateRow(rowIdx, 'cpNumber', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
+                        />
+                      </td>
+                      {/* Doc Submitted — blank cell, click to toggle like paper form */}
+                      <td
+                        className="border border-ink-800 cursor-pointer"
+                        onClick={() => updateRow(rowIdx, 'docSubmitted', !row.docSubmitted)}
+                      >
+                        <div className="w-full h-full flex items-center justify-center min-h-[44px]">
+                          {row.docSubmitted && (
+                            <span className="text-ink-900 font-bold text-sm">✓</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.edd}
+                          size={fitChars(row.edd, 11)}
+                          data-r={rowIdx} data-c={4}
+                          onChange={(e) => updateRow(rowIdx, 'edd', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
+                        />
+                      </td>
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.obIndex}
+                          size={fitChars(row.obIndex, 4)}
+                          data-r={rowIdx} data-c={5}
+                          onChange={(e) => updateRow(rowIdx, 'obIndex', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
+                        />
+                      </td>
+
+                      {/* Trimester cells: 1-7, gap, 8(1,2), gap, 9(1,2,3,4), gap, +(2) */}
+                      {row.trimester.slice(0, 7).map((value, colIdx) => (
+                        <td key={colIdx} className="border border-ink-800 w-16 p-0">
+                          <input
+                            type="text"
+                            value={value}
+                            placeholder="MM/DD"
+                            data-r={rowIdx} data-c={6 + colIdx}
+                            onChange={(e) => updateTrimester(rowIdx, colIdx, e.target.value)}
+                            className="w-full h-full min-h-[44px] px-2 text-center text-xs bg-transparent outline-none text-ink-900 placeholder:text-ink-400"
+                          />
+                        </td>
+                      ))}
+                      <td className="w-2"></td>
+                      {row.trimester.slice(7, 9).map((value, colIdx) => (
+                        <td key={colIdx + 7} className="border border-ink-800 w-16 p-0">
+                          <input
+                            type="text"
+                            value={value}
+                            placeholder="MM/DD"
+                            data-r={rowIdx} data-c={6 + colIdx + 7}
+                            onChange={(e) => updateTrimester(rowIdx, colIdx + 7, e.target.value)}
+                            className="w-full h-full min-h-[44px] px-2 text-center text-xs bg-transparent outline-none text-ink-900 placeholder:text-ink-400"
+                          />
+                        </td>
+                      ))}
+                      <td className="w-2"></td>
+                      {row.trimester.slice(9, 13).map((value, colIdx) => (
+                        <td key={colIdx + 9} className="border border-ink-800 w-16 p-0">
+                          <input
+                            type="text"
+                            value={value}
+                            placeholder="MM/DD"
+                            data-r={rowIdx} data-c={6 + colIdx + 9}
+                            onChange={(e) => updateTrimester(rowIdx, colIdx + 9, e.target.value)}
+                            className="w-full h-full min-h-[44px] px-2 text-center text-xs bg-transparent outline-none text-ink-900 placeholder:text-ink-400"
+                          />
+                        </td>
+                      ))}
+                      <td className="w-2"></td>
+                      {row.trimester.slice(13, 15).map((value, colIdx) => (
+                        <td key={colIdx + 13} className="border border-ink-800 w-16 p-0">
+                          <input
+                            type="text"
+                            value={value}
+                            placeholder="MM/DD"
+                            data-r={rowIdx} data-c={6 + colIdx + 13}
+                            onChange={(e) => updateTrimester(rowIdx, colIdx + 13, e.target.value)}
+                            className="w-full h-full min-h-[44px] px-2 text-center text-xs bg-transparent outline-none text-ink-900 placeholder:text-ink-400"
+                          />
+                        </td>
+                      ))}
+
+                      <td className="border border-ink-800 whitespace-nowrap">
+                        <input
+                          type="text"
+                          value={row.deliveryDate}
+                          size={fitChars(row.deliveryDate, 10)}
+                          data-r={rowIdx} data-c={21}
+                          onChange={(e) => updateRow(rowIdx, 'deliveryDate', e.target.value)}
+                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
+                        />
+                      </td>
+                    </tr>
+  );
+
   return (
     <div className="h-full flex flex-col">
       <Topbar title="Pregnancy Tracking Form" onMenuClick={onOpenMenu} />
@@ -356,8 +636,8 @@ export function PregnancyTrackingForm() {
             </div>
           </div>
 
-          {/* Form paper */}
-          <div className="bg-white p-3 sm:p-6 md:p-8 print:p-0">
+          {/* Form paper — zoom applies to the table only, not the app around it */}
+          <div ref={paperRef} className="bg-white p-3 sm:p-6 md:p-8 print:p-0">
             {/* Header */}
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 mb-4 sm:mb-6">
               <h1 className="text-base sm:text-xl font-bold text-ink-900 tracking-tight">
@@ -401,200 +681,101 @@ export function PregnancyTrackingForm() {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto print:![zoom:1]" style={{ zoom: zoom / 100 }}>
-              <table className="w-full border-collapse border border-ink-800 text-sm">
-                <thead>
-                  {/* Main header row */}
-                  <tr>
-                    <th rowSpan={3} className="border border-ink-800 w-8 py-2 font-semibold text-ink-900 text-xs">#</th>
-                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[180px]">Name</th>
-                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[180px]">Address</th>
-                    <th rowSpan={3} className="border border-ink-800 w-12 py-2 font-semibold text-ink-900">Age</th>
-                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 min-w-[110px]">CP Number</th>
-                    <th rowSpan={3} className="border border-ink-800 w-20 py-2 font-semibold text-ink-900 text-[11px] leading-tight">
-                      <span className="block">Doc</span>
-                      <span className="block">Submitted</span>
-                    </th>
-                    <th rowSpan={3} className="border border-ink-800 px-2 py-2 font-semibold text-ink-900 whitespace-nowrap">EDD</th>
-                    <th rowSpan={3} className="border border-ink-800 w-20 py-2 font-semibold text-ink-900 text-xs">OB<br />INDEX</th>
-                    <th className="border border-ink-800 py-2 font-semibold text-ink-900 text-xs tracking-widest" colSpan={18}>
-                      TRIMESTER
-                    </th>
-                    <th rowSpan={3} className="border border-ink-800 w-24 py-2 font-semibold text-ink-900 text-[11px]">
-                      JLMC<br />Delivery Date
-                    </th>
-                  </tr>
-                  {/* Row 2: 1-7 span both rows (merged, no sub-row). 8, 9, + span their sub-cols */}
-                  <tr>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">1</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">2</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">3</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">4</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">5</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">6</th>
-                    <th rowSpan={2} className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-xs">7</th>
-                    <th className="w-2 py-1"></th>
-                    <th colSpan={2} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">8</th>
-                    <th className="w-2 py-1"></th>
-                    <th colSpan={4} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">9</th>
-                    <th className="w-2 py-1"></th>
-                    <th colSpan={2} className="border border-ink-800 py-1 font-semibold text-ink-900 text-xs">+</th>
-                  </tr>
-                  {/* Row 3: sub-headers only under 8 and 9, nothing under 1-7 or + */}
-                  <tr>
-                    <th className="w-2 py-1"></th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">1</th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">2</th>
-                    <th className="w-2 py-1"></th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">1</th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">2</th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">3</th>
-                    <th className="border border-ink-800 w-12 py-1 font-semibold text-ink-900 text-[10px]">4</th>
-                    <th className="w-2 py-1"></th>
-                    <th className="border border-ink-800 w-12 py-1"></th>
-                    <th className="border border-ink-800 w-12 py-1"></th>
-                  </tr>
-                </thead>
+            {/* Table — only this part zooms; the form header stays fixed */}
+            <div className="relative print:hidden" style={{ zoom: zoom / 100 }}>
+              <button
+                type="button"
+                aria-label="Scroll left"
+                onClick={() => tableScrollRef.current?.scrollBy({ left: -320, behavior: 'smooth' })}
+                className="sticky left-0 float-left z-10 my-1 -mr-8 flex h-8 w-8 items-center justify-center rounded-full border border-ink-300 bg-white text-ink-700 shadow hover:bg-ink-50 print:hidden"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                aria-label="Scroll right"
+                onClick={() => tableScrollRef.current?.scrollBy({ left: 320, behavior: 'smooth' })}
+                className="sticky right-0 float-right z-10 my-1 -ml-8 flex h-8 w-8 items-center justify-center rounded-full border border-ink-300 bg-white text-ink-700 shadow hover:bg-ink-50 print:hidden"
+              >
+                ›
+              </button>
+            <div ref={tableScrollRef} className="overflow-x-auto" onKeyDown={onTableKeyDown}>
+              <table className="border-collapse border border-ink-800 text-sm" style={{ minWidth: '100%', width: 'max-content' }}>
+                {tableHead}
 
                 <tbody>
                   {rows
                     .map((row, rowIdx) => ({ row, rowIdx }))
+                    .filter(({ rowIdx }) => rowIdx >= safePage * ROW_COUNT && rowIdx < (safePage + 1) * ROW_COUNT)
                     .filter(({ row }) =>
                       !row.patient_id ||
                       ((typeFilter === 'all' || (typeFilter === 'old') === !!row.isOld) &&
                        (jlmcFilter === 'all' || (jlmcFilter === 'jlmc') === !!row.deliveryInJlmc))
                     )
                     .map(({ row, rowIdx }) => (
-                    <tr key={rowIdx}>
-                      <td className="border border-ink-800 text-center text-ink-700 font-medium h-10 text-xs">
-                        {rowIdx + 1}
-                      </td>
-                      <td className="border border-ink-800">
-                        <input
-                          type="text"
-                          value={row.name}
-                          onChange={(e) => updateRow(rowIdx, 'name', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
-                        />
-                      </td>
-                      <td className="border border-ink-800">
-                        <input
-                          type="text"
-                          value={row.address}
-                          onChange={(e) => updateRow(rowIdx, 'address', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
-                        />
-                      </td>
-                      <td className="border border-ink-800">
-                        <input
-                          type="text"
-                          value={row.age}
-                          onChange={(e) => updateRow(rowIdx, 'age', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
-                        />
-                      </td>
-                      <td className="border border-ink-800">
-                        <input
-                          type="text"
-                          value={row.cpNumber}
-                          onChange={(e) => updateRow(rowIdx, 'cpNumber', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-ink-900"
-                        />
-                      </td>
-                      {/* Doc Submitted — blank cell, click to toggle like paper form */}
-                      <td
-                        className="border border-ink-800 cursor-pointer"
-                        onClick={() => updateRow(rowIdx, 'docSubmitted', !row.docSubmitted)}
-                      >
-                        <div className="w-full h-full flex items-center justify-center min-h-[36px]">
-                          {row.docSubmitted && (
-                            <span className="text-ink-900 font-bold text-sm">✓</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="border border-ink-800 whitespace-nowrap">
-                        <input
-                          type="text"
-                          value={row.edd}
-                          onChange={(e) => updateRow(rowIdx, 'edd', e.target.value)}
-                          className="w-auto min-w-[120px] px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
-                        />
-                      </td>
-                      <td className="border border-ink-800 whitespace-nowrap">
-                        <input
-                          type="text"
-                          value={row.obIndex}
-                          onChange={(e) => updateRow(rowIdx, 'obIndex', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
-                        />
-                      </td>
-
-                      {/* Trimester cells: 1-7, gap, 8(1,2), gap, 9(1,2,3,4), gap, +(2) */}
-                      {row.trimester.slice(0, 7).map((value, colIdx) => (
-                        <td key={colIdx} className="border border-ink-800 w-12 p-0">
-                          <input
-                            type="text"
-                            value={value}
-                            placeholder="MM/DD"
-                            onChange={(e) => updateTrimester(rowIdx, colIdx, e.target.value)}
-                            className="w-full h-full min-h-[36px] px-1 text-center text-[10px] bg-transparent outline-none text-ink-900 placeholder:text-ink-300"
-                          />
-                        </td>
-                      ))}
-                      <td className="w-2"></td>
-                      {row.trimester.slice(7, 9).map((value, colIdx) => (
-                        <td key={colIdx + 7} className="border border-ink-800 w-12 p-0">
-                          <input
-                            type="text"
-                            value={value}
-                            placeholder="MM/DD"
-                            onChange={(e) => updateTrimester(rowIdx, colIdx + 7, e.target.value)}
-                            className="w-full h-full min-h-[36px] px-1 text-center text-[10px] bg-transparent outline-none text-ink-900 placeholder:text-ink-300"
-                          />
-                        </td>
-                      ))}
-                      <td className="w-2"></td>
-                      {row.trimester.slice(9, 13).map((value, colIdx) => (
-                        <td key={colIdx + 9} className="border border-ink-800 w-12 p-0">
-                          <input
-                            type="text"
-                            value={value}
-                            placeholder="MM/DD"
-                            onChange={(e) => updateTrimester(rowIdx, colIdx + 9, e.target.value)}
-                            className="w-full h-full min-h-[36px] px-1 text-center text-[10px] bg-transparent outline-none text-ink-900 placeholder:text-ink-300"
-                          />
-                        </td>
-                      ))}
-                      <td className="w-2"></td>
-                      {row.trimester.slice(13, 15).map((value, colIdx) => (
-                        <td key={colIdx + 13} className="border border-ink-800 w-12 p-0">
-                          <input
-                            type="text"
-                            value={value}
-                            placeholder="MM/DD"
-                            onChange={(e) => updateTrimester(rowIdx, colIdx + 13, e.target.value)}
-                            className="w-full h-full min-h-[36px] px-1 text-center text-[10px] bg-transparent outline-none text-ink-900 placeholder:text-ink-300"
-                          />
-                        </td>
-                      ))}
-
-                      <td className="border border-ink-800">
-                        <input
-                          type="text"
-                          value={row.deliveryDate}
-                          onChange={(e) => updateRow(rowIdx, 'deliveryDate', e.target.value)}
-                          className="w-full px-2 py-1.5 text-sm bg-transparent outline-none text-center text-ink-900"
-                        />
-                      </td>
-                    </tr>
+renderRow(row, rowIdx)
                   ))}
                 </tbody>
               </table>
             </div>
+            </div>
 
-            {/* Footer */}
-            <div className="flex justify-end mt-6 text-sm text-ink-600">
+            {/* Print: whole booklet on Letter landscape, column widths like the paper form */}
+            <style>{`@page { size: letter landscape; margin: 10mm; }
+              .ptf-print input { font-size: 9px !important; padding: 1px 2px !important; min-height: 0 !important; height: 18px !important; }
+              .ptf-print td, .ptf-print th { padding: 0 !important; }
+              .ptf-print th { font-size: 9px !important; }
+            `}</style>
+            <div className="hidden print:block ptf-print">
+              <table className="border-collapse border border-ink-800 text-sm w-full table-fixed">
+                <colgroup>
+                  <col style={{ width: '3%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11.5%' }} />
+                  <col style={{ width: '3.5%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '4.5%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '6.5%' }} />
+                  {Array.from({ length: 7 }, (_, i) => <col key={'t' + i} style={{ width: '2.4%' }} />)}
+                  <col style={{ width: '1.1%' }} />
+                  <col style={{ width: '2.4%' }} />
+                  <col style={{ width: '2.4%' }} />
+                  <col style={{ width: '1.1%' }} />
+                  {Array.from({ length: 4 }, (_, i) => <col key={'n' + i} style={{ width: '2.4%' }} />)}
+                  <col style={{ width: '1.1%' }} />
+                  <col style={{ width: '2.4%' }} />
+                  <col style={{ width: '2.4%' }} />
+                  <col style={{ width: '8%' }} />
+                </colgroup>
+                {tableHead}
+                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx))}</tbody>
+              </table>
+            </div>
+
+            {/* Footer: real page numbers + page navigation */}
+            <div className="flex items-center justify-between mt-6 text-sm text-ink-600 print:hidden">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={safePage === 0}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-ink-300 bg-white text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  &lt; Prev page
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={safePage >= pageCount - 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-ink-300 bg-white text-ink-700 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  Next page &gt;
+                </button>
+              </div>
+              <span>Page {safePage + 1} of {pageCount}</span>
+            </div>
+            <div className="hidden print:block mt-6 text-sm text-ink-600 text-right">
               <span>Page __ of __</span>
             </div>
           </div>

@@ -21,9 +21,13 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const day = (d) => (d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 const dt = (d) => (d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 
+const localIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dayStartIso = (d) => new Date(`${d}T00:00:00`).toISOString();
+const dayEndIso = (d) => new Date(new Date(`${d}T00:00:00`).getTime() + 24 * 3600 * 1000 - 1).toISOString();
+
 function toIso(d) {
   const x = d ? new Date(d) : new Date();
-  return new Date(x.getFullYear(), x.getMonth(), x.getDate()).toISOString().split('T')[0];
+  return localIso(x);
 }
 function isoDateParts(v) {
   const [y, m, d] = v.split('-').map(Number);
@@ -31,18 +35,18 @@ function isoDateParts(v) {
 }
 function monthStart(d) {
   const x = d ? new Date(d) : new Date();
-  return new Date(x.getFullYear(), x.getMonth(), 1).toISOString().split('T')[0];
+  return localIso(new Date(x.getFullYear(), x.getMonth(), 1));
 }
 function monthEnd(d) {
   const x = d ? new Date(d) : new Date();
-  return new Date(x.getFullYear(), x.getMonth() + 1, 0).toISOString().split('T')[0];
+  return localIso(new Date(x.getFullYear(), x.getMonth() + 1, 0));
 }
 function weekRange(d) {
   const x = d ? new Date(d) : new Date();
   const dayOfWeek = x.getDay();
   const start = new Date(x.getFullYear(), x.getMonth(), x.getDate() - dayOfWeek);
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-  return { from: start.toISOString().split('T')[0], to: end.toISOString().split('T')[0] };
+  return { from: localIso(start), to: localIso(end) };
 }
 function lastMonths(count = 12) {
   const now = new Date();
@@ -70,10 +74,10 @@ export function Monitoring() {
 
   const range = useMemo(() => {
     if (mode === 'all') return {};
-    if (mode === 'day') return { from: dayValue, to: dayValue };
-    if (mode === 'week') return weekRange(weekValue);
+    if (mode === 'day') return { from: dayStartIso(dayValue), to: dayEndIso(dayValue) };
+    if (mode === 'week') { const w = weekRange(weekValue); return { from: dayStartIso(w.from), to: dayEndIso(w.to) }; }
     const [y, m] = monthValue.split('-').map(Number);
-    return { from: monthStart(new Date(y, m - 1, 1)), to: monthEnd(new Date(y, m - 1, 1)) };
+    return { from: dayStartIso(monthStart(new Date(y, m - 1, 1))), to: dayEndIso(monthEnd(new Date(y, m - 1, 1))) };
   }, [mode, dayValue, weekValue, monthValue]);
 
   const load = useCallback(async () => {
@@ -119,7 +123,13 @@ export function Monitoring() {
                       <button
                         key={m}
                         type="button"
-                        onClick={() => setMode(m)}
+                        onClick={() => {
+                          setMode(m);
+                          const today = toIso();
+                          if (m === 'day') setDayValue(today);
+                          if (m === 'week') setWeekValue(today);
+                          if (m === 'month') setMonthValue(lastMonths()[0].value);
+                        }}
                         className={`px-3 py-1 text-sm font-medium rounded-md capitalize transition-colors ${mode === m ? 'bg-white text-primary-700 shadow-sm' : 'text-ink-600 hover:text-ink-900'}`}
                       >
                         {m}

@@ -16,7 +16,7 @@ function buildTrackingRow(preg, patient) {
     cpNumber: patient?.contact_number || '',
     docSubmitted: false,
     edd: preg.edd || '',
-    obIndex: preg.gp || '',
+    obIndex: preg.gp || preg.ob_index || '',
     trimester: Array(TOTAL_TRIMESTER_COLS).fill(''),
     deliveryDate: '',
     status: preg.status || 'Ongoing',
@@ -36,7 +36,9 @@ async function syncPregnancyToTracking(preg) {
   if (!preg || !preg.patient_id) return;
 
   const now = new Date();
-  const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  // Same key format the tracking UI uses ("November 2026"), not "2026-11" —
+  // otherwise synced rows land on a form nobody opens.
+  const monthYear = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const patient = await Patient.findById(preg.patient_id);
   const newRow = buildTrackingRow(preg, patient);

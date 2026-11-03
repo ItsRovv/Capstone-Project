@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Icon } from './Icon';
 import { JLMCLogo } from './JLMCLogo';
+import { NotificationBell } from './NotificationBell';
 
 export function Header({ onOpenMenu }) {
   const { user, logout } = useAuth();
@@ -40,6 +41,7 @@ export function Header({ onOpenMenu }) {
       </div>
 
       <div className="flex items-center flex-shrink-0">
+        <NotificationBell />
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}

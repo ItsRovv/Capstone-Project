@@ -21,6 +21,7 @@ router.get('/expected-deliveries', async (req, res) => {
       `SELECT p.id AS pregnancy_id, pa.id AS patient_id, pa.first_name, pa.last_name, pa.contact_number,
               p.edd, p.weeks, p.trimester, p.gp,
               (SELECT MAX(c.visit_date) FROM consultations c WHERE c.patient_id = pa.id) AS last_consultation,
+              (SELECT MIN(c.visit_date) FROM consultations c WHERE c.patient_id = pa.id) AS first_consultation,
               (SELECT c.delivery_location FROM consultations c WHERE c.patient_id = pa.id AND c.delivery_location IS NOT NULL
                  ORDER BY c.visit_date DESC LIMIT 1) AS delivery_location,
               (p.edd < CURRENT_DATE) AS overdue

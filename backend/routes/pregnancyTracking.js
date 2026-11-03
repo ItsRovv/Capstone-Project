@@ -77,7 +77,15 @@ async function recordPrenatalVisit(patientId, visitDate) {
   if (Number.isNaN(when.getTime())) return false;
   const monthYear = when.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const mmdd = `${String(when.getMonth() + 1).padStart(2, '0')}/${String(when.getDate()).padStart(2, '0')}`;
-  const monthOfPregnancy = active.weeks ? Math.max(1, Math.ceil(Number(active.weeks) / 4.345)) : 9;
+  // Derive the month of pregnancy at the visit: prefer stored weeks, else
+  // compute from LMP — many pregnancies only have LMP recorded.
+  let monthOfPregnancy = 9;
+  const weeksAtVisit = active.weeks
+    ? Number(active.weeks)
+    : active.lmp
+      ? Math.max(0, Math.floor((when.getTime() - new Date(active.lmp).getTime()) / (7 * 24 * 3600000)))
+      : null;
+  if (Number.isFinite(weeksAtVisit)) monthOfPregnancy = Math.min(10, Math.max(1, Math.ceil(weeksAtVisit / 4.345)));
 
   const form = await PregnancyTrackingForm.findByMonthYear(monthYear);
   const rows = form ? (typeof form.rows === 'string' ? JSON.parse(form.rows) : form.rows || []) : [];
@@ -106,8 +114,6 @@ async function recordPrenatalVisit(patientId, visitDate) {
   else await PregnancyTrackingForm.create(monthYear, rows);
   return true;
 }
-
-module.exports.recordPrenatalVisit = recordPrenatalVisit;
 
 // Get active pregnancies pre-filled for the tracking form. isOld marks patients
 // with earlier records; deliveryInJlmc marks those set to deliver (or delivered) here.
@@ -196,3 +202,5 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+// Attached after the router export so it isn't overwritten above.
+module.exports.recordPrenatalVisit = recordPrenatalVisit;

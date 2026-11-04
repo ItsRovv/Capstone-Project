@@ -179,7 +179,6 @@ async function recordPostnatalVisit(patientId, visitDate) {
   return writeTrackingRow(patient, latest, when, 10);
 }
 
-
 // Get active pregnancies pre-filled for the tracking form. isOld marks patients
 // with earlier records; deliveryInJlmc marks those set to deliver (or delivered) here.
 router.get('/active-pregnancies', async (req, res) => {
@@ -267,5 +266,6 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+// Attached after the router export so it isn't overwritten above.
 module.exports.recordPrenatalVisit = recordPrenatalVisit;
 module.exports.recordPostnatalVisit = recordPostnatalVisit;

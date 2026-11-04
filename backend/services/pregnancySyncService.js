@@ -16,7 +16,7 @@ function buildTrackingRow(preg, patient) {
     cpNumber: patient?.contact_number || '',
     docSubmitted: false,
     edd: preg.edd || '',
-    obIndex: preg.gp || '',
+    obIndex: preg.gp || preg.ob_index || '',
     trimester: Array(TOTAL_TRIMESTER_COLS).fill(''),
     deliveryDate: '',
     status: preg.status || 'Ongoing',

@@ -881,6 +881,69 @@ BEGIN
   END IF;
 END $$;
 
+DROP POLICY IF EXISTS "App full access" ON public.consultation_transactions;
+CREATE POLICY "App full access" ON public.consultation_transactions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.clinic_reports;
+CREATE POLICY "App full access" ON public.clinic_reports FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.pregnancies;
+CREATE POLICY "App full access" ON public.pregnancies FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.pregnancy_tracking_forms;
+CREATE POLICY "App full access" ON public.pregnancy_tracking_forms FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.queue_entries;
+CREATE POLICY "App full access" ON public.queue_entries FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "App full access" ON public.audit_logs;
+CREATE POLICY "App full access" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- ── RLS for admission, delivery & discharge tables ───────────────────────────
+ALTER TABLE IF EXISTS public.clinic_options ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.clinic_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.newborns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admission_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.discharges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.postpartum_followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.referrals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.midwife_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.admission_vitals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.labor_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.discharge_checklists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.patient_images ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "App full access" ON public.clinic_options;
+CREATE POLICY "App full access" ON public.clinic_options FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.clinic_settings;
+CREATE POLICY "App full access" ON public.clinic_settings FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admissions;
+CREATE POLICY "App full access" ON public.admissions FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.deliveries;
+CREATE POLICY "App full access" ON public.deliveries FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.newborns;
+CREATE POLICY "App full access" ON public.newborns FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admission_items;
+CREATE POLICY "App full access" ON public.admission_items FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.discharges;
+CREATE POLICY "App full access" ON public.discharges FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.postpartum_followups;
+CREATE POLICY "App full access" ON public.postpartum_followups FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.referrals;
+CREATE POLICY "App full access" ON public.referrals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.midwife_notes;
+CREATE POLICY "App full access" ON public.midwife_notes FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.admission_vitals;
+CREATE POLICY "App full access" ON public.admission_vitals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.labor_entries;
+CREATE POLICY "App full access" ON public.labor_entries FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.discharge_checklists;
+CREATE POLICY "App full access" ON public.discharge_checklists FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "App full access" ON public.patient_images;
+CREATE POLICY "App full access" ON public.patient_images FOR ALL USING (true) WITH CHECK (true);
+
 -- patient_images is created by a newer schema version; index its FKs only
 -- when the table is present so this file stays runnable on older databases.
 DO $$

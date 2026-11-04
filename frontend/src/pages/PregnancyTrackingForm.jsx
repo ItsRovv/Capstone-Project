@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Topbar } from '../components/Topbar';
-import { useOutletContext } from 'react-router-dom';
+import { useLocation, useOutletContext } from 'react-router-dom';
 import { JLMCLogo } from '../components/JLMCLogo';
 import { useToast } from '../components/UI/Toast';
 import { pregnancyTrackingService } from '../services/pregnancyTrackingService';
@@ -13,6 +13,27 @@ const ZOOM_STEP = 10;
 
 function getCurrentMonthYear() {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// "November 2026" <-> "2026-11" for the <input type="month"> control.
+function toMonthInput(monthYear) {
+  const d = new Date(`${monthYear} 1`);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function fromMonthInput(v) {
+  if (!v) return getCurrentMonthYear();
+  const [y, m] = v.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function shiftMonth(monthYear, delta) {
+  const d = new Date(`${monthYear} 1`);
+  if (Number.isNaN(d.getTime())) return getCurrentMonthYear();
+  return new Date(d.getFullYear(), d.getMonth() + delta, 1)
+    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
 /*
@@ -89,7 +110,9 @@ const fitChars = (v, min = 4) => Math.max(min, String(v ?? '').length + 2);
 export function PregnancyTrackingForm() {
   const { onOpenMenu } = useOutletContext();
   const toast = useToast();
-  const [monthYear, setMonthYear] = useState(getCurrentMonthYear);
+  const location = useLocation();
+  // A notification can deep-link here with the patient's first-checkup month.
+  const [monthYear, setMonthYear] = useState(location.state?.monthYear || getCurrentMonthYear);
   const [rows, setRows] = useState(initialRows);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -670,15 +693,35 @@ export function PregnancyTrackingForm() {
                 Pregnancy Tracking Form
               </h1>
 
-              <div className="flex flex-col items-center">
-                <input
-                  type="text"
-                  value={monthYear}
-                  onChange={(e) => setMonthYear(e.target.value)}
-                  className="text-[16px] sm:text-sm text-center text-ink-800 bg-transparent border-b border-ink-400 outline-none px-4 py-1 w-40 sm:w-48 font-medium"
-                />
-                <span className="text-[10px] text-ink-500 mt-0.5">Month & Year</span>
+              <div className="flex flex-col items-center print:hidden">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setMonthYear(shiftMonth(monthYear, -1))}
+                    className="px-2 py-1 rounded border border-ink-200 text-ink-600 text-xs hover:bg-ink-50"
+                    title="Previous month"
+                  >
+                    ‹
+                  </button>
+                  <input
+                    type="month"
+                    value={toMonthInput(monthYear)}
+                    onChange={(e) => setMonthYear(fromMonthInput(e.target.value))}
+                    className="text-sm text-center text-ink-800 border border-ink-300 rounded-lg outline-none px-2 py-1 w-40 font-medium focus:border-primary-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMonthYear(shiftMonth(monthYear, 1))}
+                    className="px-2 py-1 rounded border border-ink-200 text-ink-600 text-xs hover:bg-ink-50"
+                    title="Next month"
+                  >
+                    ›
+                  </button>
+                </div>
+                <span className="text-[10px] text-ink-500 mt-0.5">Month & Year — {monthYear}</span>
               </div>
+              {/* Printed header keeps the plain month text */}
+              <p className="hidden print:block text-sm font-medium text-center">{monthYear}</p>
 
               <div className="flex items-center gap-2 print:hidden">
                 <select

@@ -49,14 +49,14 @@ router.get('/today/count', requireStaff, async (req, res) => {
 // POST /api/queue — add a patient to today's queue (staff, nurse, admin only)
 router.post('/', requireRole('admin', 'nurse', 'staff'), async (req, res) => {
   try {
-    const { patient_id, consultation_type } = req.body;
+    const { patient_id, consultation_type, trimester } = req.body;
     if (!patient_id) {
       return res.status(400).json({ message: 'patient_id is required' });
     }
     if (consultation_type && !['normal', 'prenatal', 'postnatal'].includes(consultation_type)) {
       return res.status(400).json({ message: 'consultation_type must be normal, prenatal, or postnatal' });
     }
-    const result = await Queue.add(patient_id, consultation_type || 'normal');
+    const result = await Queue.add(patient_id, consultation_type || 'normal', trimester);
     res.status(201).json(result);
   } catch (err) {
     routeError(res, err);

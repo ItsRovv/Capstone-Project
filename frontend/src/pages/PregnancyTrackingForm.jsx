@@ -60,8 +60,27 @@ function normalizeRow(row) {
 function normalizeRows(rows) {
   if (!Array.isArray(rows)) return initialRows;
   const normalized = rows.map(normalizeRow);
+  // Keep every saved row — rows appended by the prenatal sync must stay visible.
   while (normalized.length < ROW_COUNT) normalized.push(emptyRow());
   return normalized; // keep extra rows beyond 15 — Enter appends rows as needed
+}
+
+const isBlankRow = (r) => !r.patient_id && !String(r.name || '').trim();
+
+// Add active-pregnancy patients that aren't in the saved rows yet — first into
+// blank rows, then appended past the printed 15 if needed.
+function mergeMissingPregnancies(rows, active) {
+  const present = new Set(rows.map((r) => Number(r.patient_id)).filter(Boolean));
+  const missing = (active || []).filter((a) => !present.has(Number(a.patient_id)));
+  if (!missing.length) return rows;
+  const next = [...rows];
+  for (const preg of missing) {
+    const row = normalizeRow(preg);
+    const blankIdx = next.findIndex(isBlankRow);
+    if (blankIdx >= 0) next[blankIdx] = row;
+    else next.push(row);
+  }
+  return next;
 }
 
 // Width in characters so a cell always fits what is typed in it.
@@ -95,6 +114,9 @@ export function PregnancyTrackingForm() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+  // Set by user edits; autosave only runs when true so a freshly loaded form
+  // can't overwrite rows the prenatal sync just wrote.
+  const dirtyRef = useRef(false);
 
   // Load saved form for the selected month/year; if none exists, auto-fill from active pregnancies.
   useEffect(() => {
@@ -106,10 +128,11 @@ export function PregnancyTrackingForm() {
         const flags = await pregnancyTrackingService.getActivePregnancies().catch(() => []);
         if (!cancelled) {
           const flagMap = new Map(flags.map((f) => [Number(f.patient_id), f]));
-          setRows(normalizeRows(saved.rows).map((r) => {
+          const withFlags = normalizeRows(saved.rows).map((r) => {
             const f = r.patient_id ? flagMap.get(Number(r.patient_id)) : null;
             return f ? { ...r, isOld: f.isOld, deliveryInJlmc: f.deliveryInJlmc } : r;
-          }));
+          });
+          setRows(mergeMissingPregnancies(withFlags, flags));
         }
       } catch (err) {
         if (err.response?.status === 404) {
@@ -144,6 +167,7 @@ export function PregnancyTrackingForm() {
     setSaving(true);
     try {
       await pregnancyTrackingService.save(monthYear, rows);
+      dirtyRef.current = false;
       if (!silent) toast.success('Form saved');
     } catch (err) {
       if (!silent) toast.error(apiError(err, 'Could not save form'));
@@ -155,12 +179,13 @@ export function PregnancyTrackingForm() {
 
   // Auto-save 2 seconds after the user stops editing.
   useEffect(() => {
-    if (loading) return;
+    if (loading || !dirtyRef.current) return;
     const timer = setTimeout(() => handleSave(true), 2000);
     return () => clearTimeout(timer);
   }, [rows, monthYear, loading, handleSave]);
 
   const updateRow = (idx, field, value) => {
+    dirtyRef.current = true;
     setRows((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
@@ -169,6 +194,7 @@ export function PregnancyTrackingForm() {
   };
 
   const updateTrimester = (rowIdx, colIdx, value) => {
+    dirtyRef.current = true;
     setRows((prev) => {
       const next = [...prev];
       const t = [...next[rowIdx].trimester];

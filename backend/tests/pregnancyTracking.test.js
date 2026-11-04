@@ -98,10 +98,47 @@ describe('Pregnancy Tracking Form syncs to the pregnancy record', () => {
     PregnancyTrackingForm.findByMonthYear.mockResolvedValue(null);
     PregnancyTrackingForm.create.mockResolvedValue(1);
 
-    expect(await recordPrenatalVisit(2, '2026-11-02T10:00:00Z')).toBe(true);
+    const result = await recordPrenatalVisit(2, '2026-11-02T10:00:00Z');
+    expect(result).toMatchObject({ monthYear: 'November 2026', column: 4, date: '11/02' });
 
     const [, rows] = PregnancyTrackingForm.create.mock.calls[0];
     expect(rows[0]).toMatchObject({ patient_id: 2, name: 'Ana Cruz', edd: '2027-01-15', obIndex: 'G2P1' });
     expect(rows[0].trimester[4]).toBe('11/02');
+  });
+
+  test('a prenatal visit with no pregnancy record creates one and still writes the row', async () => {
+    const { recordPrenatalVisit } = require('../routes/pregnancyTracking');
+    Patient.findById.mockResolvedValue({ id: 2, first_name: 'Ana', last_name: 'Cruz' });
+    Pregnancy.findByPatientId.mockResolvedValue([]);
+    Pregnancy.create.mockResolvedValue(9);
+    PregnancyTrackingForm.findByMonthYear.mockResolvedValue(null);
+    PregnancyTrackingForm.create.mockResolvedValue(1);
+
+    const result = await recordPrenatalVisit(2, '2026-11-02', '2', { aog_lmp: '20 weeks' });
+    expect(result).toBeTruthy();
+    expect(Pregnancy.create).toHaveBeenCalledWith(2, expect.objectContaining({ status: 'Ongoing', weeks: 20, trimester: '2' }));
+
+    const [monthYear, rows] = PregnancyTrackingForm.create.mock.calls[0];
+    expect(monthYear).toBe('November 2026');
+    expect(rows[0]).toMatchObject({ patient_id: 2, name: 'Ana Cruz' });
+    expect(rows[0].trimester.some(Boolean)).toBe(true);
+  });
+
+  test('a postnatal visit stamps the postpartum "+" column on the latest pregnancy', async () => {
+    const { recordPostnatalVisit } = require('../routes/pregnancyTracking');
+    Patient.findById.mockResolvedValue({ id: 2, first_name: 'Ana', last_name: 'Cruz' });
+    Pregnancy.findByPatientId.mockResolvedValue([{ id: 7, status: 'Completed', edd: '2026-10-01' }]);
+    PregnancyTrackingForm.findByMonthYear.mockResolvedValue({
+      id: 3,
+      rows: [{ patient_id: 2, name: 'Ana Cruz', trimester: Array(15).fill('') }]
+    });
+    PregnancyTrackingForm.update.mockResolvedValue(true);
+
+    const result = await recordPostnatalVisit(2, '2026-11-05');
+    expect(result).toMatchObject({ monthYear: 'November 2026', column: 13 });
+
+    const [, rows] = PregnancyTrackingForm.update.mock.calls[0];
+    expect(rows[0].trimester[13]).toBe('11/05');
+    expect(Pregnancy.create).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { patientService } from '../services/patientService';
 import { queueService } from '../services/queueService';
 import { admissionService } from '../services/admissionService';
+import { pregnancyService } from '../services/pregnancyService';
 import { StatusChip } from '../components/admission/StatusChip';
 import { AdmitModal } from '../components/admission/AdmitModal';
 import { canRecordClinical, useClinicOptions } from '../lib/admission';
@@ -85,10 +86,12 @@ export function Patients() {
     }
   }
 
-  async function handleAddToQueue(patientId, consultationType = 'normal') {
+  async function handleAddToQueue(patientId, option = 'normal') {
+    const consultationType = typeof option === 'object' ? option.type : option;
+    const trimester = typeof option === 'object' ? option.trimester : null;
     setAddingQueue(patientId);
     try {
-      const result = await queueService.add(patientId, consultationType);
+      const result = await queueService.add(patientId, consultationType, trimester);
       toast.success(`Added to queue #${String(result.queue_number).padStart(2, '0')}`);
       setQueueMap((prev) => {
         const next = new Map(prev);
@@ -546,8 +549,42 @@ const CONSULTATION_TYPES = [
   { value: 'postnatal', label: 'Postnatal Consultation', description: 'Check-up after giving birth' }
 ];
 
+const TRIMESTER_OPTIONS = [
+  { value: '1', label: '1st Trimester', hint: 'weeks 1–13' },
+  { value: '2', label: '2nd Trimester', hint: 'weeks 14–27' },
+  { value: '3', label: '3rd Trimester', hint: 'weeks 28+' }
+];
+
 export function ConsultationTypeModal({ open, patient, loading, onClose, onSelect }) {
   const [type, setType] = useState('normal');
+  const [trimester, setTrimester] = useState(null);
+  const [suggested, setSuggested] = useState(null);
+
+  // Pre-select the trimester from the patient's active pregnancy (weeks or LMP)
+  // so staff don't have to guess it at queue time.
+  useEffect(() => {
+    if (type !== 'prenatal' || !patient?.id) return undefined;
+    let cancelled = false;
+    pregnancyService
+      .listForPatient(patient.id)
+      .then((rows) => {
+        if (cancelled) return;
+        const active = (rows || []).find(
+          (p) => !['delivered', 'discharged', 'completed'].includes(String(p.status || '').toLowerCase())
+        );
+        if (!active) return;
+        let weeks = active.weeks != null && active.weeks !== '' ? Number(active.weeks) : null;
+        if ((weeks == null || Number.isNaN(weeks)) && active.lmp) {
+          weeks = Math.max(0, Math.floor((Date.now() - new Date(active.lmp)) / (7 * 86400000)));
+        }
+        if (!Number.isFinite(weeks)) return;
+        const tri = weeks < 14 ? '1' : weeks < 28 ? '2' : '3';
+        setSuggested(tri);
+        setTrimester((t) => t || tri);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [type, patient?.id]);
   return (
     <Modal open={open} onClose={onClose} title="Add to queue" size="sm">
       <p className="text-sm text-ink-600 mb-3">
@@ -578,9 +615,34 @@ export function ConsultationTypeModal({ open, patient, loading, onClose, onSelec
           </label>
         ))}
       </div>
+      {type === 'prenatal' && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-1.5">Trimester</p>
+          <div className="grid grid-cols-3 gap-2">
+            {TRIMESTER_OPTIONS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setTrimester(trimester === t.value ? null : t.value)}
+                className={`rounded-lg border px-2 py-1.5 text-xs text-center transition-colors ${
+                  trimester === t.value
+                    ? 'border-pink-400 bg-pink-50 text-pink-700 font-semibold'
+                    : 'border-ink-200 text-ink-600 hover:border-pink-300'
+                }`}
+              >
+                {t.label}
+                <span className="block text-[10px] font-normal text-ink-400">{t.hint}</span>
+              </button>
+            ))}
+          </div>
+          {suggested && trimester === suggested && (
+            <p className="mt-1.5 text-[11px] text-ink-500">Auto-suggested from the patient's pregnancy record — tap again to change.</p>
+          )}
+        </div>
+      )}
       <div className="flex justify-end gap-2 mt-4">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={() => onSelect(type)} loading={loading}>Add to queue</Button>
+        <Button onClick={() => onSelect(type === 'prenatal' ? { type, trimester } : type)} loading={loading}>Add to queue</Button>
       </div>
     </Modal>
   );

@@ -163,6 +163,22 @@ DROP TRIGGER IF EXISTS trg_consultation_transactions_updated_at ON consultation_
 CREATE TRIGGER trg_consultation_transactions_updated_at BEFORE UPDATE ON consultation_transactions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ── patient_images ──────────────────────────────────────────────────────
+-- Scanned/photographed results (ultrasound, labs) uploaded to a patient's
+-- overview. Binary kept in BYTEA so backups include it.
+CREATE TABLE IF NOT EXISTS patient_images (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  pregnancy_id BIGINT REFERENCES pregnancies(id) ON DELETE SET NULL,
+  label VARCHAR(150) NOT NULL,
+  mime VARCHAR(60) NOT NULL,
+  data BYTEA NOT NULL,
+  uploaded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE patient_images ADD COLUMN IF NOT EXISTS pregnancy_id BIGINT REFERENCES pregnancies(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_consultation_transactions_patient ON consultation_transactions (patient_id);
 CREATE INDEX IF NOT EXISTS idx_consultation_transactions_consultation ON consultation_transactions (consultation_id);
 
@@ -277,6 +293,7 @@ CREATE TABLE IF NOT EXISTS queue_entries (
     CHECK (status IN ('waiting', 'serving', 'done', 'skipped')),
   consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal'
     CHECK (consultation_type IN ('normal', 'prenatal', 'postnatal')),
+  trimester VARCHAR(10) CHECK (trimester IS NULL OR trimester IN ('1', '2', '3')),
   served_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -287,6 +304,8 @@ CREATE TRIGGER trg_queue_entries_updated_at BEFORE UPDATE ON queue_entries
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE INDEX IF NOT EXISTS idx_queue_entries_date ON queue_entries (entry_date, status, queue_number);
+
+ALTER TABLE queue_entries ADD COLUMN IF NOT EXISTS trimester VARCHAR(10);
 CREATE INDEX IF NOT EXISTS idx_queue_entries_patient ON queue_entries (patient_id, entry_date DESC);
 
 ALTER TABLE queue_entries ADD COLUMN IF NOT EXISTS consultation_type VARCHAR(20) NOT NULL DEFAULT 'normal';
@@ -832,6 +851,7 @@ CREATE INDEX IF NOT EXISTS idx_admission_items_voided_by ON admission_items (voi
 CREATE INDEX IF NOT EXISTS idx_discharges_discharged_by ON discharges (discharged_by);
 CREATE INDEX IF NOT EXISTS idx_postpartum_followups_admission ON postpartum_followups (admission_id);
 CREATE INDEX IF NOT EXISTS idx_postpartum_followups_done_by ON postpartum_followups (done_by);
+CREATE INDEX IF NOT EXISTS idx_postpartum_followups_missed_by ON postpartum_followups (missed_by);
 CREATE INDEX IF NOT EXISTS idx_referrals_referred_by ON referrals (referred_by);
 CREATE INDEX IF NOT EXISTS idx_referrals_reversed_by ON referrals (reversed_by);
 CREATE INDEX IF NOT EXISTS idx_admissions_pregnancy ON admissions (pregnancy_id);
@@ -868,5 +888,6 @@ BEGIN
   IF to_regclass('public.patient_images') IS NOT NULL THEN
     CREATE INDEX IF NOT EXISTS idx_patient_images_patient ON patient_images (patient_id);
     CREATE INDEX IF NOT EXISTS idx_patient_images_uploaded_by ON patient_images (uploaded_by);
+    CREATE INDEX IF NOT EXISTS idx_patient_images_pregnancy ON patient_images (pregnancy_id);
   END IF;
 END $$;

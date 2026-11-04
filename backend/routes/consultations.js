@@ -145,17 +145,32 @@ router.post('/', requireRole('admin', 'doctor'), async (req, res) => {
       }
     }
 
-    // A prenatal visit writes itself into the patient's pregnancy tracking row.
-    if (String(value.consultation_type || 'normal') === 'prenatal') {
-      try {
-        await require('./pregnancyTracking').recordPrenatalVisit(value.patient_id, value.visit_date);
-      } catch (e) {
-        console.warn('[consultations] could not update tracking form:', e.message);
+    // A prenatal/postnatal visit writes itself into the patient's pregnancy
+    // tracking row; the result is echoed back so the UI can say where it landed.
+    const consultType = String(value.consultation_type || 'normal');
+    let tracking = null;
+    try {
+      const trackingRoute = require('./pregnancyTracking');
+      if (consultType === 'prenatal') {
+        tracking = await trackingRoute.recordPrenatalVisit(
+          value.patient_id,
+          value.prenatal_data?.visit_date || value.visit_date,
+          value.prenatal_data?.trimester,
+          value.prenatal_data
+        );
+      } else if (consultType === 'postnatal') {
+        tracking = await trackingRoute.recordPostnatalVisit(
+          value.patient_id,
+          value.postnatal_data?.visit_date || value.visit_date
+        );
       }
+    } catch (e) {
+      console.warn('[consultations] could not update tracking form:', e.message);
     }
     res.status(201).json({
       id: consultationId,
       pregnancy_created: pregnancyCreated,
+      tracking: tracking || null,
       message: 'Consultation created successfully'
     });
   } catch (err) {

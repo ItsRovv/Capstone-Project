@@ -19,19 +19,19 @@ const icons = {
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
-  const push = useCallback((message, tone = 'info', duration = 3500) => {
+  const push = useCallback((message, tone = 'info', duration = 3500, action = null) => {
     const tid = ++id;
-    setToasts((t) => [...t, { id: tid, message, tone }]);
+    setToasts((t) => [...t, { id: tid, message, tone, action }]);
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== tid));
     }, duration);
   }, []);
 
   const value = {
-    success: (m) => push(m, 'success'),
-    error: (m) => push(m, 'error'),
-    info: (m) => push(m, 'info'),
-    warning: (m) => push(m, 'warning')
+    success: (m, opts) => push(m, 'success', opts?.duration ?? 3500, opts?.action),
+    error: (m, opts) => push(m, 'error', opts?.duration ?? 3500, opts?.action),
+    info: (m, opts) => push(m, 'info', opts?.duration ?? 3500, opts?.action),
+    warning: (m, opts) => push(m, 'warning', opts?.duration ?? 3500, opts?.action)
   };
 
   return (
@@ -47,7 +47,21 @@ export function ToastProvider({ children }) {
             <span className="w-5 h-5 inline-flex items-center justify-center rounded-full bg-white/70 text-xs font-bold flex-shrink-0">
               {icons[t.tone]}
             </span>
-            <p className="text-sm font-medium leading-snug">{t.message}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-snug">{t.message}</p>
+              {t.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToasts((x) => x.filter((y) => y.id !== t.id));
+                    t.action.onClick?.();
+                  }}
+                  className="mt-1 text-xs font-bold underline underline-offset-2 hover:opacity-80"
+                >
+                  {t.action.label}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

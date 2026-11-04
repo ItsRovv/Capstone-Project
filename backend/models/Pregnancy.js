@@ -16,6 +16,13 @@ class Pregnancy {
       pregnancy_number, first_visit_date, pregnancy_history
     } = data;
     const baseline_bmi = data.baseline_bmi ?? computeBmi(baseline_weight_kg, baseline_height_cm);
+    // Auto-number the pregnancy (1st, 2nd, …) when the caller didn't say so,
+    // so returning mothers get "Pregnancy #2", "#3", etc. automatically.
+    let number = pregnancy_number;
+    if (number == null || number === '') {
+      const [rows] = await db.execute('SELECT COUNT(*) AS n FROM pregnancies WHERE patient_id = ?', [patientId]);
+      number = Number(rows[0]?.n || 0) + 1;
+    }
     const query = `
       INSERT INTO pregnancies (
         patient_id, lmp, edd, gp, trimester, weeks, status, notes,
@@ -27,7 +34,7 @@ class Pregnancy {
     const values = [
       patientId, lmp ?? null, edd ?? null, gp ?? null, trimester ?? null, weeks ?? null, status ?? null, notes ?? null,
       baseline_weight_kg ?? null, baseline_height_cm ?? null, baseline_bmi ?? null, aog ?? null, ob_index ?? null,
-      blood_type ?? null, pregnancy_number ?? null, first_visit_date ?? null,
+      blood_type ?? null, number, first_visit_date ?? null,
       JSON.stringify(Array.isArray(pregnancy_history) ? pregnancy_history : [])
     ];
     const [result] = await db.execute(query, values);

@@ -64,21 +64,23 @@ function trimesterCol(row, monthOfPregnancy) {
   return pick([13, 14]);
 }
 
-// A prenatal consultation writes itself into the patient's tracking row for the
-// month the visit happened — details plus the visit date in the right trimester col.
-async function recordPrenatalVisit(patientId, visitDate) {
-  const pid = Number(patientId);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  const [patient, pregnancies] = await Promise.all([Patient.findById(pid), Pregnancy.findByPatientId(pid)]);
-  const active = (pregnancies || []).find(isActivePregnancy);
-  if (!patient || !active) return false;
+// "20 weeks" / "20" → 20; anything else → null.
+function parseWeeks(v) {
+  const n = parseInt(String(v || '').trim(), 10);
+  return Number.isFinite(n) && n >= 0 && n <= 45 ? n : null;
+}
 
-  const when = visitDate ? new Date(visitDate) : new Date();
-  if (Number.isNaN(when.getTime())) return false;
-  const monthYear = when.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const mmdd = `${String(when.getMonth() + 1).padStart(2, '0')}/${String(when.getDate()).padStart(2, '0')}`;
-  const monthOfPregnancy = active.weeks ? Math.max(1, Math.ceil(Number(active.weeks) / 4.345)) : 9;
+// The clinic is in the Philippines — always bucket visits by Manila time, not
+// the server's timezone, or late-night saves land on the wrong month/row.
+const CLINIC_TZ = 'Asia/Manila';
+const monthKey = (d) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: CLINIC_TZ });
+const mmddOf = (d) => d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', timeZone: CLINIC_TZ });
 
+// Upsert the patient's row in the month form and stamp the visit's MM/DD into
+// the trimester column for the given month of pregnancy.
+async function writeTrackingRow(patient, pregnancy, when, monthOfPregnancy) {
+  const pid = Number(patient.id ?? patient.patient_id);
+  const monthYear = monthKey(when);
   const form = await PregnancyTrackingForm.findByMonthYear(monthYear);
   const rows = form ? (typeof form.rows === 'string' ? JSON.parse(form.rows) : form.rows || []) : [];
   let row = rows.find((r) => Number(r?.patient_id) === pid);
@@ -90,21 +92,91 @@ async function recordPrenatalVisit(patientId, visitDate) {
       age: patient.age ?? '',
       cpNumber: patient.contact_number || '',
       docSubmitted: false,
-      edd: active.edd || '',
-      obIndex: active.gp || active.ob_index || '',
+      edd: pregnancy?.edd || '',
+      obIndex: pregnancy?.gp || pregnancy?.ob_index || '',
       trimester: Array(TOTAL_TRIMESTER_COLS).fill(''),
       deliveryDate: ''
     };
     rows.push(row);
   }
   const col = trimesterCol(row, monthOfPregnancy);
-  if (col !== null && col !== undefined) row.trimester[col] = mmdd;
-  if (active.edd) row.edd = active.edd;
-  if (active.gp || active.ob_index) row.obIndex = active.gp || active.ob_index;
+  if (col !== null && col !== undefined) row.trimester[col] = mmddOf(when);
+  if (pregnancy?.edd) row.edd = pregnancy.edd;
+  if (pregnancy?.gp || pregnancy?.ob_index) row.obIndex = pregnancy.gp || pregnancy.ob_index;
 
   if (form) await PregnancyTrackingForm.update(monthYear, rows);
   else await PregnancyTrackingForm.create(monthYear, rows);
-  return true;
+  return { monthYear, column: col, date: mmddOf(when) };
+}
+
+// A prenatal consultation writes itself into the patient's tracking row for the
+// month the visit happened — details plus the visit date in the right trimester col.
+// If the patient has no active pregnancy yet (e.g. baseline was skipped), one is
+// created so the visit still lands on the tracking form.
+async function recordPrenatalVisit(patientId, visitDate, trimester, prenatalData) {
+  const pid = Number(patientId);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const [patient, pregnancies] = await Promise.all([Patient.findById(pid), Pregnancy.findByPatientId(pid)]);
+  if (!patient) return false;
+
+  const when = visitDate ? new Date(visitDate) : new Date();
+  if (Number.isNaN(when.getTime())) return false;
+
+  let active = (pregnancies || []).find(isActivePregnancy);
+  if (!active) {
+    const id = await Pregnancy.create(pid, {
+      status: 'Ongoing',
+      first_visit_date: when.toISOString().slice(0, 10),
+      weeks: parseWeeks(prenatalData?.aog_lmp) ?? parseWeeks(prenatalData?.aog_utz),
+      trimester: ['1', '2', '3'].includes(String(trimester)) ? String(trimester) : null,
+      notes: 'Added automatically: prenatal consultation recorded without a pregnancy record.'
+    });
+    active = { id, patient_id: pid, status: 'Ongoing' };
+  }
+  // Derive the month of pregnancy at the visit: prefer stored weeks, else
+  // compute from LMP — many pregnancies only have LMP recorded.
+  let monthOfPregnancy = 9;
+  const weeksAtVisit = active.weeks
+    ? Number(active.weeks)
+    : active.lmp
+      ? Math.max(0, Math.floor((when.getTime() - new Date(active.lmp).getTime()) / (7 * 24 * 3600000)))
+      : null;
+  if (Number.isFinite(weeksAtVisit)) {
+    monthOfPregnancy = Math.min(10, Math.max(1, Math.ceil(weeksAtVisit / 4.345)));
+  } else {
+    // No LMP/weeks recorded — use the trimester the staff selected at queue
+    // (1st→month 2, 2nd→month 5, 3rd→month 9) as a reasonable estimate.
+    monthOfPregnancy = { '1': 2, '2': 5, '3': 9 }[String(trimester)] || 9;
+  }
+
+  return writeTrackingRow(patient, active, when, monthOfPregnancy);
+}
+
+// A postnatal consultation stamps the visit date into the postpartum ("+")
+// columns of the patient's tracking row — month 10 routes to those columns.
+async function recordPostnatalVisit(patientId, visitDate) {
+  const pid = Number(patientId);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const [patient, pregnancies] = await Promise.all([Patient.findById(pid), Pregnancy.findByPatientId(pid)]);
+  if (!patient) return false;
+
+  const when = visitDate ? new Date(visitDate) : new Date();
+  if (Number.isNaN(when.getTime())) return false;
+
+  // Most recent pregnancy regardless of status — it's usually 'Completed' by
+  // now, which is fine; the row only borrows its EDD/OB index. If the patient
+  // somehow has none, record a completed one so tracking stays consistent.
+  let latest = (pregnancies || [])[0] || null;
+  if (!latest) {
+    const id = await Pregnancy.create(pid, {
+      status: 'Completed',
+      first_visit_date: when.toISOString().slice(0, 10),
+      notes: 'Added automatically: postnatal consultation recorded without a pregnancy record.'
+    });
+    latest = { id, patient_id: pid, status: 'Completed' };
+  }
+
+  return writeTrackingRow(patient, latest, when, 10);
 }
 
 
@@ -196,3 +268,4 @@ router.post('/', async (req, res) => {
 
 module.exports = router;
 module.exports.recordPrenatalVisit = recordPrenatalVisit;
+module.exports.recordPostnatalVisit = recordPostnatalVisit;

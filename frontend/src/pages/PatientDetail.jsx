@@ -17,6 +17,7 @@ import { canRecordClinical, isActiveStatus, timeAgo, useClinicOptions } from '..
 import { apiError } from '../services/api';
 import { PatientForm } from '../components/PatientForm';
 import { ConsultationForm } from '../components/ConsultationForm';
+import { PatientImagesCard } from '../components/PatientImagesCard';
 import { useAuth } from '../contexts/AuthContext';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -317,6 +318,13 @@ export function PatientDetail() {
                 <MedicalInfoCard patient={patient} />
               )}
             </div>
+
+            {/* Result images — ultrasound & lab result photos */}
+            <PatientImagesCard
+              patientId={patient.id}
+              pregnancies={pregnancies}
+              canDelete={user?.role === 'admin' || user?.role === 'doctor'}
+            />
           </div>
         )}
 
@@ -365,29 +373,7 @@ export function PatientDetail() {
             {consultations.length === 0 ? (
               <p className="text-sm text-ink-500 p-6 text-center">No consultations.</p>
             ) : (
-              <ul className="divide-y divide-ink-100">
-                {consultations.map((c) => (
-                  <li
-                    key={c.id}
-                    className="px-6 py-4 hover:bg-ink-50/60 transition-colors cursor-pointer"
-                    onClick={() => setViewConsult(c)}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="font-medium text-ink-900 truncate">
-                          {c.chief_complaint || 'Consultation'}
-                        </p>
-                        <p className="text-xs text-ink-500 mt-0.5">
-                          {formatDateTime(c.visit_date)}
-                        </p>
-                      </div>
-                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
-                        View details →
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <ConsultationGroups consultations={consultations} pregnancies={pregnancies} onView={setViewConsult} />
             )}
           </Card>
         )}
@@ -971,6 +957,106 @@ function PrenatalDataView({ data }) {
       )}
       <PnField label="Rx and Supplements" value={data.rx_supplements} />
       <PnField label="Remarks" value={data.remarks} />
+    </div>
+  );
+}
+
+// Consultations grouped by pregnancy so a returning patient's old visits do
+// not pile up with her current pregnancy's visits. A consultation belongs to
+// the pregnancy whose [start, next pregnancy start) window contains its date.
+function groupConsultationsByPregnancy(consultations, pregnancies) {
+  const sorted = [...(pregnancies || [])]
+    .map((p) => ({ ...p, _start: new Date(p.first_visit_date || p.created_at || 0).getTime() }))
+    .sort((a, b) => a._start - b._start);
+  const groups = sorted.map((p, i) => ({
+    pregnancy: p,
+    start: p._start,
+    end: i + 1 < sorted.length ? sorted[i + 1]._start : Infinity,
+    consultations: []
+  }));
+  const other = { pregnancy: null, consultations: [] };
+  for (const c of consultations) {
+    const t = new Date(c.visit_date || 0).getTime();
+    const g = groups.find((g) => t >= g.start && t < g.end);
+    (g || other).consultations.push(c);
+  }
+  return [
+    ...groups.filter((g) => g.consultations.length > 0).reverse(),
+    ...(other.consultations.length ? [other] : [])
+  ];
+}
+
+function ConsultationGroups({ consultations, pregnancies, onView }) {
+  const groups = groupConsultationsByPregnancy(consultations, pregnancies);
+  // Ongoing pregnancy's group starts expanded; everything else collapsed.
+  const [open, setOpen] = useState(() => {
+    const idx = groups.findIndex((g) => (g.pregnancy?.status || '').toLowerCase() === 'ongoing');
+    return idx >= 0 ? { [idx]: true } : groups.length ? { 0: true } : {};
+  });
+
+  return (
+    <div className="divide-y divide-ink-100">
+      {groups.map((g, gi) => {
+        const p = g.pregnancy;
+        const isOngoing = (p?.status || '').toLowerCase() === 'ongoing';
+        const label = p
+          ? `Pregnancy ${p.pregnancy_number ? `#${p.pregnancy_number}` : ''} · ${p.status || 'record'}`
+          : 'Other consultations';
+        const startLabel = p?.first_visit_date ? formatDate(p.first_visit_date) : null;
+        return (
+          <div key={gi}>
+            <button
+              type="button"
+              onClick={() => setOpen((o) => ({ ...o, [gi]: !o[gi] }))}
+              className="w-full flex items-center justify-between px-6 py-3 bg-ink-50/60 hover:bg-ink-100/60 transition-colors"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
+                <span className={`transition-transform ${open[gi] ? 'rotate-90' : ''}`}>▸</span>
+                {label}
+                {isOngoing && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                    Current
+                  </span>
+                )}
+                {startLabel && <span className="text-xs font-normal text-ink-500">started {startLabel}</span>}
+              </span>
+              <span className="text-xs text-ink-400">{g.consultations.length} visit{g.consultations.length !== 1 ? 's' : ''}</span>
+            </button>
+            {open[gi] && (
+              <ul className="divide-y divide-ink-100">
+                {g.consultations.map((c) => (
+                  <li
+                    key={c.id}
+                    className="px-6 py-4 hover:bg-ink-50/60 transition-colors cursor-pointer"
+                    onClick={() => onView(c)}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-ink-900 truncate">
+                            {c.chief_complaint || 'Consultation'}
+                          </p>
+                          {c.consultation_type && c.consultation_type !== 'normal' && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded flex-shrink-0">
+                              {c.consultation_type}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-ink-500 mt-0.5">
+                          {formatDateTime(c.visit_date)}
+                        </p>
+                      </div>
+                      <span className="text-xs text-primary-600 font-medium whitespace-nowrap flex-shrink-0">
+                        View details →
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

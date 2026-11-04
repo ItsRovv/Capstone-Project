@@ -4,7 +4,7 @@ const CONSULTATION_TYPES = ['normal', 'prenatal', 'postnatal'];
 
 class Queue {
   // Add a patient to today's queue — assigns next available number
-  static async add(patientId, consultationType = 'normal') {
+  static async add(patientId, consultationType = 'normal', trimester = null) {
     const today = new Date().toISOString().split('T')[0];
     const [maxRow] = await db.execute(
       'SELECT COALESCE(MAX(queue_number), 0) AS max_num FROM queue_entries WHERE entry_date = ?',
@@ -13,11 +13,12 @@ class Queue {
     const nextNumber = (maxRow[0]?.max_num || 0) + 1;
 
     const type = CONSULTATION_TYPES.includes(consultationType) ? consultationType : 'normal';
+    const tri = ['1', '2', '3'].includes(String(trimester)) ? String(trimester) : null;
     const query = `
-      INSERT INTO queue_entries (patient_id, queue_number, entry_date, status, consultation_type)
-      VALUES (?, ?, ?, 'waiting', ?)
+      INSERT INTO queue_entries (patient_id, queue_number, entry_date, status, consultation_type, trimester)
+      VALUES (?, ?, ?, 'waiting', ?, ?)
     `;
-    const [result] = await db.execute(query, [patientId, nextNumber, today, type]);
+    const [result] = await db.execute(query, [patientId, nextNumber, today, type, type === 'prenatal' ? tri : null]);
     return { id: result.insertId, queue_number: nextNumber, consultation_type: type };
   }
 

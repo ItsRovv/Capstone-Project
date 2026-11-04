@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const Patient = require('../models/Patient');
+const PatientImage = require('../models/PatientImage');
+const Pregnancy = require('../models/Pregnancy');
 const AuditLog = require('../models/AuditLog');
 const { validatePatient } = require('../middleware/validation');
 const auth = require('../middleware/auth');
@@ -127,6 +129,94 @@ router.delete('/:id', requireRole('admin', 'doctor'), async (req, res) => {
   } catch (err) {
     routeError(res, err);
   }
+});
+
+// ── Result images (ultrasound, lab printouts) ────────────────────────────
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const DATA_URL_RE = /^data:(image\/(?:png|jpe?g|webp|gif));base64,(.+)$/i;
+
+// Metadata list — no binary payload.
+router.get('/:id/images', async (req, res) => {
+  try {
+    res.json(await PatientImage.listByPatient(req.params.id));
+  } catch (err) { routeError(res, err); }
+});
+
+// Upload a photographed result. Body: { label, dataUrl }.
+router.post('/:id/images', async (req, res) => {
+  try {
+    const label = String(req.body?.label || '').trim().slice(0, 150);
+    const m = DATA_URL_RE.exec(String(req.body?.dataUrl || ''));
+    if (!label) return res.status(400).json({ message: 'Please name the image (e.g. "Pelvic ultrasound")' });
+    if (!m) return res.status(400).json({ message: 'Image must be PNG, JPG, WebP or GIF' });
+    const data = Buffer.from(m[2], 'base64');
+    if (!data.length) return res.status(400).json({ message: 'The image data is empty' });
+    if (data.length > MAX_IMAGE_BYTES) return res.status(413).json({ message: 'Image too large — keep it under 12 MB' });
+
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) return res.status(404).json({ message: 'Patient not found' });
+
+    // Tag the upload to the patient's ongoing pregnancy when she has one, so a
+    // completed pregnancy's images stay archived with that pregnancy.
+    const pregnancies = await Pregnancy.findByPatientId(req.params.id).catch(() => []);
+    const ongoing = (pregnancies || []).find(
+      (p) => !['delivered', 'discharged', 'completed'].includes(String(p.status || '').toLowerCase())
+    );
+
+    const id = await PatientImage.create({
+      patient_id: req.params.id,
+      pregnancy_id: ongoing?.id ?? null,
+      label,
+      mime: m[1].toLowerCase(),
+      data,
+      uploaded_by: req.user?.id
+    });
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'CREATE',
+      tableName: 'patient_images',
+      recordId: id,
+      newData: { patient_id: req.params.id, label },
+      ipAddress: req.ip
+    });
+    res.status(201).json({ id, message: 'Image uploaded' });
+  } catch (err) { routeError(res, err); }
+});
+
+// Serve the image binary for <img> tags (cookie auth handles permission).
+router.get('/images/:imageId', async (req, res) => {
+  try {
+    const img = await PatientImage.findById(req.params.imageId);
+    if (!img) return res.status(404).json({ message: 'Image not found' });
+    res.set('Content-Type', img.mime);
+    res.set('Cache-Control', 'private, max-age=300');
+    res.send(img.data);
+  } catch (err) { routeError(res, err); }
+});
+
+// Delete an image — clinical roles only.
+router.delete('/images/:imageId', requireRole('admin', 'doctor'), async (req, res) => {
+  try {
+    const img = await PatientImage.findById(req.params.imageId);
+    if (!img) return res.status(404).json({ message: 'Image not found' });
+    // Results of a completed pregnancy are archived — keep them for records.
+    if (img.pregnancy_id) {
+      const preg = await Pregnancy.findById(img.pregnancy_id).catch(() => null);
+      if (preg && ['delivered', 'discharged', 'completed'].includes(String(preg.status || '').toLowerCase())) {
+        return res.status(409).json({ message: 'This image belongs to a completed pregnancy and cannot be deleted' });
+      }
+    }
+    await PatientImage.remove(req.params.imageId);
+    await AuditLog.create({
+      userId: req.user?.id,
+      action: 'DELETE',
+      tableName: 'patient_images',
+      recordId: Number(req.params.imageId),
+      oldData: { patient_id: img.patient_id, label: img.label },
+      ipAddress: req.ip
+    });
+    res.json({ message: 'Image deleted' });
+  } catch (err) { routeError(res, err); }
 });
 
 module.exports = router;

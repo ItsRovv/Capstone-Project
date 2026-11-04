@@ -191,6 +191,16 @@ export function DoctorConsultations() {
       });
       const consultationId = consultResult?.id || null;
       if (consultResult?.pregnancy_created) toast.info('Added to Pregnancy Tracking: delivery location recorded.');
+      if (consultResult?.tracking?.monthYear) {
+        const t = consultResult.tracking;
+        toast.info(`Pregnancy Tracking updated — ${t.monthYear}${t.date ? ` · visit ${t.date}` : ''}`, {
+          duration: 6000,
+          action: {
+            label: 'View in Tracking',
+            onClick: () => navigate('/pregnancy-tracking', { state: { monthYear: t.monthYear } })
+          }
+        });
+      }
 
       // 2. Mark queue done
       await queueService.updateStatus(currentServing.id, 'done');
@@ -546,6 +556,7 @@ export function DoctorConsultations() {
                           submitting={submitting}
                           onCancel={null}
                           pregnancyContext={pregnancyContext}
+                          trimester={currentServing.trimester}
                         />
                       ) : consultationType === 'postnatal' ? (
                         <PostnatalConsultationForm

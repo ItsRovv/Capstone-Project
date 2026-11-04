@@ -38,7 +38,7 @@ async function syncPregnancyToTracking(preg) {
   const now = new Date();
   // Same key format the tracking UI uses ("November 2026"), not "2026-11" —
   // otherwise synced rows land on a form nobody opens.
-  const monthYear = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthYear = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'Asia/Manila' });
 
   const patient = await Patient.findById(preg.patient_id);
   const newRow = buildTrackingRow(preg, patient);

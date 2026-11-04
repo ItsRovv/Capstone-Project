@@ -75,10 +75,12 @@ export function Consultations() {
     setPickerSearch('');
   }
 
-  async function handleAddToQueue(patientId, consultationType = 'normal') {
+  async function handleAddToQueue(patientId, option = 'normal') {
+    const consultationType = typeof option === 'object' ? option.type : option;
+    const trimester = typeof option === 'object' ? option.trimester : null;
     setAdding(true);
     try {
-      await queueService.add(patientId, consultationType);
+      await queueService.add(patientId, consultationType, trimester);
       toast.success('Patient added to queue');
       setTypeTarget(null);
       load();

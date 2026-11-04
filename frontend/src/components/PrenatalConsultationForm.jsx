@@ -65,6 +65,7 @@ const HISTORY_FIELDS = [
 
 const blankVisit = {
   visit_date: new Date().toISOString().slice(0, 10),
+  trimester: '',
   aog_lmp: '',
   aog_utz: '',
   bp: '',
@@ -89,7 +90,7 @@ const blankVisit = {
   provider_name: ''
 };
 
-export function PrenatalConsultationForm({ patientId, initial, submitting, onCancel, onSubmit, pregnancyContext }) {
+export function PrenatalConsultationForm({ patientId, initial, submitting, onCancel, onSubmit, pregnancyContext, trimester: queueTrimester }) {
   const toast = useToast();
   const { user } = useAuth();
   const providerName = user?.name || '';
@@ -102,9 +103,48 @@ export function PrenatalConsultationForm({ patientId, initial, submitting, onCan
 
   const ongoing = useMemo(() => {
     if (!pregnancy) return null;
-    return (pregnancy.status || '').toLowerCase() === 'ongoing' ? pregnancy : null;
+    return ['delivered', 'discharged', 'completed'].includes((pregnancy.status || '').toLowerCase()) ? null : pregnancy;
   }, [pregnancy]);
   const showBaseline = !loadingPreg && !ongoing && !initial?.id;
+
+  // Trimester: what the queue said, else suggested from weeks at the visit date.
+  const suggestedTrimester = useMemo(() => {
+    if (queueTrimester) return queueTrimester;
+    const lmp = ongoing?.lmp || baseline.lmp;
+    let weeks = ongoing?.weeks != null && ongoing.weeks !== '' ? Number(ongoing.weeks) : null;
+    if (weeks == null && lmp && visit.visit_date) {
+      weeks = Math.max(0, Math.floor((new Date(visit.visit_date) - new Date(lmp)) / (7 * 86400000)));
+    }
+    if (weeks == null || Number.isNaN(weeks)) return null;
+    return weeks < 14 ? '1' : weeks < 28 ? '2' : '3';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueTrimester, ongoing?.id, ongoing?.weeks, ongoing?.lmp, baseline.lmp, visit.visit_date]);
+
+  useEffect(() => {
+    if (suggestedTrimester && !visit.trimester) {
+      setVisit((v) => ({ ...v, trimester: suggestedTrimester }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedTrimester]);
+
+  // Where this visit will land on the Pregnancy Tracking Form — same column
+  // math the backend uses (weeks → month of pregnancy → column group).
+  const trackingTarget = useMemo(() => {
+    const when = new Date(visit.visit_date);
+    if (Number.isNaN(when.getTime())) return null;
+    const lmp = ongoing?.lmp || baseline.lmp;
+    let weeks = ongoing?.weeks != null && ongoing.weeks !== '' ? Number(ongoing.weeks) : null;
+    if ((weeks == null || Number.isNaN(weeks)) && lmp) {
+      weeks = Math.max(0, Math.floor((when - new Date(lmp)) / (7 * 86400000)));
+    }
+    const month = Number.isFinite(weeks)
+      ? Math.min(10, Math.max(1, Math.ceil(weeks / 4.345)))
+      : ({ '1': 2, '2': 5, '3': 9 }[String(visit.trimester)] || 9);
+    return {
+      monthYear: when.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      label: month <= 9 ? `Month ${month}` : 'Postpartum (+)'
+    };
+  }, [ongoing, baseline.lmp, visit.visit_date, visit.trimester]);
 
   useEffect(() => {
     setVisit((v) => (v.provider_name ? v : { ...v, provider_name: providerName }));
@@ -187,7 +227,7 @@ export function PrenatalConsultationForm({ patientId, initial, submitting, onCan
       let baselineCreated = false;
       if (showBaseline) {
         if (baseline.lmp) {
-          await pregnancyService.create(patientId, {
+          const created = await pregnancyService.create(patientId, {
             lmp: baseline.lmp || null,
             edd: baseline.edd || null,
             aog: visit.aog_lmp || null,
@@ -200,12 +240,16 @@ export function PrenatalConsultationForm({ patientId, initial, submitting, onCan
             pregnancy_history: historyRows.filter((r) => Object.values(r).some((v) => v !== '')),
             status: 'Ongoing'
           });
+          // Mark the pregnancy as active locally so a second submit in this
+          // same session updates it instead of creating a duplicate baseline.
+          setPregnancy({ id: created?.id, status: 'Ongoing', lmp: baseline.lmp, edd: baseline.edd, ob_index: baseline.ob_index, pregnancy_number: baseline.pregnancy_number });
           baselineCreated = true;
         }
       }
       onSubmit({
         patient_id: patientId,
         consultation_type: 'prenatal',
+        visit_date: visit.visit_date || null,
         chief_complaint: 'Prenatal check-up',
         subjective: visit.remarks || null,
         prescription: visit.rx_supplements || null,
@@ -340,8 +384,20 @@ export function PrenatalConsultationForm({ patientId, initial, submitting, onCan
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Input type="date" label="Date of Visit" value={visit.visit_date} onChange={updateVisit('visit_date')} />
           <Input label="AOG by LMP" value={visit.aog_lmp} onChange={updateVisit('aog_lmp')} placeholder="auto" />
+          <Select label="Trimester" value={visit.trimester} onChange={updateVisit('trimester')}>
+            <option value="">Auto / not sure</option>
+            <option value="1">1st Trimester</option>
+            <option value="2">2nd Trimester</option>
+            <option value="3">3rd Trimester</option>
+          </Select>
           <Input label="AOG by UTZ" value={visit.aog_utz} onChange={updateVisit('aog_utz')} placeholder="e.g. 20 weeks" />
         </div>
+
+        {trackingTarget && (
+          <p className="text-xs text-ink-500">
+            → This visit goes to the <strong>{trackingTarget.monthYear}</strong> tracking form · <strong>{trackingTarget.label}</strong> column
+          </p>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Input label="Blood Pressure" value={visit.bp} onChange={updateVisit('bp')} placeholder="e.g. 110/70" />

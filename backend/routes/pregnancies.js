@@ -20,10 +20,34 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create a pregnancy record for a patient
+// Create a pregnancy record for a patient. If the patient already has an
+// active pregnancy, the incoming "Ongoing" record is merged into it instead —
+// prevents duplicates when a form is submitted twice.
 router.post('/', async (req, res) => {
   try {
     const patientId = req.params.patientId;
+    if (String(req.body?.status || '').toLowerCase() === 'ongoing') {
+      const INACTIVE = new Set(['delivered', 'discharged', 'completed']);
+      const existing = await Pregnancy.findByPatientId(patientId);
+      const active = (existing || []).find(
+        (p) => !INACTIVE.has(String(p.status || '').toLowerCase())
+      );
+      if (active) {
+        await Pregnancy.update(active.id, { ...active, ...req.body });
+        await AuditLog.create({
+          userId: req.user?.id,
+          action: 'UPDATE',
+          tableName: 'pregnancies',
+          recordId: active.id,
+          oldData: active,
+          newData: req.body,
+          ipAddress: req.ip
+        });
+        const updatedPreg = await Pregnancy.findById(active.id);
+        if (updatedPreg) syncPregnancyToTracking(updatedPreg).catch(() => {});
+        return res.json({ id: active.id, existing: true, message: 'Active pregnancy updated' });
+      }
+    }
     const pregnancyId = await Pregnancy.create(patientId, req.body);
     await AuditLog.create({
       userId: req.user?.id,

@@ -280,7 +280,7 @@ export function Patients() {
                           <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{q.age || ageFromDob(q.date_of_birth) || '—'}</td>
                           <td className="px-6 py-3.5 text-ink-700 hidden sm:table-cell">{q.sex || '—'}</td>
                           <td className="px-6 py-3.5 hidden sm:table-cell">
-                            <span className={`inline-block w-24 text-center text-xs font-medium px-2 py-1 rounded-md whitespace-nowrap ${
+                            <span className={`inline-block w-24 text-center text-xs font-medium px-2.5 py-0.5 rounded-md whitespace-nowrap ${
                               isDone ? 'bg-sky-50 text-sky-700' : isServing ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
                             }`}>
                               {isDone ? 'Completed' : isServing ? 'Serving' : 'Waiting'}
@@ -288,7 +288,7 @@ export function Patients() {
                           </td>
                           <td className="px-6 py-3.5 text-ink-700 hidden md:table-cell">{q.contact_number || '—'}</td>
                           <td className="px-6 py-3.5 hidden lg:table-cell">
-                            <span className="inline-block w-24 text-center text-xs font-medium px-2 py-1 rounded-md bg-ink-100 text-ink-700 capitalize whitespace-nowrap">
+                            <span className="inline-block w-24 text-center text-xs font-medium px-2.5 py-0.5 rounded-md bg-ink-100 text-ink-700 capitalize whitespace-nowrap">
                               {q.consultation_type || 'normal'}
                             </span>
                           </td>
@@ -392,7 +392,7 @@ export function Patients() {
                               size="sm"
                               onClick={() => setQueueTarget(p)}
                               loading={addingQueue === p.id}
-                              className="!text-base text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
+                              className="!text-base !w-20 !justify-center text-primary-600 hover:!text-primary-700 hover:!bg-primary-50"
                               title="Add to queue"
                               aria-label="Add to queue"
                             >
@@ -402,7 +402,7 @@ export function Patients() {
                           {!isConsultMode && canAdmit && p.sex !== 'Male' && (
                             admitMap.has(p.id) ? (
                               <Link to={`/admissions/${admitMap.get(p.id).id}`} aria-label="Open admission" title="Open admission">
-                                <Button variant="ghost" size="sm" className="!text-base text-rose-600 hover:!bg-rose-50">
+                                <Button variant="ghost" size="sm" className="!text-base !w-20 !justify-center text-rose-600 hover:!bg-rose-50">
                                   Admitted
                                 </Button>
                               </Link>
@@ -411,7 +411,7 @@ export function Patients() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setAdmitTarget(p)}
-                                className="!text-base text-rose-600 hover:!text-rose-700 hover:!bg-rose-50"
+                                className="!text-base !w-20 !justify-center text-rose-600 hover:!text-rose-700 hover:!bg-rose-50"
                                 title="Admit patient"
                                 aria-label="Admit patient"
                               >

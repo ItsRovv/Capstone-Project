@@ -412,9 +412,13 @@ CREATE TABLE IF NOT EXISTS postpartum_followups (
   due_at TIMESTAMPTZ NOT NULL,
   done_at TIMESTAMPTZ,
   done_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  missed_at TIMESTAMPTZ,
+  missed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE postpartum_followups ADD COLUMN IF NOT EXISTS missed_at TIMESTAMPTZ;
+ALTER TABLE postpartum_followups ADD COLUMN IF NOT EXISTS missed_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS referrals (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -811,27 +815,71 @@ BEGIN
 END $$;
 
 -- ── Row Level Security (backend-only access) ─────────────────────────────────
--- The Express backend handles authentication and authorization. RLS is enabled
--- to satisfy Supabase security posture requirements; policies allow the backend
--- DB role full access because no other client connects directly to Postgres.
-ALTER TABLE IF EXISTS public.patients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.consultations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.consultation_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.clinic_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.pregnancies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.pregnancy_tracking_forms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.queue_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.audit_logs ENABLE ROW LEVEL SECURITY;
+-- The Express backend owns all data access over a direct Postgres connection
+-- (its role is the table owner, so RLS does not apply to it). Nothing else —
+-- including Supabase PostgREST anon/authenticated roles — may read or write
+-- these tables. Every public table gets RLS plus a single deny-all policy;
+-- any other policy left behind by older schema versions is removed.
+DO $$
+DECLARE t text; pol record;
+BEGIN
+  FOR pol IN
+    SELECT tablename, policyname FROM pg_policies
+    WHERE schemaname = 'public' AND policyname <> 'deny_api_access'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
+  END LOOP;
+  FOR t IN
+    SELECT c.relname FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('DROP POLICY IF EXISTS deny_api_access ON public.%I', t);
+    EXECUTE format('CREATE POLICY deny_api_access ON public.%I FOR ALL TO PUBLIC USING (false) WITH CHECK (false)', t);
+  END LOOP;
+END $$;
 
-DROP POLICY IF EXISTS "App full access" ON public.patients;
-CREATE POLICY "App full access" ON public.patients FOR ALL USING (true) WITH CHECK (true);
+-- Covering indexes for foreign keys (unindexed FK lints + join performance).
+CREATE INDEX IF NOT EXISTS idx_consultations_doctor ON consultations (doctor_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_created_by ON consultation_transactions (created_by);
+CREATE INDEX IF NOT EXISTS idx_queue_served_by ON queue_entries (served_by);
+CREATE INDEX IF NOT EXISTS idx_newborns_delivery ON newborns (delivery_id);
+CREATE INDEX IF NOT EXISTS idx_admission_items_option ON admission_items (option_id);
+CREATE INDEX IF NOT EXISTS idx_admission_items_given_by ON admission_items (given_by);
+CREATE INDEX IF NOT EXISTS idx_admission_items_voided_by ON admission_items (voided_by);
+CREATE INDEX IF NOT EXISTS idx_discharges_discharged_by ON discharges (discharged_by);
+CREATE INDEX IF NOT EXISTS idx_postpartum_followups_admission ON postpartum_followups (admission_id);
+CREATE INDEX IF NOT EXISTS idx_postpartum_followups_done_by ON postpartum_followups (done_by);
+CREATE INDEX IF NOT EXISTS idx_postpartum_followups_missed_by ON postpartum_followups (missed_by);
+CREATE INDEX IF NOT EXISTS idx_referrals_referred_by ON referrals (referred_by);
+CREATE INDEX IF NOT EXISTS idx_referrals_reversed_by ON referrals (reversed_by);
+CREATE INDEX IF NOT EXISTS idx_admissions_pregnancy ON admissions (pregnancy_id);
+CREATE INDEX IF NOT EXISTS idx_admissions_admitted_by ON admissions (admitted_by);
+CREATE INDEX IF NOT EXISTS idx_admissions_risk_ack_by ON admissions (risk_ack_by);
+CREATE INDEX IF NOT EXISTS idx_admissions_attending ON admissions (attending_user_id);
+CREATE INDEX IF NOT EXISTS idx_midwife_notes_user ON midwife_notes (user_id);
+CREATE INDEX IF NOT EXISTS idx_midwife_notes_corrected_by ON midwife_notes (corrected_by);
+CREATE INDEX IF NOT EXISTS idx_admission_vitals_recorded_by ON admission_vitals (recorded_by);
+CREATE INDEX IF NOT EXISTS idx_labor_entries_recorded_by ON labor_entries (recorded_by);
+CREATE INDEX IF NOT EXISTS idx_discharge_checklists_updated_by ON discharge_checklists (updated_by);
+CREATE INDEX IF NOT EXISTS idx_medications_given_given_by ON medications_given (given_by);
+CREATE INDEX IF NOT EXISTS idx_medications_given_item ON medications_given (item_id);
+CREATE INDEX IF NOT EXISTS idx_bed_moves_admission ON bed_moves (admission_id);
+CREATE INDEX IF NOT EXISTS idx_bed_moves_moved_by ON bed_moves (moved_by);
 
-DROP POLICY IF EXISTS "App full access" ON public.users;
-CREATE POLICY "App full access" ON public.users FOR ALL USING (true) WITH CHECK (true);
 
-DROP POLICY IF EXISTS "App full access" ON public.consultations;
-CREATE POLICY "App full access" ON public.consultations FOR ALL USING (true) WITH CHECK (true);
+-- Supabase's rls_auto_enable event-trigger function is SECURITY DEFINER and
+-- executable by every role out of the box; restrict it to trusted roles only.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'rls_auto_enable'
+  ) THEN
+    REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated;
+  END IF;
+END $$;
 
 DROP POLICY IF EXISTS "App full access" ON public.consultation_transactions;
 CREATE POLICY "App full access" ON public.consultation_transactions FOR ALL USING (true) WITH CHECK (true);
@@ -895,3 +943,14 @@ DROP POLICY IF EXISTS "App full access" ON public.discharge_checklists;
 CREATE POLICY "App full access" ON public.discharge_checklists FOR ALL USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "App full access" ON public.patient_images;
 CREATE POLICY "App full access" ON public.patient_images FOR ALL USING (true) WITH CHECK (true);
+
+-- patient_images is created by a newer schema version; index its FKs only
+-- when the table is present so this file stays runnable on older databases.
+DO $$
+BEGIN
+  IF to_regclass('public.patient_images') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_patient_images_patient ON patient_images (patient_id);
+    CREATE INDEX IF NOT EXISTS idx_patient_images_uploaded_by ON patient_images (uploaded_by);
+    CREATE INDEX IF NOT EXISTS idx_patient_images_pregnancy ON patient_images (pregnancy_id);
+  END IF;
+END $$;

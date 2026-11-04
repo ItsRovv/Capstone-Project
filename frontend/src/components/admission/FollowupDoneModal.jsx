@@ -4,6 +4,7 @@ import { Button } from '../UI/Button';
 import { Textarea } from '../UI/Input';
 import { useToast } from '../UI/Toast';
 import { admissionService } from '../../services/admissionService';
+import { queueService } from '../../services/queueService';
 import { apiError } from '../../services/api';
 import { formatDay } from '../../lib/admission';
 
@@ -19,7 +20,12 @@ export function FollowupDoneModal({ followup, patientName, onClose, onDone }) {
     setSaving(true);
     try {
       await admissionService.completeFollowup(followup.id, notes.trim() || null);
-      toast.success('Follow-up visit recorded');
+      try {
+        const q = await queueService.add(followup.patient_id, 'postnatal');
+        toast.success(`Follow-up recorded — queued for postnatal consultation #${String(q.queue_number).padStart(2, '0')}`);
+      } catch {
+        toast.success('Follow-up visit recorded (could not add to queue)');
+      }
       onClose();
       onDone?.();
     } catch (err) {

@@ -12,10 +12,9 @@ import { apiError } from '../services/api';
 import { useClinicOptions } from '../lib/admission';
 
 const LISTS = [
-  { group: 'item', title: 'Items used during a stay', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true, usage: true },
+  { group: 'item', title: 'Items used during admission', help: 'Medicines, supplies and fees that staff can tap when recording what was used.', price: true, category: true, usage: true },
   { group: 'vitamin', title: 'Vitamins & supplements', help: 'Vitamins staff can tick when recording a transaction — these are charged at the clinic.', price: true },
-  { group: 'package', title: 'PhilHealth packages', help: 'Packages staff can tick in the Items step of a stay (for example the delivery and newborn packages). The amount is for reference and is not charged at the clinic.', price: true },
-  { group: 'consult_package', title: 'Consultation PhilHealth packages', help: 'Packages staff can tick in a transaction (antenatal care, postpartum care, vaccines). For reference only — availed through PhilHealth, not charged at the clinic.', price: true }
+  { group: 'package', groups: ['package', 'consult_package'], title: 'PhilHealth packages', help: 'Packages for stays and consultations (delivery, newborn, antenatal, postpartum, vaccines). For reference only — availed through PhilHealth, not charged at the clinic.', price: true }
 ];
 const UNITS = ['pc', 'pair', 'ampule', 'vial', 'bottle', 'pack', 'box', 'set'];
 const CATEGORIES = [{ value: 'medicine', label: 'Medicine' }, { value: 'antibiotic', label: 'Antibiotic' }, { value: 'supply', label: 'Supply' }, { value: 'service', label: 'Service or fee' }];
@@ -212,12 +211,13 @@ export function ClinicSettings() {
   const { options, settings, loading, reload } = useClinicOptions();
   const [params] = useSearchParams();
   const [tab, setTab] = useState(params.get('tab') === 'rules' ? 'rules' : 'lists');
+  const [collapsedSections, setCollapsedSections] = useState({ item: true, vitamin: true, package: true });
 
   return (
     <div className="h-full flex flex-col">
-      <Topbar title="Clinic settings" subtitle="Change the lists, prices and reminders without a developer." onMenuClick={onOpenMenu} />
+      <Topbar title="Clinic settings" onMenuClick={onOpenMenu} />
       <div className="flex-1 overflow-y-auto pt-3 md:pt-6 pb-6 md:pb-10">
-        <div className="max-w-4xl w-full mx-auto px-4 md:px-8 space-y-4">
+        <div className="w-full px-4 md:px-8 space-y-4">
           <div className="flex gap-1 border-b border-ink-100">
             {[['lists', 'Lists and prices'], ['rules', 'Ward and rules']].map(([key, label]) => (
               <button key={key} type="button" onClick={() => setTab(key)} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === key ? 'border-primary-500 text-primary-700' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>{label}</button>
@@ -244,17 +244,34 @@ export function ClinicSettings() {
                 );
               })()}
               {LISTS.map((list) => {
-                const rows = options.filter((o) => o.option_group === list.group);
+                const groups = list.groups || [list.group];
+                const rows = options.filter((o) => groups.includes(o.option_group));
                 const unpriced = list.price ? rows.filter((o) => o.active && o.price === null).length : 0;
+                const collapsed = !!collapsedSections[list.group];
                 return (
                   <Card key={list.group}>
-                    <h3 className="text-base sm:text-lg font-semibold text-ink-900">{list.title}</h3>
-                    <p className="text-sm text-ink-500">{list.help}</p>
-                    {unpriced > 0 && <p className="mt-2 text-sm text-amber-700">{unpriced} {unpriced === 1 ? 'choice has' : 'choices have'} no price yet.</p>}
-                    <ul className="divide-y divide-ink-100 mt-2">
-                      {rows.map((o) => <OptionRow key={o.id} option={o} list={list} onSaved={reload} />)}
-                    </ul>
-                    <div className="pt-3 border-t border-ink-100"><AddRow list={list} onAdded={reload} /></div>
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedSections((p) => ({ ...p, [list.group]: !p[list.group] }))}
+                      className="w-full flex items-start justify-between gap-3 text-left"
+                    >
+                      <div>
+                        <h3 className="text-base sm:text-lg font-semibold text-ink-900">{list.title}</h3>
+                        <p className="text-sm text-ink-500">{list.help}</p>
+                        {unpriced > 0 && <p className="mt-1 text-sm text-amber-700">{unpriced} {unpriced === 1 ? 'choice has' : 'choices have'} no price yet.</p>}
+                      </div>
+                      <span className="text-xs font-medium text-primary-700 whitespace-nowrap mt-1">
+                        {collapsed ? `Show (${rows.length})` : 'Hide'}
+                      </span>
+                    </button>
+                    {!collapsed && (
+                      <>
+                        <ul className="divide-y divide-ink-100 mt-2">
+                          {rows.map((o) => <OptionRow key={o.id} option={o} list={list} onSaved={reload} />)}
+                        </ul>
+                        <div className="pt-3 border-t border-ink-100"><AddRow list={list} onAdded={reload} /></div>
+                      </>
+                    )}
                   </Card>
                 );
               })}

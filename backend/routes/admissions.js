@@ -217,6 +217,15 @@ router.post('/followups/:id/done', requireClinical, async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
+router.post('/followups/:id/missed', requireClinical, async (req, res) => {
+  try {
+    const ok = await Admission.markFollowupMissed(req.params.id, req.user.id);
+    if (!ok) return res.status(404).json({ message: 'Follow-up not found or already closed' });
+    await audit(req, 'UPDATE', Number(req.params.id), undefined, { missed: true }, 'postpartum_followups');
+    res.json({ message: 'Follow-up marked as missed' });
+  } catch (err) { routeError(res, err); }
+});
+
 router.get('/patient/:patientId', async (req, res) => {
   try {
     const rows = await Admission.list({ patientId: req.params.patientId });

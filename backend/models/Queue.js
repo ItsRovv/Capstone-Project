@@ -33,7 +33,7 @@ class Queue {
   static async listToday() {
     const today = new Date().toISOString().split('T')[0];
     const query = `
-      SELECT q.*, p.first_name, p.last_name
+      SELECT q.*, p.first_name, p.last_name, p.sex, p.age, p.date_of_birth, p.contact_number
       FROM queue_entries q
       JOIN patients p ON p.id = q.patient_id
       WHERE q.entry_date = ?

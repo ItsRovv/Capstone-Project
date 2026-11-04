@@ -41,7 +41,8 @@ export const admissionService = {
   reverseReferral: (id, reason) => api.post(`/admissions/${id}/referral/reverse`, { reason }).then(data),
   acknowledgeRisk: (id, reason) => api.post(`/admissions/${id}/risk-ack`, { reason }).then(data),
   followups: (state = 'pending') => api.get('/admissions/followups', { params: { state } }).then(data),
-  completeFollowup: (id, notes) => api.post(`/admissions/followups/${id}/done`, { notes }).then(data)
+  completeFollowup: (id, notes) => api.post(`/admissions/followups/${id}/done`, { notes }).then(data),
+  missFollowup: (id) => api.post(`/admissions/followups/${id}/missed`).then(data)
 };
 
 export const clinicService = {

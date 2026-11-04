@@ -14,7 +14,9 @@ router.use(auth, requireStaff);
 const readable = (row) => decryptObject(row, ['contact_number'], { deterministic: ['contact_number'] });
 const days = (value, fallback) => Math.min(Math.max(parseInt(value, 10) || fallback, 1), 365);
 
-// Patients expected to give birth soon or overdue (replaces the clinic's Google Sheet).
+// Patients expected to give birth at JLMC soon or overdue (replaces the clinic's
+// Google Sheet). "Delivering at JLMC" mirrors the tracking form flag: the latest
+// consultation's delivery location is JLMC, or there are no consultations yet.
 // EDD is 40 weeks, so "overdue" starts at 41 weeks (EDD + 7 days).
 // Read-only: nothing here edits clinical data.
 router.get('/expected-deliveries', async (req, res) => {
@@ -30,6 +32,11 @@ router.get('/expected-deliveries', async (req, res) => {
               (CURRENT_DATE >= p.edd::date + 7) AS overdue
        FROM pregnancies p JOIN patients pa ON pa.id = p.patient_id
        WHERE p.status = 'Ongoing' AND p.edd IS NOT NULL AND p.edd <= CURRENT_DATE + (?::int * INTERVAL '1 day')
+         AND (
+           NOT EXISTS (SELECT 1 FROM consultations c WHERE c.patient_id = pa.id)
+           OR (SELECT UPPER(c.delivery_location) FROM consultations c
+                WHERE c.patient_id = pa.id ORDER BY c.visit_date DESC LIMIT 1) = 'JLMC'
+         )
        ORDER BY p.edd ASC LIMIT 500`,
       [window]
     );
@@ -37,19 +44,22 @@ router.get('/expected-deliveries', async (req, res) => {
   } catch (err) { routeError(res, err); }
 });
 
-// Patients with an ongoing pregnancy who have not been seen for N days.
+// Postpartum follow-ups from Admission and Discharge that are overdue: the due
+// date has passed and they have not been marked done. The window bounds how far
+// back to look for a missed due date.
 router.get('/missed-followups', async (req, res) => {
   try {
     const window = days(req.query.days, 30);
     const [rows] = await db.execute(
-      `SELECT pa.id AS patient_id, pa.first_name, pa.last_name, pa.contact_number, p.edd, p.weeks,
-              MAX(c.visit_date) AS last_consultation
-       FROM pregnancies p JOIN patients pa ON pa.id = p.patient_id
-       LEFT JOIN consultations c ON c.patient_id = pa.id
-       WHERE p.status = 'Ongoing'
-       GROUP BY pa.id, pa.first_name, pa.last_name, pa.contact_number, p.edd, p.weeks
-       HAVING MAX(c.visit_date) IS NULL OR MAX(c.visit_date) < NOW() - (?::int * INTERVAL '1 day')
-       ORDER BY MAX(c.visit_date) ASC NULLS FIRST LIMIT 500`,
+      `SELECT f.id AS followup_id, f.due_at, a.id AS admission_id, (f.missed_at IS NOT NULL) AS marked_missed,
+              pa.id AS patient_id, pa.first_name, pa.last_name, pa.contact_number,
+              GREATEST(0, (CURRENT_DATE - f.due_at::date)) AS days_overdue
+       FROM postpartum_followups f
+       JOIN admissions a ON a.id = f.admission_id
+       JOIN patients pa ON pa.id = a.patient_id
+       WHERE f.done_at IS NULL AND f.due_at <= NOW()
+         AND f.due_at >= NOW() - (?::int * INTERVAL '1 day')
+       ORDER BY f.due_at ASC LIMIT 500`,
       [window]
     );
     res.json({ days: window, rows: rows.map(readable) });

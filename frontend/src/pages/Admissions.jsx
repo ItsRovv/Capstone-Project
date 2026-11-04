@@ -12,8 +12,8 @@ import { useToast } from '../components/UI/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { StatusChip } from '../components/admission/StatusChip';
 import { AdmitModal } from '../components/admission/AdmitModal';
-import { FollowupDoneModal } from '../components/admission/FollowupDoneModal';
 import { admissionService } from '../services/admissionService';
+import { queueService } from '../services/queueService';
 import { apiError } from '../services/api';
 import { canRecordClinical, followupState, formatDateTime, formatDay, monthKey, timeAgo, useClinicOptions, useWard } from '../lib/admission';
 
@@ -106,36 +106,101 @@ function WardTab({ ward, loading, onAdmit, canRecord }) {
 function FollowupsTab({ canRecord }) {
   const toast = useToast();
   const [rows, setRows] = useState(null);
-  const [doneFor, setDoneFor] = useState(null);
+  const [queuedIds, setQueuedIds] = useState(new Set());
+  const [queueing, setQueueing] = useState(null);
   const load = useCallback(() => {
-    admissionService.followups('pending').then(setRows).catch((err) => { toast.error(apiError(err, 'Could not load follow-ups')); setRows([]); });
+    Promise.all([
+      admissionService.followups('all'),
+      queueService.listToday().catch(() => [])
+    ]).then(([followups, queue]) => {
+      setRows(followups);
+      setQueuedIds(new Set((queue || []).filter((q) => q.status === 'waiting' || q.status === 'serving').map((q) => q.patient_id)));
+    }).catch((err) => { toast.error(apiError(err, 'Could not load follow-ups')); setRows([]); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { load(); }, [load]);
-  if (!rows) return <PageLoader />;
-  if (rows.length === 0) {
-    return <Card><EmptyState icon={<Icon.Check width={40} height={40} />} title="No follow-ups waiting" description="Check-ups after going home will show here, 3 and 7 days after discharge." /></Card>;
+
+  async function queueForPostnatal(f) {
+    setQueueing(f.id);
+    try {
+      const q = await queueService.add(f.patient_id, 'postnatal');
+      toast.success(`${f.first_name} queued for postnatal consultation #${String(q.queue_number).padStart(2, '0')}`);
+      setQueuedIds((prev) => new Set(prev).add(f.patient_id));
+    } catch (err) {
+      toast.error(apiError(err, 'Could not add to queue'));
+    } finally {
+      setQueueing(null);
+    }
   }
+
+  async function markMissed(f) {
+    setQueueing(f.id);
+    try {
+      await admissionService.missFollowup(f.id);
+      toast.success(`${f.first_name}'s follow-up marked as missed`);
+      load();
+    } catch (err) {
+      toast.error(apiError(err, 'Could not mark as missed'));
+    } finally {
+      setQueueing(null);
+    }
+  }
+
+  if (!rows) return <PageLoader />;
+  const pending = rows.filter((f) => !f.done_at && !f.missed_at);
+  const done = rows.filter((f) => f.done_at || f.missed_at);
   return (
     <>
-      <Card padding="p-0" className="overflow-hidden">
-        <ul className="divide-y divide-ink-100">
-          {rows.map((f) => {
-            const state = followupState(f);
-            return (
+      {pending.length === 0 ? (
+        <Card><EmptyState icon={<Icon.Check width={40} height={40} />} title="No follow-ups waiting" description="Check-ups after going home will show here, 3 and 7 days after discharge." /></Card>
+      ) : (
+        <Card padding="p-0" className="overflow-hidden">
+          <ul className="divide-y divide-ink-100">
+            {pending.map((f) => {
+              const state = followupState(f);
+              const queued = queuedIds.has(f.patient_id);
+              return (
+                <li key={f.id} className="px-4 sm:px-6 py-3.5 flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-[12rem]">
+                    <Link to={`/admissions/${f.admission_id}`} className="font-medium text-ink-900 hover:text-primary-700 break-words">{f.first_name} {f.last_name}</Link>
+                    <p className="text-xs text-ink-500">Due {formatDay(f.due_at)}{f.contact_number ? ` · ${f.contact_number}` : ''}</p>
+                  </div>
+                  <Badge tone={state === 'overdue' ? 'danger' : 'info'}>{state === 'overdue' ? 'Overdue' : 'Coming up'}</Badge>
+                  {queued && <Badge tone="success">In queue</Badge>}
+                  {canRecord && (
+                    <>
+                      <Button size="sm" variant="secondary" loading={queueing === f.id} disabled={queued} onClick={() => queueForPostnatal(f)}>
+                        Queue
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={queueing === f.id} onClick={() => markMissed(f)} className="!text-red-600 hover:!bg-red-50">
+                        Missed
+                      </Button>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+      {done.length > 0 && (
+        <Card padding="p-0" className="overflow-hidden">
+          <div className="px-4 sm:px-6 py-3 border-b border-ink-100">
+            <h3 className="text-sm font-semibold text-ink-800">Recent follow-ups</h3>
+          </div>
+          <ul className="divide-y divide-ink-100">
+            {done.map((f) => (
               <li key={f.id} className="px-4 sm:px-6 py-3.5 flex flex-wrap items-center gap-3">
                 <div className="flex-1 min-w-[12rem]">
                   <Link to={`/admissions/${f.admission_id}`} className="font-medium text-ink-900 hover:text-primary-700 break-words">{f.first_name} {f.last_name}</Link>
-                  <p className="text-xs text-ink-500">Due {formatDay(f.due_at)}{f.contact_number ? ` · ${f.contact_number}` : ''}</p>
+                  <p className="text-xs text-ink-500">Due {formatDay(f.due_at)} · {f.missed_at ? `Missed ${formatDay(f.missed_at)}` : `Done ${formatDay(f.done_at)}`}{f.notes ? ` — ${f.notes}` : ''}</p>
                 </div>
-                <Badge tone={state === 'overdue' ? 'danger' : 'info'}>{state === 'overdue' ? 'Overdue' : 'Coming up'}</Badge>
-                {canRecord && <Button size="sm" variant="secondary" onClick={() => setDoneFor(f)}>Mark as done</Button>}
+                <Badge tone={f.missed_at ? 'danger' : 'success'}>{f.missed_at ? 'Missed' : 'Done'}</Badge>
               </li>
-            );
-          })}
-        </ul>
-      </Card>
-      <FollowupDoneModal followup={doneFor} patientName={doneFor && `${doneFor.first_name} ${doneFor.last_name}`} onClose={() => setDoneFor(null)} onDone={load} />
+            ))}
+          </ul>
+        </Card>
+      )}
     </>
   );
 }
@@ -248,7 +313,7 @@ export function Admissions() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Admission and Discharge"
-        subtitle="Patients in the clinic, follow-up visits, and the logbook."
+       
         onMenuClick={onOpenMenu}
         right={
           canRecord ? (

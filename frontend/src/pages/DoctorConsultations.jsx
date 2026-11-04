@@ -35,15 +35,15 @@ function StatusBadge({ status }) {
 }
 
 const CONSULTATION_TYPES = {
-  normal: { label: 'Normal', className: 'bg-ink-100 text-ink-600' },
-  prenatal: { label: 'Prenatal', className: 'bg-primary-50 text-primary-700 border border-primary-100' },
-  postnatal: { label: 'Postnatal', className: 'bg-primary-50 text-primary-700 border border-primary-100' }
+  normal: { label: 'Normal', className: 'bg-ink-100 text-ink-700' },
+  prenatal: { label: 'Prenatal', className: 'bg-primary-50 text-primary-700' },
+  postnatal: { label: 'Postnatal', className: 'bg-primary-50 text-primary-700' }
 };
 
 export function ConsultationTypeBadge({ type }) {
   const t = CONSULTATION_TYPES[type] || CONSULTATION_TYPES.normal;
   return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${t.className}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium ${t.className}`}>
       {t.label}
     </span>
   );
@@ -326,7 +326,7 @@ export function DoctorConsultations() {
     <div className="h-full flex flex-col">
       <Topbar
         title="Consultation"
-        subtitle="Manage today's queue and record consultations."
+       
         onMenuClick={onOpenMenu}
       />
 

@@ -2,7 +2,7 @@ import { Input } from './UI/Input';
 
 export function Topbar({ title, subtitle, search, onSearchChange, right }) {
   return (
-    <header className="bg-white border-b border-ink-100 flex-shrink-0">
+    <header className="bg-white border-b border-ink-100 flex-shrink-0 print:hidden">
       <div className="px-4 md:px-8 py-3 md:py-4 flex items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg md:text-2xl font-bold font-display text-ink-900 leading-tight break-words">

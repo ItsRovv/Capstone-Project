@@ -327,7 +327,7 @@ class Admission {
   }
 
   static async listFollowups({ state = 'pending', limit = 200 } = {}) {
-    const where = state === 'done' ? 'f.done_at IS NOT NULL' : state === 'all' ? 'TRUE' : 'f.done_at IS NULL';
+    const where = state === 'done' ? 'f.done_at IS NOT NULL OR f.missed_at IS NOT NULL' : state === 'all' ? 'TRUE' : 'f.done_at IS NULL AND f.missed_at IS NULL';
     const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 1000);
     const [rows] = await db.execute(
       `SELECT f.*, a.patient_id, p.first_name, p.last_name, p.contact_number
@@ -345,6 +345,14 @@ class Admission {
     const [result] = await db.execute(
       'UPDATE postpartum_followups SET done_at = NOW(), done_by = ?, notes = ? WHERE id = ? AND done_at IS NULL',
       [userId ?? null, clean(d.notes), id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  static async markFollowupMissed(id, userId) {
+    const [result] = await db.execute(
+      'UPDATE postpartum_followups SET missed_at = NOW(), missed_by = ? WHERE id = ? AND done_at IS NULL AND missed_at IS NULL',
+      [userId ?? null, id]
     );
     return result.affectedRows > 0;
   }
